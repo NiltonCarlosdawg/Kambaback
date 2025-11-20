@@ -1,0 +1,54 @@
+┌─────────────────────────────────────────────────────────────┐
+│                     APLICAÇÃO REACT                         │
+│  (CardsPage, GastosPage, ObjetivosPage, CategoriasPage...)  │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP Requests (Axios/Fetch)
+                      ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    API REST (Node.js)                       │
+│                                                             │
+│  ┌────────────────────────────────────────────────────┐     │
+│  │              CAMADA DE ROTAS                        │    │
+│  │  /api/auth     - Autenticação                       │    │
+│  │  /api/cartoes  - Gestão de cartões                  │    │
+│  │  /api/gastos   - Registo de gastos                  │    │
+│  │  /api/categorias - Categorias personalizadas        │    │
+│  │  /api/objetivos - Objetivos financeiros             │    │
+│  │  /api/insights  - Dados para dashboard              │    │
+│  │  /api/noticias  - Agregador de notícias             │    │
+│  │  /api/kamba     - Assistente virtual                │    │
+│  └────────────────────┬───────────────────────────────┘     │
+│                       │                                     │
+│  ┌────────────────────▼───────────────────────────────┐     │
+│  │           CAMADA DE CONTROLADORES                   │    │
+│  │  - Lógica de negócio                                │    │
+│  │  - Validações                                       │    │
+│  │  - Cálculos financeiros                             │    │
+│  └────────────────────┬───────────────────────────────┘     │
+│                       │                                     │
+│  ┌────────────────────▼───────────────────────────────┐     │
+│  │            CAMADA DE SERVIÇOS                       │    │
+│  │  - Regras de negócio complexas                      │    │
+│  │  - Integração com APIs externas                     │    │
+│  │  - Cálculos de insights                             │    │
+│  └────────────────────┬───────────────────────────────┘     │
+│                       │                                     │
+│  ┌────────────────────▼───────────────────────────────┐     │
+│  │             CAMADA DE MODELOS                       │    │
+│  │  - Mongoose Schemas                                 │    │
+│  │  - Validações de dados                              │    │
+│  └────────────────────┬───────────────────────────────┘     │
+│                       │                                     │
+└───────────────────────┼──────────────────────────────────────┘
+                        ▼
+          ┌─────────────────────────┐
+          │   MONGODB DATABASE       │
+          │                          │
+          │  Collections:            │
+          │  - users                 │
+          │  - cartoes               │
+          │  - gastos                │
+          │  - categorias            │
+          │  - objetivos             │
+          │  - historico_poupanca    │
+          └──────────────────────────┘
