@@ -1,17 +1,15 @@
+// src/server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const connectDB = require('./src/config/database');
+const prisma = require('./src/lib/prisma');
 const errorHandler = require('./src/middleware/errorHandler');
 
 // Inicializar Express
 const app = express();
-
-// Conectar ao MongoDB
-connectDB();
 
 // ==================== SEGURANÇA & PERFORMANCE ====================
 app.use(
@@ -53,41 +51,65 @@ if (process.env.NODE_ENV !== 'production') {
 app.get('/', (req, res) => {
   res.json({
     message: 'API Kwanza - A Tua Gestão Financeira Angolana 🇦🇴',
-    version: '1.0.0',
+    version: '2.0.0 (PostgreSQL)',
     status: 'online',
+    database: 'PostgreSQL + Prisma',
     timestamp: new Date().toLocaleString('pt-AO')
   });
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'OK',
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-    ambiente: process.env.NODE_ENV || 'development'
-  });
+app.get('/api/health', async (req, res) => {
+  try {
+    const userCount = await prisma.user.count();
+    res.json({
+      status: 'OK',
+      database: 'PostgreSQL conectado',
+      usersInDB: userCount,
+      uptime: `${Math.floor(process.uptime())}s`,
+      timestamp: new Date().toISOString(),
+      ambiente: process.env.NODE_ENV || 'development'
+    });
+  } catch (err) {
+    res.status(500).json({
+      status: 'ERROR',
+      database: 'PostgreSQL desconectado',
+      error: err.message
+    });
+  }
 });
 
-// ==================== TODAS AS ROTAS ====================
+// ==================== TESTE RÁPIDO DO BANCO ====================
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const count = await prisma.user.count();
+    res.json({
+      success: true,
+      message: '✅ PostgreSQL + Prisma conectado com sucesso!',
+      totalUsers: count,
+      time: new Date().toLocaleString('pt-AO')
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '❌ Falha na conexão com PostgreSQL',
+      error: error.message
+    });
+  }
+});
 
-// Função auxiliar para validar exportação de router
+// ==================== TODAS AS ROTAS (vamos importar com segurança) ====================
 function safeRouter(requirePath) {
-  const r = require(requirePath);
-
-  // Router Express (objeto com função .use)
-  if (r && typeof r === 'object' && typeof r.use === 'function') {
-    return r;
+  try {
+    const r = require(requirePath);
+    if (r && typeof r === 'object' && typeof r.use === 'function') return r;
+    if (typeof r === 'function') return r;
+    throw new Error('Não é um router válido');
+  } catch (err) {
+    console.error(`❌ Erro ao carregar rota: ${requirePath} →`, err.message);
+    // Retorna um router vazio pra não quebrar o servidor
+    return express.Router().get('/', (req, res) => res.status(503).json({ error: 'Rota em manutenção' }));
   }
-
-  // Middleware normal (função)
-  if (typeof r === 'function') {
-    return r;
-  }
-
-  throw new Error(`Arquivo ${requirePath} não exporta um Router válido!`);
 }
-
-
 
 // Import seguro de todas as rotas
 const authRoutes       = safeRouter('./src/routes/auth');
@@ -99,7 +121,7 @@ const insightsRoutes   = safeRouter('./src/routes/insights');
 const kambaRoutes      = safeRouter('./src/routes/kamba');
 const noticiasRoutes   = safeRouter('./src/routes/noticias');
 
-// Vincular rotas ao Express
+// Vincular rotas
 app.use('/api/auth',       authRoutes);
 app.use('/api/cartoes',    cartoesRoutes);
 app.use('/api/gastos',     gastosRoutes);
@@ -117,49 +139,60 @@ app.use('*', (req, res) => {
   });
 });
 
-// Middleware final de erros (sempre o último!)
 app.use(errorHandler);
 
-// ==================== INICIAR SERVIDOR ====================
+// ==================== INICIAR SERVIDOR COM CONEXÃO AO POSTGRES ====================
 const PORT = process.env.PORT || 5000;
 
-const server = app.listen(PORT, () => {
-  console.log(`
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║     API KWANZA - SERVIDOR ONLINE E PRONTO PARA ANGOLA    ║
-║                                                          ║
-║     Porta: ${PORT.toString().padEnd(45)}║
-║     Ambiente: ${(process.env.NODE_ENV || 'development').padEnd(38)}║
-║     MongoDB: Conectado                                   ║
-║     Hora: ${new Date().toLocaleString('pt-AO').padEnd(43)}║
-║                                                          ║
-║     O futuro financeiro de Angola começou hoje!          ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
-  `);
-});
+const startServer = async () => {
+  try {
+    // Testa conexão com Postgres + Prisma
+    await prisma.$connect();
+    console.log('╔══════════════════════════════════════════════════════════╗');
+    console.log('║                                                          ║');
+    console.log('║     API KWANZA - SERVIDOR ONLINE COM POSTGRESQL! 🇦🇴     ║');
+    console.log('║                                                          ║');
+    console.log(`║     Porta: ${PORT.toString().padEnd(45)}║`);
+    console.log(`║     Ambiente: ${(process.env.NODE_ENV || 'development').padEnd(38)}║`);
+    console.log(`║     Banco: PostgreSQL + Prisma (Local)                  ║`);
+    console.log(`║     Hora: ${new Date().toLocaleString('pt-AO').padEnd(43)}║`);
+    console.log('║                                                          ║');
+    console.log('║     O futuro financeiro de Angola começou AGORA MESMO!   ║');
+    console.log('║                                                          ║');
+    console.log('╚══════════════════════════════════════════════════════════╝\n');
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`🚀 Servidor rodando → http://localhost:${PORT}`);
+      console.log(`✅ Teste o banco → http://localhost:${PORT}/api/test-db\n`);
+    });
+
+  } catch (error) {
+    console.error('❌ ERRO CRÍTICO AO CONECTAR AO POSTGRESQL:');
+    console.error(error.message);
+    process.exit(1);
+  }
+};
+
+// Inicia tudo
+startServer();
 
 // ==================== GRACEFUL SHUTDOWN ====================
 process.on('unhandledRejection', (err) => {
   console.error('❌ ERRO NÃO TRATADO:', err);
-  server.close(() => process.exit(1));
+  process.exit(1);
 });
 
-process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM recebido. Encerrando com graça...');
-  server.close(() => {
-    console.log('Servidor encerrado com sucesso. Até já, kamba!');
-    process.exit(0);
-  });
+process.on('SIGTERM', async () => {
+  console.log('👋 SIGTERM recebido. Fechando conexões...');
+  await prisma.$disconnect();
+  process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  console.log('\n👋 Ctrl+C pressionado. Encerrando...');
-  server.close(() => {
-    console.log('Kwanza foi embora. Volta logo, kamba! 🇦🇴');
-    process.exit(0);
-  });
+process.on('SIGINT', async () => {
+  console.log('\n👋 Ctrl+C pressionado. Encerrando com graça...');
+  await prisma.$disconnect();
+  console.log('PostgreSQL desconectado. Até já, kamba! 🇦🇴');
+  process.exit(0);
 });
 
 module.exports = app;

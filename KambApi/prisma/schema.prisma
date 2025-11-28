@@ -1,0 +1,58 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // url removida - agora no prisma.config.ts
+}
+
+model User {
+  id           String    @id @default(uuid())
+  nome         String
+  email        String    @unique
+  telefone     String?   @unique
+  senha        String
+  foto         String?
+  ativo        Boolean   @default(true)
+  verificado   Boolean   @default(false)
+  criadoEm     DateTime  @default(now())
+  atualizadoEm DateTime  @updatedAt
+
+  contas       Conta[]
+  refreshToken String?
+
+  @@map("usuarios")
+}
+
+model Conta {
+  id           String    @id @default(uuid())
+  usuarioId    String
+  nome         String
+  tipo         String    // corrente, poupança, móvel (M-Pesa, etc.)
+  saldo        Decimal   @default(0)
+  moeda        String    @default("AOA")
+  ativa        Boolean   @default(true)
+  criadoEm     DateTime  @default(now())
+
+  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  transacoes   Transacao[]
+
+  @@map("contas")
+}
+
+model Transacao {
+  id          String    @id @default(uuid())
+  contaId     String
+  tipo        String    // entrada, saída, transferência
+  valor       Decimal
+  descricao   String?
+  categoria   String    @default("geral")
+  data        DateTime  @default(now())
+  comprovante String?
+
+  conta       Conta     @relation(fields: [contaId], references: [id], onDelete: Cascade)
+
+  @@map("transacoes")
+}
