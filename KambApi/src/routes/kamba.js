@@ -1,36 +1,16 @@
+// src/routes/kamba.js
 const express = require('express');
 const router = express.Router();
-const Joi = require('joi');
-const { validar } = require('../middleware/validator');
-const { conversarComKamba } = require('../controllers/kambaController');
 const { protegerRota } = require('../middleware/auth');
+const { conversarComKamba } = require('../controllers/kambaController');
 
-// ==========================================
-// TODAS AS ROTAS DO KAMBA SÃO PROTEGIDAS
-// ==========================================
+// Protege todas as rotas do Kamba
 router.use(protegerRota);
 
-// ==========================================
-// SCHEMA DE VALIDAÇÃO JOI – só aceita mensagem
-// ==========================================
-const conversaSchema = validar(
-  Joi.object({
-    mensagem: Joi.string().min(1).max(500).required()
-      .messages({
-        'any.required': 'Manda uma mensagem pro Kamba, mano!',
-        'string.empty': 'A mensagem não pode estar vazia',
-        'string.max': 'Mensagem muito longa, kamba! Máximo 500 caracteres'
-      })
-  })
-);
+// ROTA PRINCIPAL — ACEITA POST NA RAIZ
+router.post('/', conversarComKamba);
 
-// ==========================================
-// ROTAS
-// ==========================================
-router.post('/conversa', conversaSchema, conversarComKamba);
+// (Opcional) Também aceita /conversar se quiseres manter compatibilidade
+router.post('/conversar', conversarComKamba);
 
-// Futuras rotas (ex: comandos de voz)
-// router.post('/comando-voz', upload.single('audio'), processarVoz);
-
-// Exportar router corretamente
 module.exports = router;

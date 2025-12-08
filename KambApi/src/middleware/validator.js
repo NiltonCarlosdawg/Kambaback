@@ -1,30 +1,28 @@
 // src/middleware/validator.js
 const Joi = require('joi');
-const { AppError } = require('./errorHandler');
+const AppError = require('./AppError');
 
 /**
- * ==========================================
- * FUNÇÃO GENÉRICA DE VALIDAÇÃO
- * ==========================================
+ * VALIDADOR GENÉRICO – JOI + AppError (funciona com o errorHandler)
  */
 const validar = (schema) => {
   return (req, res, next) => {
     const { error, value } = schema.validate(req.body, {
-      abortEarly: false,    // mostra todos os erros de uma vez
-      stripUnknown: true,   // remove campos não esperados
+      abortEarly: false,     // mostra todos os erros de uma vez
+      stripUnknown: true,    // remove campos extras
       convert: true
     });
 
     if (error) {
       const erros = error.details.map(d => ({
         campo: d.context.key || d.context.label,
-        mensagem: d.message.replace(/['"]/g, '') // limpa as aspas extras do Joi
+        mensagem: d.message.replace(/['"]/g, '') // limpa as aspas do Joi
       }));
 
       return next(new AppError('Dados inválidos', 400, 'VALIDATION_ERROR', erros));
     }
 
-    // Substitui req.body pelos dados já limpos/validados
+    // Substitui o body pelos dados já validados e limpos
     req.body = value;
     next();
   };
@@ -32,11 +30,11 @@ const validar = (schema) => {
 
 /**
  * ==========================================
- * SCHEMAS DE VALIDAÇÃO
+ * SCHEMAS DE VALIDAÇÃO – 100% ANGOLA READY
  * ==========================================
  */
 
-// Registro de novo usuário
+// REGISTRO
 const registroSchema = Joi.object({
   nome: Joi.string()
     .min(2)
@@ -51,8 +49,8 @@ const registroSchema = Joi.object({
 
   email: Joi.string()
     .email({ tlds: { allow: false } })
-    .lowercase()
     .trim()
+    .lowercase()
     .required()
     .messages({
       'string.email': 'Email inválido',
@@ -60,7 +58,7 @@ const registroSchema = Joi.object({
     }),
 
   telefone: Joi.string()
-    .pattern(/^9[123456789]\d{7}$/)
+    .pattern(/^9[1-9]\d{7}$/)
     .required()
     .messages({
       'string.pattern.base': 'Telefone angolano inválido (ex: 923456789)',
@@ -69,12 +67,11 @@ const registroSchema = Joi.object({
 
   senha: Joi.string()
     .min(8)
-    .max(50)
     .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
     .required()
     .messages({
       'string.min': 'Senha deve ter no mínimo 8 caracteres',
-      'string.pattern.base': 'Senha fraca: use maiúscula, número e símbolo',
+      'string.pattern.base': 'Senha fraca: precisa de maiúscula, número e símbolo',
       'any.required': 'Senha é obrigatória'
     }),
 
@@ -87,7 +84,7 @@ const registroSchema = Joi.object({
     })
 });
 
-// Login
+// LOGIN
 const loginSchema = Joi.object({
   email: Joi.string()
     .email({ tlds: { allow: false } })
@@ -96,40 +93,24 @@ const loginSchema = Joi.object({
       'string.email': 'Email inválido',
       'any.required': 'Email é obrigatório'
     }),
-
   senha: Joi.string()
     .required()
     .messages({
       'any.required': 'Senha é obrigatória'
     })
+}).messages({
+  'object.missing': 'Email e senha são obrigatórios'
 });
 
-// Refresh Token
-const refreshTokenSchema = Joi.object({
-  refreshToken: Joi.string()
-    .required()
-    .messages({
-      'any.required': 'Refresh token é obrigatório'
-    })
-});
-
-// Atualizar perfil (opcional)
+// OUTROS SCHEMAS (podes adicionar mais depois)
 const atualizarPerfilSchema = Joi.object({
-  nome: Joi.string().min(2).max(50).trim(),
-  telefone: Joi.string().pattern(/^9[123456789]\d{7}$/).messages({
-    'string.pattern.base': 'Telefone angolano inválido'
-  }),
-  preferencias: Joi.object({
-    moeda: Joi.string().valid('AOA', 'USD', 'EUR'),
-    tema: Joi.string().valid('light', 'dark', 'auto'),
-    notificacoes: Joi.boolean()
-  })
-}).min(1); // pelo menos um campo para atualizar
+  nome: Joi.string().min(2).max(50).trim().optional(),
+  telefone: Joi.string().pattern(/^9[1-9]\d{7}$/).optional()
+}).min(1); // pelo menos 1 campo
 
 module.exports = {
   validar,
   registroSchema,
   loginSchema,
-  refreshTokenSchema,
   atualizarPerfilSchema
 };

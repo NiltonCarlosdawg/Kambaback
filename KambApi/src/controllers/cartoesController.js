@@ -1,64 +1,84 @@
 // src/controllers/cartoesController.js
-const Cartao = require('../models/Cartao');
-const { AppError } = require('../middleware/errorHandler');
-const { successResponse, createdResponse } = require('../utils/responseFormatter');
+const prisma = require('../lib/prisma');
+const AppError = require('../middleware/AppError');
 
 /**
- * ==========================================
  * LISTAR TODOS OS CARTÕES DO USUÁRIO
- * ==========================================
  */
 const listarCartoes = async (req, res, next) => {
   try {
-    const cartoes = await Cartao.find({
-      usuario: req.usuarioId,
-      ativo: true
-    }).sort({ criadoEm: -1 });
+    const cartoes = await prisma.cartao.findMany({
+      where: {
+        usuarioId: req.user.id,
+        ativo: true
+      },
+      orderBy: { criadoEm: 'desc' }
+    });
 
-    const totalSaldo = cartoes.reduce((acc, c) => acc + c.saldoAtual, 0);
-    const totalDisponivel = cartoes.reduce((acc, c) => acc + c.disponivel, 0);
+    const totalSaldo = cartoes.reduce((acc, c) => acc + (c.saldoAtual || 0), 0);
+    const totalDisponivel = cartoes.reduce((acc, c) => acc + (c.disponivel || 0), 0);
 
-    return successResponse(res, {
-      mensagem: 'Cartões carregados com sucesso',
-      cartoes: cartoes.map(c => c.toPublic ? c.toPublic() : c),
+    res.json({
+      success: true,
+      message: 'Cartões carregados com sucesso',
+      cartoes,
       resumo: {
         totalCartoes: cartoes.length,
         saldoTotal: totalSaldo,
         disponivelTotal: totalDisponivel
       }
     });
+
   } catch (err) {
     next(err);
   }
 };
 
 /**
- * ==========================================
  * CRIAR NOVO CARTÃO
- * ==========================================
  */
 const criarCartao = async (req, res, next) => {
-  try {
-    const { nome, tipo, banco, numero, saldoAtual = 0, limiteCredito = 0, cor, icone } = req.body;
+  const {
+    nome,
+    tipo,
+    banco,
+    numero,
+    saldoAtual = 0,
+    limiteCredito = 0,
+    cor = '#1e40af',
+    icone = 'credit_card'
+  } = req.body;
 
-    const cartao = await Cartao.create({
-      usuario: req.usuarioId,
-      nome,
-      tipo,
-      banco: banco || null,
-      numero: numero || null,
-      saldoAtual,
-      limiteCredito,
-      cor: cor || '#1e40af',
-      icone: icone || 'credit_card'
+  if (!nome || !tipo) {
+    return next(new AppError('Nome e tipo do cartão são obrigatórios', 400));
+  }
+
+  try {
+    const cartao = await prisma.cartao.create({
+      data: {
+        usuarioId: req.user.id,
+        nome: nome.trim(),
+        tipo,
+        banco: banco?.trim() || null,
+        numero: numero?.trim() || null,
+        saldoAtual: parseFloat(saldoAtual),
+        limiteCredito: parseFloat(limiteCredito),
+        disponivel: parseFloat(saldoAtual),
+        cor,
+        icone,
+        ativo: true,
+        bloqueado: false
+      }
     });
 
-    return createdResponse(res, {
-      mensagem: 'Cartão adicionado com sucesso! 💳',
-      cartao: cartao.toPublic()
-    }, `/api/cartoes/${cartao._id}`);
+    res.status(201).json({
+      success: true,
+      message: 'Cartão adicionado com sucesso!',
+      cartao
+    });
+
   } catch (err) {
-    if (err.code === 11000) {
+    if (err.code === 'P2002') {
       return next(new AppError('Já tens um cartão com este número', 409));
     }
     next(err);
@@ -66,106 +86,134 @@ const criarCartao = async (req, res, next) => {
 };
 
 /**
- * ==========================================
  * ATUALIZAR CARTÃO
- * ==========================================
  */
 const atualizarCartao = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const camposPermitidos = ['nome', 'banco', 'cor', 'icone', 'ativo', 'bloqueado'];
+  const { id } = req.params;
+  const camposPermitidos = ['nome', 'banco', 'cor', 'icone', 'ativo', 'bloqueado'];
+  const dados = {};
 
-    const atualizacoes = {};
-    Object.keys(req.body).forEach(key => {
-      if (camposPermitidos.includes(key)) {
-        atualizacoes[key] = req.body[key];
+  for (const campo of camposPermitidos) {
+    if (req.body[campo] !== undefined) {
+      dados[campo] = req.body[campo];
+    }
+  }
+
+  if (Object.keys(dados).length === 0) {
+    return next(new AppError('Nenhum dado válido para atualizar', 400));
+  }
+
+  try {
+    const cartao = await prisma.cartao.updateMany({
+      where: { id, usuarioId: req.user.id },
+      data: dados
+    });
+
+    if (cartao.count === 0) {
+      return next(new AppError('Cartão não encontrado', 404));
+    }
+
+    const atualizado = await prisma.cartao.findUnique({ where: { id } });
+
+    res.json({
+      success: true,
+      message: 'Cartão atualizado com sucesso',
+      cartao: atualizado
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * ATUALIZAR SALDO DO CARTÃO (usado por gastos/receitas)
+ */
+const atualizarSaldo = async (req, res, next) => {
+  const { id } = req.params;
+  const { valor, tipoTransacao } = req.body; // 'despesa' ou 'receita'
+
+  if (!['despesa', 'receita'].includes(tipoTransacao)) {
+    return next(new AppError('Tipo de transação inválido. Use "despesa" ou "receita"', 400));
+  }
+
+  const valorNum = parseFloat(valor);
+  if (isNaN(valorNum) || valorNum <= 0) {
+    return next(new AppError('Valor inválido', 400));
+  }
+
+  try {
+    const resultado = await prisma.$transaction(async (tx) => {
+      const cartao = await tx.cartao.findFirst({
+        where: { id, usuarioId: req.user.id }
+      });
+
+      if (!cartao) throw new AppError('Cartão não encontrado', 404);
+      if (!cartao.ativo) throw new AppError('Este cartão está inativo', 400);
+
+      if (tipoTransacao === 'despesa') {
+        const disponivel = cartao.saldoAtual - (cartao.reservado || 0);
+        if (disponivel < valorNum) {
+          throw new AppError(`Saldo insuficiente no cartão ${cartao.nome}`, 400);
+        }
+      }
+
+      const novoSaldo = tipoTransacao === 'despesa'
+        ? cartao.saldoAtual - valorNum
+        : cartao.saldoAtual + valorNum;
+
+      const atualizado = await tx.cartao.update({
+        where: { id },
+        data: { saldoAtual: novoSaldo }
+      });
+
+      return atualizado;
+    });
+
+    res.json({
+      success: true,
+      message: 'Saldo atualizado com sucesso',
+      cartao: resultado
+    });
+
+  } catch (err) {
+    next(err instanceof AppError ? err : new AppError('Erro ao atualizar saldo', 500));
+  }
+};
+
+/**
+ * DELETAR CARTÃO (só se não tiver transações)
+ */
+const deletarCartao = async (req, res, next) => {
+  const { id } = req.params;
+
+  try {
+    // Verifica se tem gastos associados
+    const temGastos = await prisma.gasto.count({
+      where: {
+        cartaoId: id,
+        usuarioId: req.user.id,
+        excluido: false
       }
     });
 
-    if (Object.keys(atualizacoes).length === 0) {
-      return next(new AppError('Nenhum dado válido para atualizar', 400));
-    }
-
-    const cartao = await Cartao.findOneAndUpdate(
-      { _id: id, usuario: req.usuarioId },
-      atualizacoes,
-      { new: true, runValidators: true }
-    );
-
-    if (!cartao) {
-      return next(new AppError('Cartão não encontrado', 404));
-    }
-
-    return successResponse(res, {
-      mensagem: 'Cartão atualizado com sucesso',
-      cartao: cartao.toPublic()
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * ==========================================
- * ATUALIZAR SALDO (usado por gastos e receitas)
- * ==========================================
- */
-const atualizarSaldo = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { valor, tipoTransacao } = req.body; // 'despesa' ou 'receita'
-
-    if (!['despesa', 'receita'].includes(tipoTransacao)) {
-      return next(new AppError('Tipo de transação inválido', 400));
-    }
-
-    const cartao = await Cartao.findOne({ _id: id, usuario: req.usuarioId });
-    if (!cartao) {
-      return next(new AppError('Cartão não encontrado', 404));
-    }
-
-    if (!cartao.ativo) {
-      return next(new AppError('Este cartão está inativo', 400));
-    }
-
-    if (tipoTransacao === 'despesa' && !cartao.podeGastar(valor)) {
-      return next(new AppError('Saldo insuficiente', 400));
-    }
-
-    await cartao.atualizarSaldo(valor, tipoTransacao);
-
-    return successResponse(res, {
-      mensagem: 'Saldo atualizado com sucesso',
-      cartao: cartao.toPublic()
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-/**
- * ==========================================
- * DELETAR CARTÃO (só se não tiver gastos)
- * ==========================================
- */
-const deletarCartao = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    const cartao = await Cartao.findOne({ _id: id, usuario: req.usuarioId });
-    if (!cartao) {
-      return next(new AppError('Cartão não encontrado', 404));
-    }
-
-    // Verifica se tem gastos
-    const temGastos = await require('../models/Gasto').countDocuments({ cartao: id, excluido: false });
     if (temGastos > 0) {
-      return next(new AppError('Não podes apagar um cartão com transações. Desativa-o.', 400));
+      return next(new AppError('Não podes apagar um cartão com transações. Desativa-o primeiro.', 400));
     }
 
-    await cartao.deleteOne();
+    const deletado = await prisma.cartao.deleteMany({
+      where: { id, usuarioId: req.user.id }
+    });
 
-    return successResponse(res, { mensagem: 'Cartão removido com sucesso' });
+    if (deletado.count === 0) {
+      return next(new AppError('Cartão não encontrado', 404));
+    }
+
+    res.json({
+      success: true,
+      message: 'Cartão removido com sucesso'
+    });
+
   } catch (err) {
     next(err);
   }

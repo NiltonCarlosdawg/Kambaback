@@ -1,9 +1,6 @@
 // src/controllers/gastosController.js
-const Gasto = require('../models/Gasto');
-const Cartao = require('../models/Cartao');
-const Objetivo = require('../models/Objetivo');
-const { AppError } = require('../middleware/errorHandler');
-const { successResponse, createdResponse } = require('../utils/responseFormatter');
+const prisma = require('../lib/prisma');
+const AppError = require('../middleware/AppError');
 
 /**
  * ==========================================
@@ -11,125 +8,162 @@ const { successResponse, createdResponse } = require('../utils/responseFormatter
  * ==========================================
  */
 const criarGasto = async (req, res, next) => {
+  const {
+    cartaoId,
+    tipo,
+    valor,
+    descricao,
+    categoriaId,
+    data,
+    local,
+    parcelado,
+    objetivoId,
+    tags
+  } = req.body;
+
+  const usuarioId = req.user.id;
+
   try {
-    const {
-      cartao: cartaoId,
-      tipo,
-      valor,
-      descricao,
-      categoria,
-      data,
-      local,
-      parcelado,
-      objetivo: objetivoId,
-      tags
-    } = req.body;
+    // Transação para garantir consistência
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Valida cartão
+      const cartao = await tx.cartao.findFirst({
+        where: { id: cartaoId, usuarioId, ativo: true }
+      });
+      if (!cartao) throw new AppError('Cartão inválido ou inativo', 400);
 
-    const usuarioId = req.usuarioId;
+      // 2. Verifica saldo (apenas despesa)
+      if (tipo === 'despesa') {
+        const disponivel = (cartao.saldoAtual || 0) - (cartao.reservado || 0);
+        if (disponivel < valor) {
+          throw new AppError(`Saldo insuficiente no cartão ${cartao.nome}`, 400);
+        }
+      }
 
-    // 1. Busca e valida cartão
-    const cartao = await Cartao.findOne({ _id: cartaoId, usuario: usuarioId, ativo: true });
-    if (!cartao) return next(new AppError('Cartão inválido ou inativo', 400));
+      // 3. Cria o gasto
+      const gasto = await tx.gasto.create({
+        data: {
+          usuarioId,
+          cartaoId,
+          tipo,
+          valor: parseFloat(valor),
+          descricao: descricao || '',
+          categoriaId,
+          data: data ? new Date(data) : new Date(),
+          local: local || null,
+          parcelado: parcelado || { totalParcelas: 1, parcelaAtual: 1, recorrencia: 'unica' },
+          objetivoId: objetivoId || null,
+          tags: tags || [],
+          excluido: false
+        },
+        include: {
+          cartao: { select: { nome: true, tipo: true, cor: true, icone: true } },
+          objetivo: { select: { titulo: true, cor: true } },
+          categoria: { select: { nome: true } }
+        }
+      });
 
-    // 2. Verifica saldo (só para despesas)
-    if (tipo === 'despesa' && !cartao.podeGastar(valor)) {
-      return next(new AppError(`Saldo insuficiente no cartão ${cartao.nome}`, 400));
-    }
+      // 4. Atualiza saldo do cartão
+      const novoSaldo = tipo === 'despesa'
+        ? cartao.saldoAtual - valor
+        : cartao.saldoAtual + valor;
 
-    // 3. Cria o gasto
-    const gasto = await Gasto.create({
-      usuario: usuarioId,
-      cartao: cartaoId,
-      tipo,
-      valor,
-      descricao: descricao || '',
-      categoria,
-      categoriaPersonalizada: null, // será validado no service depois se necessário
-      data: data || new Date(),
-      local,
-      parcelado: parcelado || { totalParcelas: 1, parcelaAtual: 1, recorrencia: 'unica' },
-      objetivo: objetivoId || null,
-      tags: tags || [],
-      cartaoDestino: null // para transferências, implementamos depois
+      await tx.cartao.update({
+        where: { id: cartaoId },
+        data: { saldoAtual: novoSaldo }
+      });
+
+      // 5. Se for receita e tiver objetivo → adiciona progresso
+      if (objetivoId && tipo === 'receita') {
+        await tx.objetivo.update({
+          where: { id: objetivoId },
+          data: { valorAtual: { increment: valor } }
+        });
+      }
+
+      return gasto;
     });
 
-    // 4. Atualiza saldo do cartão
-    await cartao.atualizarSaldo(valor, tipo);
-
-    // 5. Se estiver ligado a objetivo → adiciona progresso
-    if (objetivoId && tipo === 'receita') {
-      await Objetivo.findByIdAndUpdate(objetivoId, {
-        $inc: { valorAtual: valor }
-      });
-    }
-
-    return createdResponse(res, {
-      mensagem: tipo === 'despesa' 
-        ? 'Gasto registrado com sucesso! 💸' 
-        : 'Receita registrada com sucesso! 🤑',
-      gasto: await gasto.populate('cartao', 'nome tipo cor').execPopulate()
-    }, `/api/gastos/${gasto._id}`);
+    res.status(201).json({
+      success: true,
+      message: tipo === 'despesa' ? 'Gasto registrado com sucesso!' : 'Receita registrada com sucesso!',
+      gasto: resultado
+    });
 
   } catch (err) {
-    next(err);
+    next(err instanceof AppError ? err : new AppError('Erro ao criar transação', 500));
   }
 };
 
 /**
  * ==========================================
- * LISTAR GASTOS COM FILTROS
+ * LISTAR GASTOS COM FILTROS + PAGINAÇÃO
  * ==========================================
  */
 const listarGastos = async (req, res, next) => {
+  const {
+    pagina = 1,
+    limite = 20,
+    tipo,
+    categoria: categoriaId,
+    cartao: cartaoId,
+    dataInicio,
+    dataFim,
+    busca
+  } = req.query;
+
+  const skip = (pagina - 1) * limite;
+  const take = parseInt(limite);
+
   try {
-    const {
-      pagina = 1,
-      limite = 20,
-      tipo,
-      categoria,
-      cartao,
-      dataInicio,
-      dataFim,
-      busca
-    } = req.query;
+    const where = {
+      usuarioId: req.user.id,
+      excluido: false,
+      ...(tipo && { tipo }),
+      ...(cartaoId && { cartaoId }),
+      ...(categoriaId && { categoriaId }),
+      ...(dataInicio || dataFim ? {
+        data: {
+          ...(dataInicio && { gte: new Date(dataInicio) }),
+          ...(dataFim && { lte: new Date(dataFim) })
+        }
+      } : {}),
+      ...(busca ? {
+        OR: [
+          { descricao: { contains: busca, mode: 'insensitive' } },
+          { local: { contains: busca, mode: 'insensitive' } },
+          { tags: { hasSome: [busca] } }
+        ]
+      } : {})
+    };
 
-    const filtro = { usuario: req.usuarioId, excluido: false };
+    const [gastos, total] = await Promise.all([
+      prisma.gasto.findMany({
+        where,
+        include: {
+          cartao: { select: { nome: true, tipo: true, cor: true, icone: true } },
+          objetivo: { select: { titulo: true, cor: true } },
+          categoria: { select: { nome: true, cor: true } }
+        },
+        orderBy: { data: 'desc' },
+        skip,
+        take
+      }),
+      prisma.gasto.count({ where })
+    ]);
 
-    if (tipo) filtro.tipo = tipo;
-    if (categoria) filtro.categoria = categoria;
-    if (cartao) filtro.cartao = cartao;
-    if (dataInicio || dataFim) {
-      filtro.data = {};
-      if (dataInicio) filtro.data.$gte = new Date(dataInicio);
-      if (dataFim) filtro.data.$lte = new Date(dataFim);
-    }
-変換
-    if (busca) {
-      filtro.$or = [
-        { descricao: { $regex: busca, $options: 'i' } },
-        { local: { $regex: busca, $options: 'i' } },
-        { tags: { $in: [new RegExp(busca, 'i')] } }
-      ];
-    }
-
-    const total = await Gasto.countDocuments(filtro);
-    const gastos = await Gasto.find(filtro)
-      .sort({ data: -1 })
-      .skip((pagina - 1) * limite)
-      .limit(parseInt(limite))
-      .populate('cartao', 'nome tipo cor icone')
-      .populate('objetivo', 'titulo cor');
-
-    return successResponse(res, {
-      mensagem: 'Gastos carregados',
-      gastos: gastos.map(g => g.toResponse ? g.toResponse() : g),
+    res.json({
+      success: true,
+      message: 'Gastos carregados',
+      gastos,
       paginacao: {
         pagina: parseInt(pagina),
-        limite: parseInt(limite),
+        limite: take,
         total,
-        paginas: Math.ceil(total / limite)
+        paginas: Math.ceil(total / take)
       }
     });
+
   } catch (err) {
     next(err);
   }
@@ -137,47 +171,56 @@ const listarGastos = async (req, res, next) => {
 
 /**
  * ==========================================
- * GASTOS POR CATEGORIA (RESUMO)
+ * RESUMO POR CATEGORIA (MÊS/ANO)
  * ==========================================
  */
 const gastosPorCategoria = async (req, res, next) => {
+  let { mes, ano } = req.query;
+  const hoje = new Date();
+  mes = mes ? parseInt(mes) : hoje.getMonth() + 1;
+  ano = ano ? parseInt(ano) : hoje.getFullYear();
+
+  const inicio = new Date(ano, mes - 1, 1);
+  const fim = new Date(ano, mes, 0, 23, 59, 59);
+
   try {
-    const { mes, ano } = req.query;
-    const inicio = mes && ano ? new Date(ano, mes - 1, 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const fim = mes && ano ? new Date(ano, mes, 0, 23, 59, 59) : new Date();
-
-    const resultado = await Gasto.aggregate([
-      {
-        $match: {
-          usuario: req.usuarioId,
-          data: { $gte: inicio, $lte: fim },
-          tipo: 'despesa',
-          excluido: false
-        }
+    const resultado = await prisma.gasto.groupBy({
+      by: ['categoriaId'],
+      where: {
+        usuarioId: req.user.id,
+        tipo: 'despesa',
+        data: { gte: inicio, lte: fim },
+        excluido: false
       },
-      {
-        $group: {
-          _id: '$categoria',
-          total: { $sum: '$valor' },
-          quantidade: { $sum: 1 }
-        }
-      },
-      { $sort: { total: -1 } }
-    ]);
-
-    const totalDespesas = resultado.reduce((acc, c) => acc + c.total, 0);
-
-    return successResponse(res, {
-      mensagem: 'Resumo por categoria',
-      periodo: `${inicio.toLocaleDateString('pt-AO', { month: 'long', year: 'numeric' })}`,
-      totalDespesas,
-      categorias: resultado.map(c => ({
-        categoria: c._id,
-        total: c.total,
-        porcentagem: totalDespesas > 0 ? Math.round((c.total / totalDespesas) * 100) : 0,
-        quantidade: c.quantidade
-      }))
+      _sum: { valor: true },
+      _count: { _all: true },
+      orderBy: { _sum: { valor: 'desc' } }
     });
+
+    const totalDespesas = resultado.reduce((acc, r) => acc + (r._sum.valor || 0), 0);
+
+    // Busca nomes das categorias
+    const categoriaIds = resultado.map(r => r.categoriaId).filter(Boolean);
+    const categorias = await prisma.categoria.findMany({
+      where: { id: { in: categoriaIds } },
+      select: { id: true, nome: true }
+    });
+
+    const categoriasFormatadas = resultado.map(item => ({
+      categoria: categorias.find(c => c.id === item.categoriaId)?.nome || 'Sem categoria',
+      total: item._sum.valor || 0,
+      quantidade: item._count._all,
+      porcentagem: totalDespesas > 0 ? Math.round((item._sum.valor / totalDespesas) * 100) : 0
+    }));
+
+    res.json({
+      success: true,
+      message: 'Resumo por categoria',
+      periodo: inicio.toLocaleDateString('pt-AO', { month: 'long', year: 'numeric' }),
+      totalDespesas,
+      categorias: categoriasFormatadas
+    });
+
   } catch (err) {
     next(err);
   }
@@ -185,27 +228,42 @@ const gastosPorCategoria = async (req, res, next) => {
 
 /**
  * ==========================================
- * DELETAR GASTO (soft delete)
+ * DELETAR GASTO (soft delete + revert saldo)
  * ==========================================
  */
 const deletarGasto = async (req, res, next) => {
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
+    await prisma.$transaction(async (tx) => {
+      const gasto = await tx.gasto.findFirst({
+        where: { id, usuarioId: req.user.id },
+        include: { cartao: true }
+      });
 
-    const gasto = await Gasto.findOne({ _id: id, usuario: req.usuarioId });
-    if (!gasto) return next(new AppError('Gasto não encontrado', 404));
+      if (!gasto) throw new AppError('Gasto não encontrado', 404);
+      if (gasto.excluido) throw new AppError('Gasto já foi removido', 400);
 
-    await gasto.softDelete();
+      // Soft delete
+      await tx.gasto.update({
+        where: { id },
+        data: { excluido: true }
+      });
 
-    // Reverte o saldo no cartão
-    const cartao = await Cartao.findById(gasto.cartao);
-    if (cartao) {
-      await cartao.atualizarSaldo(gasto.valor, gasto.tipo === 'despesa' ? 'receita' : 'despesa');
-    }
+      // Reverte saldo no cartão
+      if (gasto.cartao) {
+        const ajuste = gasto.tipo === 'despesa' ? +gasto.valor : -gasto.valor;
+        await tx.cartao.update({
+          where: { id: gasto.cartaoId },
+          data: { saldoAtual: { increment: ajuste } }
+        });
+      }
+    });
 
-    return successResponse(res, { mensagem: 'Gasto removido com sucesso' });
+    res.json({ success: true, message: 'Gasto removido com sucesso' });
+
   } catch (err) {
-    next(err);
+    next(err instanceof AppError ? err : new AppError('Erro ao deletar gasto', 500));
   }
 };
 

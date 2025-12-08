@@ -40,7 +40,6 @@
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "4.1",
-    "mongoose": "^8.3.4",
     "morgan": "^1.10.0",
     "node-cache": "^5.1.2",
     "pg": "^8.16.3",

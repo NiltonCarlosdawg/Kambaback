@@ -1,36 +1,22 @@
+// src/routes/auth.js
 const express = require('express');
 const router = express.Router();
-
-const {
-  registrar,
-  login,
-  refresh,
-  perfil,
-  atualizarPerfil
-} = require('../controllers/authController');
-
+const { registrar, login, refresh, perfil, atualizarPerfil } = require('../controllers/authController');
 const { protegerRota } = require('../middleware/auth');
-const { validar, registroSchema, loginSchema, refreshTokenSchema, atualizarPerfilSchema } = require('../middleware/validator');
+const { validar, registroSchema, loginSchema } = require('../middleware/validator');
 
-// ==========================================
-// ROTAS PÚBLICAS (sem autenticação)
-// ==========================================
+// Registro — com validação
 router.post('/register', validar(registroSchema), registrar);
-router.post('/login',    validar(loginSchema),    login);
-router.post('/refresh',  validar(refreshTokenSchema), refresh);
 
-// ==========================================
-// ROTAS PROTEGIDAS (com JWT)
-// ==========================================
-router.use(protegerRota); // todas as rotas abaixo exigem token
+// Login — com validação
+router.post('/login', validar(loginSchema), login);
 
+// Refresh token
+router.post('/refresh', refresh);
+
+// Rotas protegidas
+router.use(protegerRota);
 router.get('/perfil', perfil);
-router.patch('/perfil', validar(atualizarPerfilSchema), atualizarPerfil);
-
-// ==========================================
-// FUTURAS ROTAS
-// ==========================================
-// router.post('/esqueci-senha', ...)
-// router.post('/verificar-email', ...)
+router.patch('/perfil', atualizarPerfil);
 
 module.exports = router;

@@ -5,54 +5,155 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // url removida - agora no prisma.config.ts
 }
 
+// ====================== USER ======================
 model User {
   id           String    @id @default(uuid())
   nome         String
   email        String    @unique
   telefone     String?   @unique
   senha        String
+  role         String    @default("user")
   foto         String?
   ativo        Boolean   @default(true)
   verificado   Boolean   @default(false)
+  bloqueado    Boolean   @default(false)
+  senhaAlteradaEm DateTime?
+
   criadoEm     DateTime  @default(now())
   atualizadoEm DateTime  @updatedAt
+  ultimoLogin  DateTime?
+  refreshToken String?
 
   contas       Conta[]
-  refreshToken String?
+  gastos       Gasto[]
+  cartoes      Cartao[]
+  categorias   Categoria[]
+  objetivos    Objetivo[]
 
   @@map("usuarios")
 }
 
-model Conta {
-  id           String    @id @default(uuid())
-  usuarioId    String
-  nome         String
-  tipo         String    // corrente, poupança, móvel (M-Pesa, etc.)
-  saldo        Decimal   @default(0)
-  moeda        String    @default("AOA")
-  ativa        Boolean   @default(true)
-  criadoEm     DateTime  @default(now())
 
-  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  transacoes   Transacao[]
+// ====================== CONTA ======================
+model Conta {
+  id         String      @id @default(uuid())
+  usuarioId  String
+  nome       String
+  tipo       String
+  saldo      Decimal     @default(0)
+  moeda      String      @default("AOA")
+  ativa      Boolean     @default(true)
+  criadoEm   DateTime    @default(now())
+
+  usuario    User        @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  transacoes Transacao[]
+  gastos     Gasto[]     // ← LADO OPOSTO ADICIONADO
 
   @@map("contas")
 }
 
+// ====================== TRANSAÇÃO ======================
 model Transacao {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   contaId     String
-  tipo        String    // entrada, saída, transferência
+  tipo        String
   valor       Decimal
   descricao   String?
-  categoria   String    @default("geral")
-  data        DateTime  @default(now())
+  categoria   String   @default("geral")
+  data        DateTime @default(now())
   comprovante String?
 
-  conta       Conta     @relation(fields: [contaId], references: [id], onDelete: Cascade)
+  conta       Conta    @relation(fields: [contaId], references: [id], onDelete: Cascade)
 
   @@map("transacoes")
+}
+
+// ====================== GASTO ======================
+model Gasto {
+  id             String    @id @default(uuid())
+  usuarioId      String
+  valor          Decimal
+  descricao      String?
+  tipo           String    // "despesa" ou "receita"
+  data           DateTime
+  categoriaId    String?
+  cartaoId       String?
+  contaId        String?
+  excluido       Boolean   @default(false)
+  recorrente     Boolean   @default(false)
+  recorrenciaFim DateTime?
+
+  usuario        User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  categoria      Categoria? @relation(fields: [categoriaId], references: [id])
+  cartao         Cartao?   @relation(fields: [cartaoId], references: [id])
+  conta          Conta?    @relation(fields: [contaId], references: [id]) // ← campo correto
+
+  @@map("gastos")
+}
+
+// ====================== CARTÃO ======================
+model Cartao {
+  id            String   @id @default(uuid())
+  usuarioId     String
+  nome          String
+  tipo          String
+  banco         String?
+  numero        String?  @unique
+  saldoAtual    Decimal  @default(0)
+  limiteCredito Decimal  @default(0)
+  disponivel    Decimal  @default(0)
+  cor           String   @default("#1e40af")
+  icone         String   @default("credit_card")
+  ativo         Boolean  @default(true)
+  bloqueado     Boolean  @default(false)
+  criadoEm      DateTime @default(now())
+
+  usuario       User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos        Gasto[]
+
+  @@map("cartoes")
+}
+
+// ====================== CATEGORIA ======================
+model Categoria {
+  id        String   @id @default(uuid())
+  usuarioId String?
+  nome      String
+  tipo      String
+  cor       String   @default("#6B7280")
+  icone     String   @default("category")
+  padrao    Boolean  @default(false)
+  ordem     Int      @default(999)
+  ativa     Boolean  @default(true)
+
+  usuario   User?    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos    Gasto[]
+
+  @@unique([usuarioId, nome])
+  @@map("categorias")
+}
+
+// ====================== OBJETIVO ======================
+model Objetivo {
+  id                      String   @id @default(uuid())
+  usuarioId               String
+  titulo                  String
+  descricao               String?
+  categoria               String?
+  valorAlvo               Decimal
+  valorAtual              Decimal  @default(0)
+  dataFinal               DateTime
+  prioridade              String   @default("media")
+  cor                     String   @default("#10b981")
+  icone                   String   @default("target")
+  porcentagemDistribuicao Int      @default(0)
+  modoDistribuicao        String   @default("manual")
+  concluido               Boolean  @default(false)
+  criadoEm                DateTime @default(now())
+
+  usuario                 User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@map("objetivos")
 }

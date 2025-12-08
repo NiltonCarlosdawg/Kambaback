@@ -1,49 +1,72 @@
 // src/controllers/authController.js
-const User = require('../models/User');
-const { gerarTokens } = require('../middleware/auth');
-const { AppError, AuthenticationError } = require('../middleware/errorHandler');
-const { successResponse, authResponse } = require('../utils/responseFormatter');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const prisma = require('../lib/prisma'); // ← PRISMA + POSTGRES
+const AppError = require('../middleware/AppError');
 
-/**
- * ==========================================
- * REGISTRO DE NOVO USUÁRIO
- * ==========================================
- */
+// Secrets (garante que tens no .env)
+const JWT_SECRET = process.env.JWT_SECRET || 'kwanza_angola_2025_super_secreto';
+const REFRESH_SECRET = process.env.REFRESH_SECRET || 'kwanza_refresh_angola_2025_muito_secreto';
+
+// ==========================================
+// REGISTRO
+// ==========================================
 const registrar = async (req, res, next) => {
-  try {
-    const { nome, email, telefone, senha } = req.body;
+  const { nome, email, telefone, senha } = req.body;
 
+  try {
     // Verifica se já existe email ou telefone
-    const existe = await User.findOne({
-      $or: [{ email }, { telefone }]
+    const existe = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: email.toLowerCase() },
+          { telefone }
+        ]
+      }
     });
 
     if (existe) {
-      if (existe.email === email) {
+      if (existe.email === email.toLowerCase()) {
         return next(new AppError('Este email já está registrado', 409));
       }
-      if (existe.telefone === telefone) {
-        return next(new AppError('Este telefone já está registrado', 409));
+      return next(new AppError('Este telefone já está registrado', 409));
+    }
+
+    // Cria usuário com senha hasheada
+    const senhaHash = await bcrypt.hash(senha, 12);
+
+    const usuario = await prisma.user.create({
+      data: {
+        nome,
+        email: email.toLowerCase(),
+        telefone,
+        senha: senhaHash,
+      },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        telefone: true,
+        ativo: true,
+        verificado: true,
+        criadoEm: true
       }
-    }
-
-    // Cria usuário
-    const usuario = await User.create({
-      nome,
-      email,
-      telefone,
-      senha
     });
 
     // Gera tokens
-    const { accessToken, refreshToken } = gerarTokens(usuario._id);
+    const accessToken = jwt.sign({ id: usuario.id }, JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign({ id: usuario.id }, REFRESH_SECRET, { expiresIn: '7d' });
 
-    // Resposta limpa (nunca retorna senha)
-    const dadosUsuario = usuario.getDadosPublicos();
+    // Salva refresh token no banco
+    await prisma.user.update({
+      where: { id: usuario.id },
+      data: { refreshToken }
+    });
 
-    return authResponse(res, 201, {
-      mensagem: 'Conta criada com sucesso! Bem-vindo ao Kamba 🇦🇴',
-      usuario: dadosUsuario,
+    return res.status(201).json({
+      success: true,
+      message: 'Conta criada com sucesso! Bem-vindo ao Kamba 🇦🇴',
+      usuario,
       accessToken,
       refreshToken
     });
@@ -53,48 +76,59 @@ const registrar = async (req, res, next) => {
   }
 };
 
-/**
- * ==========================================
- * LOGIN
- * ==========================================
- */
+// ==========================================
+// LOGIN
+// ==========================================
 const login = async (req, res, next) => {
+  const { email, senha } = req.body;
+
   try {
-    const { email, senha } = req.body;
+    const usuario = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
+    });
 
-    // Busca usuário
-    const usuario = await User.findOne({ email }).select('+senha');
-    if (!usuario) {
-      return next(new AuthenticationError('Email ou senha incorretos'));
+    if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
+      return next(new AppError('Email ou senha incorretos', 401));
     }
 
-    // Verifica se está bloqueado
-    if (usuario.estaBloqueado()) {
-      const tempoRestante = Math.ceil((usuario.bloqueadoAte - Date.now()) / 60000);
-      return next(new AuthenticationError(`Conta bloqueada. Tente novamente em ${tempoRestante} minutos.`));
+    if (!usuario.ativo) {
+      return next(new AppError('Conta desativada. Contacta o suporte.', 403));
     }
-
-    // Verifica senha
-    const senhaCorreta = await usuario.compararSenha(senha);
-    if (!senhaCorreta) {
-      await usuario.incrementarTentativasLogin();
-      return next(new AuthenticationError('Email ou senha incorretos'));
-    }
-
-    // Login bem-sucedido → reseta tentativas
-    usuario.tentativasLogin = 0;
-    usuario.ultimoLogin = new Date();
-    await usuario.save({ validateBeforeSave: false });
 
     // Gera tokens
-    const { accessToken, refreshToken } = gerarTokens(usuario._id);
-    const dadosUsuario = usuario.getDadosPublicos();
+    const accessToken = jwt.sign({ id: usuario.id }, JWT_SECRET, { expiresIn: '15m' });
+    const refreshToken = jwt.sign({ id: usuario.id }, REFRESH_SECRET, { expiresIn: '7d' });
 
-    return authResponse(res, 200, {
-      mensagem: `Bem-vindo de volta, ${usuario.nome.split(' ')[0]}! 💸`,
+    // Atualiza refresh token + último login
+    await prisma.user.update({
+      where: { id: usuario.id },
+      data: {
+        refreshToken,
+        ultimoLogin: new Date()
+      }
+    });
+
+    // Dados públicos do usuário
+    const dadosUsuario = {
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      telefone: usuario.telefone,
+      verificado: usuario.verificado
+    };
+
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+
+    return res.json({
+      success: true,
+      message: `Bem-vindo de volta, ${usuario.nome.split(' ')[0]}!`,
       usuario: dadosUsuario,
-      accessToken,
-      refreshToken
+      accessToken
     });
 
   } catch (err) {
@@ -102,55 +136,62 @@ const login = async (req, res, next) => {
   }
 };
 
-/**
- * ==========================================
- * REFRESH TOKEN
- * ==========================================
- */
+// ==========================================
+// REFRESH TOKEN
+// ==========================================
 const refresh = async (req, res, next) => {
+  const token = req.cookies.refreshToken || req.body.refreshToken;
+
+  if (!token) return next(new AppError('Refresh token não fornecido', 401));
+
   try {
-    const { refreshToken } = req.body;
+    const decoded = jwt.verify(token, REFRESH_SECRET);
+    const usuario = await prisma.user.findUnique({
+      where: { id: decoded.id }
+    });
 
-    if (!refreshToken) {
-      return next(new AuthenticationError('Refresh token não fornecido'));
+    if (!usuario || usuario.refreshToken !== token) {
+      return next(new AppError('Token inválido', 403));
     }
 
-    // Verifica refresh token
-    const decoded = await require('../middleware/auth').verificarToken(refreshToken, process.env.REFRESH_SECRET);
-    const usuario = await User.findById(decoded.id);
+    const novoAccessToken = jwt.sign({ id: usuario.id }, JWT_SECRET, { expiresIn: '15m' });
 
-    if (!usuario) {
-      return next(new AuthenticationError('Token inválido'));
-    }
-
-    const { accessToken: novoAccessToken, refreshToken: novoRefreshToken } = gerarTokens(usuario._id);
-
-    return successResponse(res, {
-      mensagem: 'Token renovado com sucesso',
-      accessToken: novoAccessToken,
-      refreshToken: novoRefreshToken
+    return res.json({
+      success: true,
+      message: 'Token renovado',
+      accessToken: novoAccessToken
     });
 
   } catch (err) {
-    next(new AuthenticationError('Sessão expirada. Faça login novamente.'));
+    return next(new AppError('Sessão expirada. Faça login novamente.', 403));
   }
 };
 
-/**
- * ==========================================
- * PERFIL DO USUÁRIO
- * ==========================================
- */
+// ==========================================
+// PERFIL
+// ==========================================
 const perfil = async (req, res, next) => {
   try {
-    const usuario = await User.findById(req.usuarioId);
-    if (!usuario) {
-      return next(new AppError('Usuário não encontrado', 404));
-    }
+    const usuario = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        nome: true,
+        email: true,
+        telefone: true,
+        ativo: true,
+        verificado: true,
+        criadoEm: true,
+        ultimoLogin: true
+      }
+    });
 
-    return successResponse(res, {
-      mensagem: 'Perfil carregado',
-      usuario: usuario.getDadosPublicos()
+    if (!usuario) return next(new AppError('Usuário não encontrado', 404));
+
+    return res.json({
+      success: true,
+      message: 'Perfil carregado',
+      usuario
     });
 
   } catch (err) {
@@ -158,35 +199,34 @@ const perfil = async (req, res, next) => {
   }
 };
 
-/**
- * ==========================================
- * ATUALIZAR PERFIL
- * ==========================================
- */
+// ==========================================
+// ATUALIZAR PERFIL
+// ==========================================
 const atualizarPerfil = async (req, res, next) => {
-  try {
-    const camposPermitidos = ['nome', 'telefone', 'preferencias'];
-    const atualizacoes = {};
+  const camposPermitidos = ['nome', 'telefone'];
+  const dados = {};
 
-    Object.keys(req.body).forEach(campo => {
-      if (camposPermitidos.includes(campo)) {
-        atualizacoes[campo] = req.body[campo];
-      }
+  for (const campo of camposPermitidos) {
+    if (req.body[campo] !== undefined) {
+      dados[campo] = req.body[campo];
+    }
+  }
+
+  if (Object.keys(dados).length === 0) {
+    return next(new AppError('Nenhum dado válido para atualizar', 400));
+  }
+
+  try {
+    const usuario = await prisma.user.update({
+      where: { id: req.user.id },
+      data: dados,
+      select: { id: true, nome: true, email: true, telefone: true }
     });
 
-    if (Object.keys(atualizacoes).length === 0) {
-      return next(new AppError('Nenhum dado válido para atualizar', 400));
-    }
-
-    const usuario = await User.findByIdAndUpdate(
-      req.usuarioId,
-      atualizacoes,
-      { new: true, runValidators: true }
-    );
-
-    return successResponse(res, {
-      mensagem: 'Perfil atualizado com sucesso!',
-      usuario: usuario.getDadosPublicos()
+    return res.json({
+      success: true,
+      message: 'Perfil atualizado com sucesso!',
+      usuario
     });
 
   } catch (err) {

@@ -1,21 +1,37 @@
 // src/controllers/categoriasController.js
-const Categoria = require('../models/Categoria');
-const { AppError } = require('../middleware/errorHandler');
-const { successResponse, createdResponse } = require('../utils/responseFormatter');
+const prisma = require('../lib/prisma');
+const AppError = require('../middleware/AppError');
 
 /**
  * ==========================================
- * LISTAR TODAS AS CATEGORIAS (padrão + personalizadas)
+ * LISTAR TODAS AS CATEGORIAS (padrão + personalizadas do usuário)
  * ==========================================
  */
 const listarCategorias = async (req, res, next) => {
   try {
-    const resultado = await Categoria.getAllByUsuario(req.usuarioId);
-
-    return successResponse(res, {
-      mensagem: 'Categorias carregadas com sucesso',
-      ...resultado
+    const categorias = await prisma.categoria.findMany({
+      where: {
+        OR: [
+          { padrao: true },                    // categorias padrão do sistema
+          { usuarioId: req.user.id }           // categorias criadas pelo usuário
+        ]
+      },
+      orderBy: [
+        { padrao: 'desc' },   // padrão primeiro
+        { ordem: 'asc' },
+        { nome: 'asc' }
+      ]
     });
+
+    res.json({
+      success: true,
+      message: 'Categorias carregadas com sucesso',
+      total: categorias.length,
+      padrao: categorias.filter(c => c.padrao),
+      personalizadas: categorias.filter(c => !c.padrao),
+      categorias // mantém compatibilidade com frontend antigo
+    });
+
   } catch (err) {
     next(err);
   }
@@ -27,23 +43,33 @@ const listarCategorias = async (req, res, next) => {
  * ==========================================
  */
 const criarCategoria = async (req, res, next) => {
+  const { nome, tipo = 'despesa', cor, icone = 'category' } = req.body;
+
+  if (!nome || nome.trim().length < 2) {
+    return next(new AppError('Nome da categoria é obrigatório e deve ter pelo menos 2 caracteres', 400));
+  }
+
   try {
-    const { nome, tipo, cor, icone } = req.body;
-
-    const categoria = await Categoria.create({
-      usuario: req.usuarioId,
-      nome,
-      tipo,
-      cor: cor || undefined,
-      icone: icone || 'category'
+    const categoria = await prisma.categoria.create({
+      data: {
+        nome: nome.trim(),
+        tipo,
+        cor: cor || '#6B7280',
+        icone: icone || 'category',
+        padrao: false,
+        usuarioId: req.user.id,
+        ordem: 999 // será reordenado depois se necessário
+      }
     });
 
-    return createdResponse(res, {
-      mensagem: 'Categoria criada com sucesso! 🎯',
-      categoria: categoria.toResponse()
+    res.status(201).json({
+      success: true,
+      message: 'Categoria criada com sucesso!',
+      categoria
     });
+
   } catch (err) {
-    if (err.code === 11000) {
+    if (err.code === 'P2002') { // Unique constraint violation (nome duplicado por usuário)
       return next(new AppError('Já tens uma categoria com este nome', 409));
     }
     next(err);
@@ -56,32 +82,46 @@ const criarCategoria = async (req, res, next) => {
  * ==========================================
  */
 const atualizarCategoria = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const campos = ['nome', 'cor', 'icone', 'ordem', 'ativa'];
+  const { id } = req.params;
+  const camposPermitidos = ['nome', 'cor', 'icone', 'ordem', 'ativa'];
+  const dados = {};
 
-    const atualizacoes = {};
-    campos.forEach(campo => {
-      if (req.body[campo] !== undefined) atualizacoes[campo] = req.body[campo];
+  for (const campo of camposPermitidos) {
+    if (req.body[campo] !== undefined) {
+      dados[campo] = req.body[campo];
+    }
+  }
+
+  if (Object.keys(dados).length === 0) {
+    return next(new AppError('Nada para atualizar', 400));
+  }
+
+  try {
+    const categoria = await prisma.categoria.updateMany({
+      where: {
+        id,
+        usuarioId: req.user.id,
+        padrao: false // não permite editar categorias padrão
+      },
+      data: dados
     });
 
-    if (Object.keys(atualizacoes).length === 0) {
-      return next(new AppError('Nada para atualizar', 400));
+    if (categoria.count === 0) {
+      return next(new AppError('Categoria não encontrada ou não pode ser editada', 404));
     }
 
-    const categoria = await Categoria.findOneAndUpdate(
-      { _id: id, usuario: req.usuarioId },
-      atualizacoes,
-      { new: true }
-    );
+    const atualizada = await prisma.categoria.findUnique({ where: { id } });
 
-    if (!categoria) return next(new AppError('Categoria não encontrada', 404));
-
-    return successResponse(res, {
-      mensagem: 'Categoria atualizada',
-      categoria: categoria.toResponse()
+    res.json({
+      success: true,
+      message: 'Categoria atualizada com sucesso',
+      categoria: atualizada
     });
+
   } catch (err) {
+    if (err.code === 'P2002') {
+      return next(new AppError('Já existe outra categoria com este nome', 409));
+    }
     next(err);
   }
 };
@@ -92,26 +132,39 @@ const atualizarCategoria = async (req, res, next) => {
  * ==========================================
  */
 const deletarCategoria = async (req, res, next) => {
+  const { id } = req.params;
+
   try {
-    const { id } = req.params;
-
-    const categoria = await Categoria.findOne({ _id: id, usuario: req.usuarioId });
-    if (!categoria) return next(new AppError('Categoria não encontrada', 404));
-
-    // Verifica se está em uso
-    const emUso = await require('../models/Gasto').countDocuments({
-      usuario: req.usuarioId,
-      categoriaPersonalizada: id,
-      excluido: false
+    // Verifica se está em uso em algum gasto
+    const emUso = await prisma.gasto.count({
+      where: {
+        categoriaId: id,
+        usuarioId: req.user.id,
+        excluido: false
+      }
     });
 
     if (emUso > 0) {
-      return next(new AppError('Não podes apagar uma categoria em uso. Desativa-a.', 400));
+      return next(new AppError('Não podes apagar uma categoria que está em uso. Muda os gastos primeiro.', 400));
     }
 
-    await categoria.deleteOne();
+    const deletada = await prisma.categoria.deleteMany({
+      where: {
+        id,
+        usuarioId: req.user.id,
+        padrao: false
+      }
+    });
 
-    return successResponse(res, { mensagem: 'Categoria removida com sucesso' });
+    if (deletada.count === 0) {
+      return next(new AppError('Categoria não encontrada ou não pode ser apagada', 404));
+    }
+
+    res.json({
+      success: true,
+      message: 'Categoria removida com sucesso'
+    });
+
   } catch (err) {
     next(err);
   }
