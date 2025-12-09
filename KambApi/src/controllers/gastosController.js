@@ -24,7 +24,6 @@ const criarGasto = async (req, res, next) => {
   const usuarioId = req.user.id;
 
   try {
-    // Transação para garantir consistência
     const resultado = await prisma.$transaction(async (tx) => {
       // 1. Valida cartão
       const cartao = await tx.cartao.findFirst({
@@ -40,7 +39,7 @@ const criarGasto = async (req, res, next) => {
         }
       }
 
-      // 3. Cria o gasto
+      // 3. Cria o gasto — REMOVIDO objetivoId e include objetivo (não existe no schema)
       const gasto = await tx.gasto.create({
         data: {
           usuarioId,
@@ -52,14 +51,13 @@ const criarGasto = async (req, res, next) => {
           data: data ? new Date(data) : new Date(),
           local: local || null,
           parcelado: parcelado || { totalParcelas: 1, parcelaAtual: 1, recorrencia: 'unica' },
-          objetivoId: objetivoId || null,
           tags: tags || [],
           excluido: false
         },
         include: {
           cartao: { select: { nome: true, tipo: true, cor: true, icone: true } },
-          objetivo: { select: { titulo: true, cor: true } },
           categoria: { select: { nome: true } }
+          // objetivo removido — não existe no model Gasto
         }
       });
 
@@ -72,14 +70,6 @@ const criarGasto = async (req, res, next) => {
         where: { id: cartaoId },
         data: { saldoAtual: novoSaldo }
       });
-
-      // 5. Se for receita e tiver objetivo → adiciona progresso
-      if (objetivoId && tipo === 'receita') {
-        await tx.objetivo.update({
-          where: { id: objetivoId },
-          data: { valorAtual: { increment: valor } }
-        });
-      }
 
       return gasto;
     });
@@ -142,7 +132,7 @@ const listarGastos = async (req, res, next) => {
         where,
         include: {
           cartao: { select: { nome: true, tipo: true, cor: true, icone: true } },
-          objetivo: { select: { titulo: true, cor: true } },
+          // objetivo removido — não existe no schema
           categoria: { select: { nome: true, cor: true } }
         },
         orderBy: { data: 'desc' },
@@ -199,7 +189,6 @@ const gastosPorCategoria = async (req, res, next) => {
 
     const totalDespesas = resultado.reduce((acc, r) => acc + (r._sum.valor || 0), 0);
 
-    // Busca nomes das categorias
     const categoriaIds = resultado.map(r => r.categoriaId).filter(Boolean);
     const categorias = await prisma.categoria.findMany({
       where: { id: { in: categoriaIds } },
@@ -244,13 +233,11 @@ const deletarGasto = async (req, res, next) => {
       if (!gasto) throw new AppError('Gasto não encontrado', 404);
       if (gasto.excluido) throw new AppError('Gasto já foi removido', 400);
 
-      // Soft delete
       await tx.gasto.update({
         where: { id },
         data: { excluido: true }
       });
 
-      // Reverte saldo no cartão
       if (gasto.cartao) {
         const ajuste = gasto.tipo === 'despesa' ? +gasto.valor : -gasto.valor;
         await tx.cartao.update({

@@ -2,8 +2,7 @@
 const prisma = require('../lib/prisma');
 
 /**
- * KAMBA – O ASSISTENTE FINANCEIRO MAIS RÁPIDO E CONFIÁVEL DE ANGOLA
- * Groq + GPT-OSS 120B | Logs profissionais | Fallbacks inquebráveis
+ * Alimentado por GROQ + GPT-OSS 120B (500+ tokens/s)
  */
 const conversarComKamba = async (req, res, next) => {
   try {
@@ -123,16 +122,16 @@ const conversarComKamba = async (req, res, next) => {
     }
 
     // ================================
-    // 6. IA AVANÇADA — GROQ + GPT-OSS 120B (500+ tokens/s) | LOGS + FALLBACKS PROFISSIONAIS
+    // 6. IA AVANÇADA — GPT-OSS 120B NO GROQ (500+ tokens/s)
     // ================================
     const API_KEY = process.env.KAMBA_AI_API_KEY;
     const BASE_URL = process.env.KAMBA_AI_BASE_URL || 'https://api.groq.com/openai/v1';
-    const MODEL = process.env.KAMBA_AI_MODEL || 'openai/gpt-oss-120b';
+    const MODEL = process.env.KAMBA_AI_MODEL || 'openai/gpt-oss-120b'; // ← MODELO CORRETO!
 
     if (API_KEY) {
-      console.log(`[KAMBA IA] → Tentando Groq | Modelo: ${MODEL} | Usuário: ${req.user.id}`);
-
       try {
+        console.log(`[KAMBA IA] → Chamando Groq | Modelo: ${MODEL} | Usuário: ${usuarioId}`);
+
         const startTime = Date.now();
         const response = await fetch(`${BASE_URL}/chat/completions`, {
           method: 'POST',
@@ -173,22 +172,13 @@ const conversarComKamba = async (req, res, next) => {
 
       } catch (err) {
         console.error('[KAMBA IA] Fallback ativado →', err.message);
-        // Fallback inteligente com respostas úteis
-        const fallbacks = {
-          poupar: "E aí, kamba! Para poupar é simples: separa 20% do salário todo mês antes de tocar em mais nada. Corta as tentações, usa o KambaPro pra rastrear e investe em títulos do BNA. Tu consegues, mano!",
-          investir: "Investir em Angola? Títulos do BNA, fundos locais ou ações na BODIVA são boas opções. Começa pequeno, diversifica e usa o KambaPro pra acompanhar tudo. Vamos construir esse império kwanza!",
-          default: "O Kamba tá com o cérebro a 120B ligado, mas hoje tá com sinal fraco... tenta de novo em 10 segundos, kamba! Eu volto mais forte!"
-        };
-
-        const fallbackKey = msg.includes('poupar') || msg.includes('poupança') ? 'poupar' :
-                           msg.includes('investir') || msg.includes('investimento') ? 'investir' : 'default';
-
-        return kambaRes(res, fallbacks[fallbackKey]);
+        // Fallback inteligente
+        return kambaRes(res, 'O 120B tá com sinal fraco hoje... mas eu não largo mão de ti! Tenta de novo em 10 segundos, kamba! Eu volto mais forte!');
       }
     }
 
     // ================================
-    // RESPOSTA PADRÃO (se IA estiver desativada)
+    // RESPOSTA PADRÃO (fallback final)
     // ================================
     return kambaRes(res, `E aí, kamba!\n\nPodes perguntar:\n• "Quanto tenho de saldo?"\n• "Qual foi o último gasto?"\n• "Quanto gastei este mês?"\n• "Como tá meu objetivo?"\n• "Oi Kamba!"\n\nOu qualquer coisa sobre dinheiro... eu respondo com o poder do GPT-OSS 120B!`);
 
