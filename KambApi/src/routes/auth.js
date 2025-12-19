@@ -7,6 +7,7 @@ const { validar, registroSchema, loginSchema } = require('../middleware/validato
 
 // Registro — com validação
 router.post('/register', validar(registroSchema), registrar);
+//router.post('/register', authController.registrar);
 
 // Login — com validação
 router.post('/login', validar(loginSchema), login);

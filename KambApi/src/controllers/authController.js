@@ -5,22 +5,33 @@ const { gerarTokens } = require('../middleware/auth');
 const AppError = require('../middleware/AppError');
 
 /**
- * REGISTRO DE NOVA CONTA
+ * REGISTRO DE NOVA CONTA (AJUSTADO PARA NOVO SCHEMA)
  */
 const registrar = async (req, res, next) => {
-  const { nome, email, telefone, senha } = req.body;
+  // Desestruturação dos novos campos obrigatórios
+  const { 
+    nome, 
+    email, 
+    telefone, 
+    senha, 
+    dataNascimento, 
+    sexo, 
+    morada,
+    rendaMensalMedia 
+  } = req.body;
 
-  if (!nome || !email || !telefone || !senha) {
-    return next(new AppError('Todos os campos são obrigatórios', 400));
+  // 1. Validação de campos obrigatórios conforme o novo schema
+  if (!nome || !email || !senha || !dataNascimento || !sexo || !morada) {
+    return next(new AppError('Kamba, preenche todos os campos obrigatórios (nome, email, senha, nascimento, sexo e morada).', 400));
   }
 
   try {
-    // Verifica duplicidade
+    // 2. Verifica duplicidade (Email ou Telefone)
     const existe = await prisma.user.findFirst({
       where: {
         OR: [
           { email: email.toLowerCase() },
-          { telefone }
+          { telefone: telefone || undefined } // evita erro se telefone for null
         ]
       }
     });
@@ -32,26 +43,31 @@ const registrar = async (req, res, next) => {
       return next(new AppError(msg, 409));
     }
 
-    // Criptografa senha
+    // 3. Criptografa senha
     const senhaHash = await bcrypt.hash(senha, 12);
 
-    // Cria usuário — apenas campos que existem no schema atual
+    // 4. Cria usuário com os novos campos
     const user = await prisma.user.create({
       data: {
         nome: nome.trim(),
         email: email.toLowerCase(),
         telefone,
-        senha: senhaHash
-        // role → @default("user") no schema
-        // ativo → @default(true)
-        // criadoEm → @default(now())
-        // ultimoLogin → será atualizado no login
+        senha: senhaHash,
+        dataNascimento: new Date(dataNascimento), // Conversão para objeto Date
+        sexo,
+        morada,
+        rendaMensalMedia: rendaMensalMedia ? parseFloat(rendaMensalMedia) : 0,
+        role: 'user',
+        ativo: true
       },
       select: {
         id: true,
         nome: true,
         email: true,
         telefone: true,
+        dataNascimento: true,
+        sexo: true,
+        morada: true,
         role: true,
         criadoEm: true
       }
@@ -73,7 +89,7 @@ const registrar = async (req, res, next) => {
 };
 
 /**
- * LOGIN
+ * LOGIN (COM VERIFICAÇÃO DE BLOQUEIO E ÚLTIMO LOGIN)
  */
 const login = async (req, res, next) => {
   const { email, senha } = req.body;
@@ -93,28 +109,28 @@ const login = async (req, res, next) => {
         senha: true,
         role: true,
         ativo: true,
-        bloqueado: true
+        bloqueado: true // Campo adicionado na migração
       }
     });
 
-    // Conta inativa ou bloqueada
     if (!user) {
       return next(new AppError('Email ou senha incorretos', 401));
     }
+    
     if (!user.ativo) {
       return next(new AppError('Conta desativada. Contacta o suporte.', 403));
     }
+    
     if (user.bloqueado) {
       return next(new AppError('Conta bloqueada temporariamente.', 403));
     }
 
-    // Verifica senha
     const senhaValida = await bcrypt.compare(senha, user.senha);
     if (!senhaValida) {
       return next(new AppError('Email ou senha incorretos', 401));
     }
 
-    // Atualiza último login
+    // Atualiza campo 'ultimoLogin' criado na migração
     await prisma.user.update({
       where: { id: user.id },
       data: { ultimoLogin: new Date() }
@@ -126,17 +142,8 @@ const login = async (req, res, next) => {
       id: user.id,
       nome: user.nome,
       email: user.email,
-      telefone: user.telefone,
       role: user.role
     };
-
-    // Cookie seguro (opcional — recomendado)
-    res.cookie('kamba_token', accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000
-    });
 
     res.json({
       success: true,
@@ -152,49 +159,7 @@ const login = async (req, res, next) => {
 };
 
 /**
- * REFRESH TOKEN
- */
-const refresh = async (req, res, next) => {
-  const { refreshToken } = req.body;
-
-  if (!refreshToken) {
-    return next(new AppError('Refresh token não fornecido', 401));
-  }
-
-  try {
-    const { verificarToken } = require('../middleware/auth');
-    const decoded = await verificarToken(refreshToken, process.env.REFRESH_SECRET);
-
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true }
-    });
-
-    if (!user) {
-      return next(new AppError('Token inválido', 401));
-    }
-
-    const { accessToken, refreshToken: novoRefresh } = gerarTokens(user.id);
-
-    // Salva novo refresh no banco (segurança máxima)
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: novoRefresh }
-    });
-
-    res.json({
-      success: true,
-      accessToken,
-      refreshToken: novoRefresh
-    });
-
-  } catch (err) {
-    next(new AppError('Sessão expirada. Faça login novamente.', 401));
-  }
-};
-
-/**
- * PERFIL DO USUÁRIO
+ * PERFIL (INCLUINDO NOVOS CAMPOS NO RETORNO)
  */
 const perfil = async (req, res, next) => {
   try {
@@ -205,6 +170,10 @@ const perfil = async (req, res, next) => {
         nome: true,
         email: true,
         telefone: true,
+        dataNascimento: true, // Novo
+        sexo: true,           // Novo
+        morada: true,         // Novo
+        rendaMensalMedia: true,
         role: true,
         criadoEm: true,
         ultimoLogin: true
@@ -223,17 +192,22 @@ const perfil = async (req, res, next) => {
 };
 
 /**
- * ATUALIZAR PERFIL
+ * ATUALIZAR PERFIL (CAMPOS ADICIONAIS PERMITIDOS)
  */
 const atualizarPerfil = async (req, res, next) => {
-  const camposPermitidos = ['nome', 'telefone'];
+  const camposPermitidos = ['nome', 'telefone', 'morada', 'sexo', 'rendaMensalMedia'];
   const dados = {};
 
-  for (const campo of camposPermitidos) {
-    if (req.body[campo] !== undefined && req.body[campo] !== '') {
-      dados[campo] = req.body[campo];
+  camposPermitidos.forEach(campo => {
+    if (req.body[campo] !== undefined) {
+      // Garantir que renda seja um float para o Prisma
+      if (campo === 'rendaMensalMedia') {
+        dados[campo] = parseFloat(req.body[campo]);
+      } else {
+        dados[campo] = req.body[campo];
+      }
     }
-  }
+  });
 
   if (Object.keys(dados).length === 0) {
     return next(new AppError('Nada para atualizar', 400));
@@ -248,6 +222,8 @@ const atualizarPerfil = async (req, res, next) => {
         nome: true,
         email: true,
         telefone: true,
+        morada: true,
+        sexo: true,
         role: true
       }
     });
@@ -266,10 +242,25 @@ const atualizarPerfil = async (req, res, next) => {
   }
 };
 
-module.exports = {
-  registrar,
-  login,
-  refresh,
-  perfil,
-  atualizarPerfil
+// Funções de Refresh permanecem iguais...
+const refresh = async (req, res, next) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return next(new AppError('Refresh token não fornecido', 401));
+
+  try {
+    const { verificarToken } = require('../middleware/auth');
+    const decoded = await verificarToken(refreshToken, process.env.REFRESH_SECRET);
+    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+
+    if (!user) return next(new AppError('Token inválido', 401));
+
+    const tokens = gerarTokens(user.id);
+    await prisma.user.update({ where: { id: user.id }, data: { refreshToken: tokens.refreshToken } });
+
+    res.json({ success: true, ...tokens });
+  } catch (err) {
+    next(new AppError('Sessão expirada. Faça login novamente.', 401));
+  }
 };
+
+module.exports = { registrar, login, refresh, perfil, atualizarPerfil };

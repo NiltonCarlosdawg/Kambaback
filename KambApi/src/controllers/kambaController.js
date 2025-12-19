@@ -1,203 +1,183 @@
 // src/controllers/kambaController.js
 const prisma = require('../lib/prisma');
+const Insights = require('./insightsController'); 
 
-/**
- * Alimentado por GROQ + GPT-OSS 120B (500+ tokens/s)
- */
-const conversarComKamba = async (req, res, next) => {
-  try {
-    const { mensagem } = req.body;
-    if (!mensagem || typeof mensagem !== 'string') {
-      return kambaRes(res, "Fala aí, kamba! O que queres saber hoje? Saldo? Último gasto? Objetivo?");
-    }
+const GROQ_API_KEY = process.env.KAMBA_AI_API_KEY; 
+const GROQ_BASE_URL = process.env.KAMBA_AI_BASE_URL; 
+const GROQ_MODEL = process.env.KAMBA_AI_MODEL || 'gpt-oss-120b'; 
 
-    const msg = mensagem.toLowerCase().trim();
-    const usuarioId = req.user.id;
-
-    // ================================
-    // 1. SALDO TOTAL + CARTÕES
-    // ================================
-    if (msg.includes('saldo') || msg.includes('quanto tenho') || msg.includes('dinheiro') || msg.includes('kwanza')) {
-      const cartoes = await prisma.cartao.findMany({
-        where: { usuarioId, ativo: true },
-        select: { nome: true, saldoAtual: true }
-      });
-
-      const total = cartoes.reduce((acc, c) => acc + (c.saldoAtual || 0), 0);
-
-      if (total === 0) {
-        return kambaRes(res, 'Mano... o teu saldo tá a zero. Hora de trabalhar ou poupar mais!');
-      }
-
-      const nomes = cartoes.length > 1 
-        ? `(${cartoes.map(c => c.nome).join(', ')})` 
-        : cartoes[0]?.nome || '';
-
-      return kambaRes(res, `Tens *${total.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}* no total!\n${nomes ? `Cartões: ${nomes}\n` : ''}Bora gastar com cabeça ou guardar pro futuro, kamba!`);
-    }
-
-    // ================================
-    // 2. ÚLTIMO GASTO
-    // ================================
-    if (msg.includes('último gasto') || msg.includes('gasto mais recente') || msg.includes('comprei')) {
-      const ultimo = await prisma.gasto.findFirst({
-        where: { usuarioId, excluido: false },
-        orderBy: { data: 'desc' },
-        include: {
-          cartao: { select: { nome: true } },
-          categoria: { select: { nome: true } }
+const availableTools = [
+    {
+        type: "function",
+        function: {
+            name: "getFluxoCaixaMensal",
+            description: "Obtém as receitas, despesas e poupança líquida do mês atual para avaliar cash flow.",
+            parameters: { type: "object", properties: {} },
         }
-      });
-
-      if (!ultimo) {
-        return kambaRes(res, 'Ainda não tens nenhum gasto registrado, mano! Tá tudo limpo!');
-      }
-
-      const valor = ultimo.valor.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' });
-      const data = new Date(ultimo.data).toLocaleDateString('pt-AO');
-      const desc = ultimo.descricao ? ` ("${ultimo.descricao}")` : '';
-
-      return kambaRes(res, `Teu último gasto foi *${valor}* em *${ultimo.categoria?.nome || 'Sem categoria'}*\nNo cartão: ${ultimo.cartao?.nome || '—'}\nDia: ${data}${desc}\nControla aí, kamba!`);
+    },
+    {
+        type: "function",
+        function: {
+            name: "getResumoObjetivos",
+            description: "Obtém o progresso de todos os objetivos financeiros (metas) do usuário.",
+            parameters: { type: "object", properties: {} },
+        }
+    },
+    {
+        type: "function",
+        function: {
+            name: "getFundoEmergenciaStatus",
+            description: "Verifica se o saldo de reserva cobre a despesa média mensal (meses de reserva).",
+            parameters: { type: "object", properties: {} },
+        }
     }
+];
 
-    // ================================
-    // 3. GASTOS DO MÊS
-    // ================================
-    if (msg.includes('gastei quanto') || msg.includes('este mês') || msg.includes('quanto gastei')) {
-      const inicioMes = new Date();
-      inicioMes.setDate(1);
-      inicioMes.setHours(0, 0, 0, 0);
+const kambaRes = (res, texto) => {
+    return res.json({
+        success: true,
+        kamba: true,
+        mensagem: texto,
+        timestamp: new Date().toISOString()
+    });
+};
 
-      const resultado = await prisma.gasto.aggregate({
-        where: {
-          usuarioId,
-          tipo: 'despesa',
-          data: { gte: inicioMes },
-          excluido: false
-        },
-        _sum: { valor: true }
-      });
+const conversarComKamba = async (req, res, next) => {
+    try {
+        const { mensagem, historico = [] } = req.body;
+        const usuarioId = req.user.id;
 
-      const gasto = resultado._sum.valor || 0;
+        if (!mensagem || typeof mensagem !== 'string') {
+            return kambaRes(res, "Diz aí, kamba! O que queres saber hoje? Saldo? Último gasto? Objetivo?");
+        }
 
-      if (gasto === 0) {
-        return kambaRes(res, 'Este mês ainda não gastaste NADA! Tá de parabéns, kamba! Tu és o rei do controlo!');
-      }
+        const msg = mensagem.toLowerCase().trim();
 
-      return kambaRes(res, `Este mês já gastaste *${gasto.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}*\nAinda tem muito mês pela frente… cuidado com as tentações!`);
-    }
-
-    // ================================
-    // 4. OBJETIVOS
-    // ================================
-    if (msg.includes('objetivo') || msg.includes('sonho') || msg.includes('poupar') || msg.includes('meta')) {
-      const objetivos = await prisma.objetivo.findMany({
-        where: {
-          usuarioId,
-          concluido: false,
-          dataFinal: { gte: new Date() }
-        },
-        orderBy: { dataFinal: 'asc' },
-        take: 3
-      });
-
-      if (objetivos.length === 0) {
-        return kambaRes(res, 'Ainda não tens objetivos ativos, kamba! Bora criar um? Clica em "Objetivos" e vamos sonhar alto juntos!');
-      }
-
-      const proximo = objetivos[0];
-      const faltam = (proximo.valorAlvo - proximo.valorAtual);
-      const progresso = Math.round((proximo.valorAtual / proximo.valorAlvo) * 100);
-
-      return kambaRes(res, `Teu próximo sonho é: *${proximo.titulo}*\nFaltam só *${faltam.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}* (${progresso}% concluído)\nTu consegues, kamba! Eu acredito em ti!`);
-    }
-
-    // ================================
-    // 5. SAUDAÇÃO
-    // ================================
-    if (msg.includes('oi') || msg.includes('olá') || msg.includes('kamba') || msg.includes('tudo bem') || msg === 'kamba') {
-      const hora = new Date().getHours();
-      const saudacao = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
-      return kambaRes(res, `${saudacao}, meu kamba!\nComo tá a gestão do kwanza hoje? Quer saber saldo, último gasto, poupança ou objetivo? É só falar que eu te ajudo na hora!`);
-    }
-
-    // ================================
-    // 6. IA AVANÇADA — GPT-OSS 120B NO GROQ (500+ tokens/s)
-    // ================================
-    const API_KEY = process.env.KAMBA_AI_API_KEY;
-    const BASE_URL = process.env.KAMBA_AI_BASE_URL || 'https://api.groq.com/openai/v1';
-    const MODEL = process.env.KAMBA_AI_MODEL || 'openai/gpt-oss-120b'; // ← MODELO CORRETO!
-
-    if (API_KEY) {
-      try {
-        console.log(`[KAMBA IA] → Chamando Groq | Modelo: ${MODEL} | Usuário: ${usuarioId}`);
-
-        const startTime = Date.now();
-        const response = await fetch(`${BASE_URL}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: MODEL,
-            messages: [
-              {
-                role: "system",
-                content: "Tu és o Kamba, o assistente financeiro mais fixe, rápido e inteligente de Angola. Responde em português angolano, com gíria, emojis e muita motivação. És alimentado pelo GPT-OSS 120B no Groq — rápido como um raio e esperto como um angolano. Sê prático, direto e angolano até ao osso."
-              },
-              { role: "user", content: mensagem }
-            ],
-            temperature: 0.8,
-            max_tokens: 600
-          })
+        // 1. BUSCA DE PERFIL COMPLETO
+        const perfil = await prisma.user.findUnique({
+            where: { id: usuarioId },
+            select: {
+                nome: true, morada: true, sexo: true,
+                dataNascimento: true, rendaMensalMedia: true, perfilDeRisco: true
+            }
         });
 
-        const latency = Date.now() - startTime;
-        console.log(`[KAMBA IA] ← Resposta Groq | Status: ${response.status} | Latência: ${latency}ms`);
+        const idade = perfil?.dataNascimento 
+            ? new Date().getFullYear() - new Date(perfil.dataNascimento).getFullYear() 
+            : 'não informada';
 
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[KAMBA IA] ❌ Erro Groq ${response.status}:`, errorText);
-          throw new Error(`Groq ${response.status}`);
+        // 2. REGRAS HEURÍSTICAS (Respostas Instantâneas para comandos comuns)
+        if (msg.includes('saldo') || msg.includes('quanto tenho')) {
+            const cartoes = await prisma.cartao.findMany({ where: { usuarioId, ativo: true } });
+            const total = cartoes.reduce((acc, c) => acc + Number(c.saldoAtual || 0), 0);
+            return kambaRes(res, `Tens *${total.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}* no total! Bora gastar com cabeça, kamba!`);
         }
 
-        const data = await response.json();
-        const respostaIA = data.choices?.[0]?.message?.content?.trim();
-
-        if (respostaIA) {
-          console.log(`[KAMBA IA] ✅ Sucesso | Tokens usados: ${data.usage?.total_tokens || 'N/A'}`);
-          return kambaRes(res, respostaIA);
+        if (msg.includes('último gasto') || msg.includes('comprei')) {
+            const ultimo = await prisma.gasto.findFirst({
+                where: { usuarioId, excluido: false },
+                orderBy: { data: 'desc' },
+                include: { categoria: true }
+            });
+            if (!ultimo) return kambaRes(res, 'Ainda não tens nenhum gasto registrado, mano!');
+            return kambaRes(res, `Teu último gasto foi *${Number(ultimo.valor).toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })}* em *${ultimo.categoria?.nome || 'Geral'}*.`);
         }
 
-      } catch (err) {
-        console.error('[KAMBA IA] Fallback ativado →', err.message);
-        // Fallback inteligente
-        return kambaRes(res, 'O 120B tá com sinal fraco hoje... mas eu não largo mão de ti! Tenta de novo em 10 segundos, kamba! Eu volto mais forte!');
-      }
+        // 3. IA AVANÇADA (GPT-OSS-120B) - MESCLAGEM DE REGRAS
+        if (!GROQ_API_KEY) return kambaRes(res, 'IA offline. Configura a API Key!');
+
+        let messages = [
+            {
+                role: "system",
+                content: `Tu és o KAMBA, assistente virtual de gestão financeira focado na realidade de Angola.
+
+                DADOS DO UTILIZADOR ATUAL:
+                - Nome: ${perfil.nome}
+                - Localização: ${perfil.morada}
+                - Idade: ${idade} anos
+                - Renda: ${perfil.rendaMensalMedia} AOA
+                - Perfil de Risco: ${perfil.perfilDeRisco}
+
+                ### Missão e Tom:
+                - Quando o usuário te cumprimentar, responde com uma saudação e pergunte apenas (como posso ajudar-te hoje?).
+                - Comunica em português angolano, usando gírias moderadas (kamba, mambo, kumbú, garra).
+                - Considera o contexto económico local (inflação, custo de vida em ${perfil.morada}, Kwanza).
+                - Adapta o conselho à classe económica do utilizador (baixa, média ou alta) com base na renda de ${perfil.rendaMensalMedia} AOA.
+                - Sê motivador, prático e respeitoso. Nunca ridicularizes dificuldades.
+
+                ### Regras de Operação:
+                1. Personalização: Usa os dados do perfil e as 'tools' para fundamentar respostas sobre poupança ou gastos.
+                2. Honestidade: Se os dados forem insuficientes, solicita a informação antes de aconselhar.
+                3. Segurança: Nunca prometas dinheiro fácil. Prioriza estabilidade e fundo de emergência.
+                4. Memória: Utiliza o histórico de mensagens para dar continuidade à conversa.
+
+                ### Instruções Técnicas:
+                - Mantém respostas curtas e objetivas.
+                - Sempre que possível, usa as tools: getFluxoCaixaMensal, getResumoObjetivos ou getFundoEmergenciaStatus.`
+            }
+        ];
+
+        // Adiciona histórico de memória (15 mensagens)
+        const historicoMapeado = historico.slice(-15).map(h => ({
+            role: h.sender === 'user' ? 'user' : 'assistant',
+            content: h.text
+        }));
+
+        messages.push(...historicoMapeado);
+        messages.push({ role: "user", content: mensagem });
+
+        // --- CHAMADA 1: DECISÃO DA IA ---
+        let response = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: GROQ_MODEL,
+                messages: messages,
+                tools: availableTools,
+                tool_choice: "auto",
+                temperature: 0.6,
+                max_tokens: 800
+            })
+        });
+
+        let data = await response.json();
+        let finalContent;
+
+        if (data.choices?.[0]?.message?.tool_calls) {
+            const toolCall = data.choices[0].message.tool_calls[0];
+            const functionName = toolCall.function.name;
+            
+            console.log(`[KAMBA IA 120B] Tool: ${functionName}`);
+
+            const toolResult = typeof Insights[functionName] === 'function' 
+                ? await Insights[functionName](usuarioId)
+                : { erro: "Função não encontrada" };
+
+            messages.push(data.choices[0].message);
+            messages.push({
+                role: "tool",
+                tool_call_id: toolCall.id,
+                content: JSON.stringify(toolResult)
+            });
+
+            let secondResponse = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: GROQ_MODEL, messages: messages, temperature: 0.5 })
+            });
+
+            let secondData = await secondResponse.json();
+            finalContent = secondData.choices?.[0]?.message?.content;
+        } else {
+            finalContent = data.choices?.[0]?.message?.content;
+        }
+
+        return kambaRes(res, finalContent || "O sinal da banda tá fraco, kamba. Tenta de novo.");
+
+    } catch (err) {
+        console.error('[KAMBA ERROR]:', err.message);
+        return kambaRes(res, "Me deixa só descansar um pouco. Tenta mais tarde, yha?");
     }
-
-    // ================================
-    // RESPOSTA PADRÃO (fallback final)
-    // ================================
-    return kambaRes(res, `E aí, kamba!\n\nPodes perguntar:\n• "Quanto tenho de saldo?"\n• "Qual foi o último gasto?"\n• "Quanto gastei este mês?"\n• "Como tá meu objetivo?"\n• "Oi Kamba!"\n\nOu qualquer coisa sobre dinheiro... eu respondo com o poder do GPT-OSS 120B!`);
-
-  } catch (err) {
-    console.error('[KAMBA] Erro crítico:', err);
-    return kambaRes(res, 'Ops, o Kamba tá com dor de cabeça... tenta de novo, mano! Eu volto já!');
-  }
 };
 
-// Helper — resposta padrão do Kamba
-const kambaRes = (res, texto) => {
-  return res.json({
-    success: true,
-    kamba: true,
-    mensagem: texto,
-    timestamp: new Date().toISOString()
-  });
-};
-
-module.exports = {
-  conversarComKamba
-};
+module.exports = { conversarComKamba };

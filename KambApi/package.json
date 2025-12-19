@@ -11,7 +11,9 @@
     "seed": "node src/utils/seed.js",
     "seed:clean": "node src/utils/seed.js --clean",
     "lint": "eslint .",
-    "format": "prettier --write \"**/*.js\""
+    "format": "prettier --write \"**/*.js\"",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate"
   },
   "keywords": [
     "finance",
@@ -20,7 +22,7 @@
     "api",
     "rest",
     "gestao-financeira",
-    "mongodb",
+    "postgresSql",
     "express"
   ],
   "author": "Equipa Kwanza",
@@ -64,5 +66,9 @@
   "bugs": {
     "url": "https://github.com/seu-usuario/kwanza-api/issues"
   },
-  "homepage": "https://github.com/seu-usuario/kwanza-api#readme"
+  "homepage": "https://github.com/seu-usuario/kwanza-api#readme",
+
+  "prisma": {
+  "seed": "node prisma/seed.js"
+}
 }
