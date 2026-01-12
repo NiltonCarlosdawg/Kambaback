@@ -1,5 +1,5 @@
-// prisma.config.ts
-import { defineConfig, env } from 'prisma/config';
+// prisma.config.js
+import { defineConfig } from '@prisma/config';
 import 'dotenv/config';
 
 export default defineConfig({
@@ -8,6 +8,7 @@ export default defineConfig({
     path: './prisma/migrations',
   },
   datasource: {
-    url: env('DATABASE_URL'),  // Aqui fica a conexão para migrações
+    // No Prisma 7, a URL para migrações deve ser definida aqui via process.env
+    url: process.env.DATABASE_URL,
   },
 });

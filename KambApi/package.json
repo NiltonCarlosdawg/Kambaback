@@ -29,23 +29,28 @@
   "license": "MIT",
   "dependencies": {
     "@prisma/adapter-pg": "^7.0.1",
-    "@prisma/client": "^7.0.1",
+    "@prisma/client": "^7.2.0",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "compression": "^1.7.4",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "express-rate-limit": "^7.2.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.5.1",
+    "express-slow-down": "^3.0.1",
     "express-validator": "^7.1.0",
-    "helmet": "^7.1.0",
+    "helmet": "^7.2.0",
+    "ioredis": "^5.9.1",
     "joi": "^18.0.2",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "4.1",
-    "morgan": "^1.10.0",
+    "morgan": "^1.10.1",
     "node-cache": "^5.1.2",
     "pg": "^8.16.3",
-    "prisma": "^7.0.1",
+    "prisma": "^7.2.0",
+    "rate-limit-redis": "^4.3.1",
     "validator": "^13.12.0"
   },
   "devDependencies": {
@@ -67,8 +72,7 @@
     "url": "https://github.com/seu-usuario/kwanza-api/issues"
   },
   "homepage": "https://github.com/seu-usuario/kwanza-api#readme",
-
   "prisma": {
-  "seed": "node prisma/seed.js"
-}
+    "seed": "node prisma/seed.js"
+  }
 }

@@ -1,5 +1,5 @@
 // src/middleware/errorHandler.js
-const { HTTP_STATUS, MENSAGENS_ERRO } = require('../config/constants');
+const { HTTP_STATUS } = require('../config/constants');
 
 // ==========================================
 // CLASSE DE ERRO PERSONALIZADA
@@ -19,7 +19,6 @@ class AppError extends Error {
 // ERROS ESPECÍFICOS
 // ==========================================
 
-// Erro de validação
 class ValidationError extends AppError {
   constructor(message, details = null) {
     super(message, HTTP_STATUS.BAD_REQUEST, details);
@@ -27,39 +26,34 @@ class ValidationError extends AppError {
   }
 }
 
-// Erro de autenticação
 class AuthenticationError extends AppError {
-  constructor(message = MENSAGENS_ERRO.CREDENCIAIS_INVALIDAS) {
+  constructor(message = 'Credenciais inválidas') {
     super(message, HTTP_STATUS.UNAUTHORIZED);
     this.name = 'AuthenticationError';
   }
 }
 
-// Erro de autorização
 class AuthorizationError extends AppError {
-  constructor(message = MENSAGENS_ERRO.SEM_AUTORIZACAO) {
+  constructor(message = 'Sem autorização') {
     super(message, HTTP_STATUS.FORBIDDEN);
     this.name = 'AuthorizationError';
   }
 }
 
-// Erro de recurso não encontrado
 class NotFoundError extends AppError {
-  constructor(message = MENSAGENS_ERRO.RECURSO_NAO_ENCONTRADO) {
+  constructor(message = 'Recurso não encontrado') {
     super(message, HTTP_STATUS.NOT_FOUND);
     this.name = 'NotFoundError';
   }
 }
 
-// Erro de conflito (duplicação)
 class ConflictError extends AppError {
-  constructor(message = MENSAGENS_ERRO.JA_EXISTE) {
+  constructor(message = 'Recurso já existe') {
     super(message, HTTP_STATUS.CONFLICT);
     this.name = 'ConflictError';
   }
 }
 
-// Erro de negócio
 class BusinessError extends AppError {
   constructor(message, statusCode = HTTP_STATUS.BAD_REQUEST) {
     super(message, statusCode);
@@ -68,46 +62,31 @@ class BusinessError extends AppError {
 }
 
 // ==========================================
-// HANDLER DE ERROS DO MONGOOSE
+// HANDLERS DE ERROS ESPECÍFICOS
 // ==========================================
 
-// Erro de validação do Mongoose
-const handleMongooseValidationError = (err) => {
-  const errors = Object.values(err.errors).map(val => ({
-    field: val.path,
-    message: val.message
-  }));
-  
-  const message = errors.map(e => `${e.field}: ${e.message}`).join(', ');
-  return new ValidationError(message, errors);
-};
-
-// Erro de cast do Mongoose (ID inválido)
-const handleMongooseCastError = (err) => {
-  const message = `Valor inválido para o campo ${err.path}: ${err.value}`;
+const handlePrismaValidationError = (err) => {
+  const message = err.message || 'Erro de validação no banco de dados';
   return new ValidationError(message);
 };
 
-// Erro de duplicação (chave única)
-const handleMongooseDuplicateError = (err) => {
-  const field = Object.keys(err.keyValue)[0];
-  const value = err.keyValue[field];
-  const message = `${field} "${value}" já está em uso. Por favor, escolhe outro.`;
+const handlePrismaUniqueConstraintError = (err) => {
+  const field = err.meta?.target?.[0] || 'campo';
+  const message = `${field} já está em uso. Por favor, escolhe outro.`;
   return new ConflictError(message);
 };
 
-// ==========================================
-// HANDLER DE ERROS JWT
-// ==========================================
-
-// Token inválido
-const handleJWTError = () => {
-  return new AuthenticationError(MENSAGENS_ERRO.TOKEN_INVALIDO);
+const handlePrismaForeignKeyError = (err) => {
+  const message = 'Registro relacionado não encontrado';
+  return new ValidationError(message);
 };
 
-// Token expirado
+const handleJWTError = () => {
+  return new AuthenticationError('Token inválido');
+};
+
 const handleJWTExpiredError = () => {
-  return new AuthenticationError(MENSAGENS_ERRO.TOKEN_EXPIRADO);
+  return new AuthenticationError('Token expirado. Faça login novamente.');
 };
 
 // ==========================================
@@ -116,7 +95,6 @@ const handleJWTExpiredError = () => {
 const logError = (err, req) => {
   const isDev = process.env.NODE_ENV === 'development';
   
-  // Informações básicas
   const errorInfo = {
     timestamp: new Date().toISOString(),
     message: err.message,
@@ -127,19 +105,18 @@ const logError = (err, req) => {
     userId: req.user?.id || 'Não autenticado'
   };
 
-  // Em desenvolvimento: log completo
   if (isDev) {
-    console.error('\n╔════════════════════════════════════════════╗');
-    console.error('║              ❌  ERRO CAPTURADO  ❌         ║');
-    console.error('╠════════════════════════════════════════════╣');
+    console.error('\n╔═══════════════════════════════════════════╗');
+    console.error('║              ❌ ERRO CAPTURADO  ❌         ║');
+    console.error('╠═══════════════════════════════════════════╣');
     console.error(`║ Timestamp: ${errorInfo.timestamp}`);
     console.error(`║ Status: ${errorInfo.statusCode || 500}`);
     console.error(`║ Rota: ${errorInfo.method} ${errorInfo.url}`);
     console.error(`║ IP: ${errorInfo.ip}`);
     console.error(`║ Usuário: ${errorInfo.userId}`);
-    console.error('╠════════════════════════════════════════════╣');
+    console.error('╠═══════════════════════════════════════════╣');
     console.error(`║ Mensagem: ${err.message}`);
-    console.error('╚════════════════════════════════════════════╝\n');
+    console.error('╚═══════════════════════════════════════════╝\n');
     
     if (err.stack) {
       console.error('Stack Trace:');
@@ -147,57 +124,59 @@ const logError = (err, req) => {
       console.error('\n');
     }
   } else {
-    // Em produção: log simplificado
     console.error(`[${errorInfo.timestamp}] ${errorInfo.statusCode} - ${errorInfo.method} ${errorInfo.url} - ${err.message}`);
   }
-
-  // TODO: Integrar com serviço de log externo (Sentry, LogRocket, etc.)
-  // if (process.env.SENTRY_DSN) {
-  //   Sentry.captureException(err);
-  // }
 };
 
 // ==========================================
 // MIDDLEWARE PRINCIPAL DE TRATAMENTO DE ERROS
 // ==========================================
 const errorHandler = (err, req, res, next) => {
-  // Log do erro
   logError(err, req);
 
-  // Copiar erro para não modificar o original
   let error = { ...err };
   error.message = err.message;
 
   // ========================================
-  // TRATAMENTO DE ERROS ESPECÍFICOS
+  // TRATAMENTO DE ERROS PRISMA
   // ========================================
-
-  // Erro de validação do Mongoose
-  if (err.name === 'ValidationError') {
-    error = handleMongooseValidationError(err);
+  
+  // P2002: Unique constraint violation
+  if (err.code === 'P2002') {
+    error = handlePrismaUniqueConstraintError(err);
   }
 
-  // Erro de cast do Mongoose (ID inválido)
-  if (err.name === 'CastError') {
-    error = handleMongooseCastError(err);
+  // P2003: Foreign key constraint violation
+  if (err.code === 'P2003') {
+    error = handlePrismaForeignKeyError(err);
   }
 
-  // Erro de duplicação (código 11000)
-  if (err.code === 11000) {
-    error = handleMongooseDuplicateError(err);
+  // P2025: Record not found
+  if (err.code === 'P2025') {
+    error = new NotFoundError('Registro não encontrado');
   }
 
-  // Erro JWT - Token inválido
+  // Prisma validation error
+  if (err.name === 'PrismaClientValidationError') {
+    error = handlePrismaValidationError(err);
+  }
+
+  // ========================================
+  // TRATAMENTO DE ERROS JWT
+  // ========================================
+  
   if (err.name === 'JsonWebTokenError') {
     error = handleJWTError();
   }
 
-  // Erro JWT - Token expirado
   if (err.name === 'TokenExpiredError') {
     error = handleJWTExpiredError();
   }
 
-  // Erro de sintaxe no JSON
+  // ========================================
+  // TRATAMENTO DE ERROS DE SINTAXE JSON
+  // ========================================
+  
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
     error = new ValidationError('JSON inválido na requisição');
   }
@@ -205,24 +184,23 @@ const errorHandler = (err, req, res, next) => {
   // ========================================
   // CONSTRUIR RESPOSTA DE ERRO
   // ========================================
+  
   const statusCode = error.statusCode || HTTP_STATUS.INTERNAL_ERROR;
   const isDev = process.env.NODE_ENV === 'development';
 
   const response = {
     success: false,
     error: {
-      message: error.message || MENSAGENS_ERRO.ERRO_SERVIDOR,
+      message: error.message || 'Erro interno do servidor',
       statusCode: statusCode,
       timestamp: new Date().toISOString()
     }
   };
 
-  // Adicionar detalhes extras se disponíveis
   if (error.details) {
     response.error.details = error.details;
   }
 
-  // Adicionar informações adicionais em desenvolvimento
   if (isDev) {
     response.error.stack = err.stack;
     response.error.name = err.name;
@@ -246,12 +224,10 @@ const errorHandler = (err, req, res, next) => {
     500: 'Erro no sistema, kamba! Estamos a resolver.'
   };
 
-  // Adicionar mensagem amigável
   if (mensagensAmigaveis[statusCode]) {
     response.error.mensagemAmigavel = mensagensAmigaveis[statusCode];
   }
 
-  // Enviar resposta
   res.status(statusCode).json(response);
 };
 
@@ -285,14 +261,11 @@ const isOperationalError = (error) => {
 };
 
 // ==========================================
-// EXPORTS
-// ==========================================
-// ==========================================
-// EXPORTS (CORRIGIDO – APENAS UM module.exports)
+// EXPORTS - CORRIGIDO (APENAS UM EXPORT)
 // ==========================================
 module.exports = {
-  // Middlewares
-  //errorHandler,
+  // Middleware principal
+  errorHandler,
   notFoundHandler,
   asyncHandler,
 
@@ -308,4 +281,3 @@ module.exports = {
   // Utility
   isOperationalError
 };
-module.exports = errorHandler;

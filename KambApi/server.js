@@ -1,150 +1,193 @@
-// src/server.js
 require('dotenv').config();
+
+// ==========================================
+// 1. VALIDA AMBIENTE ANTES DE TUDO
+// ==========================================
+// Certifique-se de que este arquivo existe em src/config/
+const { validateEnvironment } = require('./src/config/envValidator');
+validateEnvironment(); 
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
+const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 const prisma = require('./src/lib/prisma');
-const errorHandler = require('./src/middleware/errorHandler');
 
-// Inicializar Express
+// ==========================================
+// 2. IMPORTA RATE LIMITERS
+// ==========================================
+const {
+  limiteGlobal,
+  limiteAuth,
+  limiteKamba,
+  limiteFinanceiro,
+  slowDownLimiter
+} = require('./src/middleware/rateLimiter');
+
+// ==========================================
+// 3. IMPORTA ROTAS
+// ==========================================
+const authRoutes = require('./src/routes/auth');
+const cartoesRoutes = require('./src/routes/cartoes');
+const gastosRoutes = require('./src/routes/gastos');
+const categoriasRoutes = require('./src/routes/categorias');
+const objetivosRoutes = require('./src/routes/objetivos');
+const insightsRoutes = require('./src/routes/insights');
+const kambaRoutes = require('./src/routes/kamba');
+const noticiasRoutes = require('./src/routes/noticias');
+const aiRoutes = require('./src/routes/ai');
+
+// ==========================================
+// 4. IMPORTA ERROR HANDLERS
+// ==========================================
+const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
+
+// ==========================================
+// 5. INICIALIZA APP
+// ==========================================
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// ==================== SEGURANÇA & PERFORMANCE ====================
-app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: process.env.CLIENT_URL || ['http://localhost:3000', 'https://kwanza.app'], credentials: true }));
+// ==========================================
+// 6. MIDDLEWARES DE SEGURANÇA
+// ==========================================
 
-// Rate Limiting Global
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 120 : 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { success: false, message: 'Muitas requisições, kamba! Espera um pouco e tenta de novo' }
-});
-app.use('/api/', limiter);
+// Helmet - Headers de segurança
+app.use(helmet({
+  contentSecurityPolicy: false, 
+  crossOriginEmbedderPolicy: false
+}));
 
+// CORS configurado para Produção e Local
+app.use(cors({
+  origin: process.env.CLIENT_URL || ['http://localhost:5173', 'https://kwanza.app'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser());
 
+// Sanitização contra injeções
+app.use(mongoSanitize());
+
+// Trust proxy (essencial para Rate Limiting em Heroku/Render/Vercel)
+app.set('trust proxy', 1);
+
+// Logger para desenvolvimento
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
-// ==================== HEALTH CHECKS ====================
-app.get('/', (req, res) => {
-  res.json({
-    message: 'API Kwanza - A Tua Gestão Financeira Angolana',
-    version: '2.0.0 (PostgreSQL + Groq)',
-    status: 'online',
-    database: 'PostgreSQL + Prisma',
-    timestamp: new Date().toLocaleString('pt-AO')
-  });
-});
+// ==========================================
+// 7. RATE LIMITING GLOBAL
+// ==========================================
+app.use(limiteGlobal); 
+app.use(slowDownLimiter);
 
-app.get('/api/health', async (req, res) => {
-  try {
-    const userCount = await prisma.user.count();
-    res.json({
-      status: 'OK',
-      usersInDB: userCount,
-      uptime: `${Math.floor(process.uptime())}s`,
-      ambiente: process.env.NODE_ENV || 'development'
-    });
-  } catch (err) {
-    res.status(500).json({ status: 'ERROR', error: err.message });
-  }
-});
+// ==========================================
+// 8. ROTAS
+// ==========================================
 
-app.get('/api/test-db', async (req, res) => {
+// Rota de health check (Pública para monitoramento)
+app.get('/health', async (req, res) => {
   try {
-    const count = await prisma.user.count();
+    // Verifica se o DB está vivo
+    await prisma.$queryRaw`SELECT 1`;
     res.json({
       success: true,
-      message: 'PostgreSQL + Prisma conectado com sucesso!',
-      totalUsers: count
+      message: 'KambaPro API está online! 🇦🇴',
+      database: 'Conectado',
+      version: '2.0.0',
+      timestamp: new Date().toISOString()
     });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Falha na conexão com PostgreSQL', error: error.message });
-  }
-});
-
-// ==================== ROTAS COM SAFE IMPORT ====================
-function safeRouter(path) {
-  try {
-    const r = require(path);
-    return (r && typeof r.use === 'function') ? r : r;
   } catch (err) {
-    console.error(`Erro ao carregar rota: ${path}`, err.message);
-    return express.Router().get('/', (req, res) => res.status(503).json({ error: 'Rota em manutenção' }));
+    res.status(503).json({ success: false, database: 'Offline', error: err.message });
   }
-}
-
-// Import seguro
-const authRoutes       = safeRouter('./src/routes/auth');
-const cartoesRoutes    = safeRouter('./src/routes/cartoes');
-const gastosRoutes     = safeRouter('./src/routes/gastos');
-const categoriasRoutes = safeRouter('./src/routes/categorias');
-const objetivosRoutes  = safeRouter('./src/routes/objetivos');
-const insightsRoutes   = safeRouter('./src/routes/insights');
-const kambaRoutes      = safeRouter('./src/routes/kamba');
-const noticiasRoutes   = safeRouter('./src/routes/noticias');
-
-// Vincular rotas (ORDEM IMPORTA!)
-app.use('/api/auth',       authRoutes);
-app.use('/api/cartoes',    cartoesRoutes);
-app.use('/api/gastos',     gastosRoutes);
-app.use('/api/categorias', categoriasRoutes);
-app.use('/api/objetivos',  objetivosRoutes);
-app.use('/api/insights',   insightsRoutes);
-app.use('/api/kamba',      kambaRoutes);      // ← CORRETO!
-app.use('/api/noticias',   noticiasRoutes);
-
-// 404 — SEMPRE O ÚLTIMO
-app.use('*', (req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Rota não encontrada, kamba! Verifica o caminho ou fala com o Kamba'
-  });
 });
 
+// APLICAÇÃO DE ROTAS COM LIMITES ESPECÍFICOS
+app.use('/api/auth', limiteAuth, authRoutes);
+app.use('/api/kamba', limiteKamba, kambaRoutes);
+
+// OPERAÇÕES FINANCEIRAS
+app.use('/api/cartoes', limiteFinanceiro, cartoesRoutes);
+app.use('/api/gastos', limiteFinanceiro, gastosRoutes);
+app.use('/api/objetivos', limiteFinanceiro, objetivosRoutes);
+
+// DADOS E INSIGHTS
+app.use('/api/categorias', categoriasRoutes);
+app.use('/api/insights', insightsRoutes);
+app.use('/api/noticias', noticiasRoutes);
+app.use('/api/ai', aiRoutes);
+
+// ==========================================
+// 9. TRATAMENTO DE ERROS (ORDEM CRÍTICA)
+// ==========================================
+app.use(notFoundHandler);
 app.use(errorHandler);
 
-// ==================== INICIAR SERVIDOR ====================
-const PORT = process.env.PORT || 5000;
-
+// ==========================================
+// 10. INICIALIZAÇÃO DO SERVIDOR COM PRISMA
+// ==========================================
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log('╔══════════════════════════════════════════════════════════╗');
-    console.log('║     API KWANZA - SERVIDOR ONLINE COM POSTGRESQL!       ║');
-    console.log('║     Groq + Llama 3.1 70B ativado | Kamba IA Turbo      ║');
-    console.log(`║     Porta: ${PORT.toString().padEnd(45)}║`);
-    console.log(`║     Ambiente: ${(process.env.NODE_ENV || 'development').padEnd(38)}║`);
-    console.log(`║     Hora: ${new Date().toLocaleString('pt-AO').padEnd(43)}║`);
-    console.log('║     O futuro financeiro de Angola começou AGORA MESMO!   ║');
-    console.log('╚══════════════════════════════════════════════════════════╝\n');
-
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`Servidor rodando → http://localhost:${PORT}`);
-      console.log(`Teste o banco → http://localhost:${PORT}/api/test-db`);
-      console.log(`Fala com o Kamba → POST http://localhost:${PORT}/api/kamba\n`);
+    
+    const server = app.listen(PORT, () => {
+      console.log('\n╔═══════════════════════════════════════════════════════════╗');
+      console.log('║                                                           ║');
+      console.log('║           🇦🇴  KAMBAPRO API - SERVIDOR ONLINE 🇦🇴           ║');
+      console.log('║                                                           ║');
+      console.log('╠═══════════════════════════════════════════════════════════╣');
+      console.log(`║  Ambiente: ${process.env.NODE_ENV?.toUpperCase().padEnd(46)} ║`);
+      console.log(`║  Porta: ${PORT.toString().padEnd(49)} ║`);
+      console.log(`║  Base de Dados: PostgreSQL (Prisma)                       ║`);
+      console.log('╠═══════════════════════════════════════════════════════════╣');
+      console.log('║  ✅ Proteção contra Bruteforce: ATIVA                     ║');
+      console.log('║  ✅ Sanitização de Dados: ATIVA                           ║');
+      console.log('║  ✅ Segurança de Headers: ATIVA                           ║');
+      console.log('╚═══════════════════════════════════════════════════════════╝\n');
     });
+
+    // ==========================================
+    // 11. GRACEFUL SHUTDOWN
+    // ==========================================
+    const shutdown = (signal) => {
+      console.log(`\n⚠️  ${signal} recebido. Encerrando servidor...`);
+      server.close(async () => {
+        await prisma.$disconnect();
+        console.log('✅ Conexões encerradas com sucesso.');
+        process.exit(0);
+      });
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
   } catch (error) {
-    console.error('ERRO CRÍTICO AO CONECTAR AO POSTGRESQL:', error.message);
+    console.error('❌ Erro crítico na inicialização:', error);
     process.exit(1);
   }
 };
 
-startServer();
-
-// Graceful shutdown
-process.on('SIGTERM', async () => { await prisma.$disconnect(); process.exit(0); });
-process.on('SIGINT', async () => {
-  await prisma.$disconnect();
-  console.log('PostgreSQL desconectado. Até já, kamba!');
-  process.exit(0);
+// ==========================================
+// 12. MONITORAMENTO DE ERROS GLOBAIS
+// ==========================================
+process.on('uncaughtException', (err) => {
+  console.error('❌ UNCAUGHT EXCEPTION:', err);
+  process.exit(1);
 });
+
+process.on('unhandledRejection', (reason) => {
+  console.error('❌ UNHANDLED REJECTION:', reason);
+});
+
+startServer();
 
 module.exports = app;

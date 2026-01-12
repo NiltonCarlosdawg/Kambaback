@@ -4,167 +4,170 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  // A URL é gerida via prisma.config.js no Prisma 7
 }
-// ====================== USER ======================
+
 model User {
-  id               String    @id @default(uuid())
-  nome             String
-  email            String    @unique
-  telefone         String?   @unique
-  senha            String
+  id                String    @id @default(cuid())
+  nome              String
+  email             String    @unique
+  telefone          String?   @unique
+  senha             String
+  dataNascimento    DateTime
+  sexo              String
+  morada            String
+  rendaMensalMedia  Float     @default(0)
+  perfilDeRisco     String    @default("moderado")
   
-  // --- Novos Campos Obrigatórios ---
-  dataNascimento   DateTime
-  sexo             String    // Sugestão: "M", "F" 
-  morada           String    
+  role              String    @default("user")
+  ativo             Boolean   @default(true)
+  bloqueado         Boolean   @default(false)
+  verificado        Boolean   @default(false)
   
-  // --- Campos de Contexto para a IA ---
-  rendaMensalMedia Decimal?  @default(0)
-  perfilDeRisco    String?   @default("conservador")
-
-  role             String    @default("user")
-  foto             String?
-  ativo            Boolean   @default(true)
-  verificado       Boolean   @default(false)
-  bloqueado        Boolean   @default(false)
-  senhaAlteradaEm  DateTime?
-
-  criadoEm         DateTime  @default(now())
-  atualizadoEm     DateTime  @updatedAt
-  ultimoLogin      DateTime?
-  refreshToken     String?
+  refreshToken      String?
+  senhaAlteradaEm   DateTime?
+  ultimoLogin       DateTime?
   
-  // IA Config
-  aiApiKey         String?
-  aiProvider       String?
+  criadoEm          DateTime  @default(now())
+  atualizadoEm      DateTime  @updatedAt
 
-  contas           Conta[]
-  gastos           Gasto[]
-  cartoes          Cartao[]
-  categorias       Categoria[]
-  objetivos        Objetivo[]
+  // Relações
+  cartoes           Cartao[]
+  gastos            Gasto[]
+  objetivos         Objetivo[]
+  categorias        Categoria[]
 
   @@map("usuarios")
+  @@index([email])
+  @@index([ativo, bloqueado])
 }
 
-// ====================== CONTA ======================
-model Conta {
-  id         String      @id @default(uuid())
-  usuarioId  String
-  nome       String
-  tipo       String
-  saldo      Decimal     @default(0)
-  moeda      String      @default("AOA")
-  ativa      Boolean     @default(true)
-  criadoEm   DateTime    @default(now())
-
-  usuario    User        @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  transacoes Transacao[]
-  gastos     Gasto[]    
-
-  @@map("contas")
-}
-
-// ====================== TRANSAÇÃO ======================
-model Transacao {
-  id          String   @id @default(uuid())
-  contaId     String
-  tipo        String
-  valor       Decimal
-  descricao   String?
-  categoria   String   @default("geral")
-  data        DateTime @default(now())
-  comprovante String?
-
-  conta       Conta    @relation(fields: [contaId], references: [id], onDelete: Cascade)
-
-  @@map("transacoes")
-}
-
-// ====================== GASTO ======================
-model Gasto {
-  id             String    @id @default(uuid())
-  usuarioId      String
-  valor          Decimal
-  descricao      String?
-  tipo           String    // "despesa" ou "receita"
-  data           DateTime
-  categoriaId    String?
-  cartaoId       String?
-  contaId        String?
-  excluido       Boolean   @default(false)
-  recorrente     Boolean   @default(false)
-  recorrenciaFim DateTime?
-
-  usuario        User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  categoria      Categoria? @relation(fields: [categoriaId], references: [id])
-  cartao         Cartao?   @relation(fields: [cartaoId], references: [id])
-  conta          Conta?    @relation(fields: [contaId], references: [id]) // ← campo correto
-
-  @@map("gastos")
-}
-
-// ====================== CARTÃO ======================
 model Cartao {
-  id            String   @id @default(uuid())
-  usuarioId     String
-  nome          String
-  tipo          String
-  banco         String?
-  numero        String?  @unique
-  saldoAtual    Decimal  @default(0)
-  limiteCredito Decimal  @default(0)
-  disponivel    Decimal  @default(0)
-  cor           String   @default("#1e40af")
-  icone         String   @default("credit_card")
-  ativo         Boolean  @default(true)
-  bloqueado     Boolean  @default(false)
-  criadoEm      DateTime @default(now())
+  id              String    @id @default(cuid())
+  usuarioId       String
+  nome            String
+  tipo            String
+  banco           String?
+  numero          String?
+  
+  saldoAtual      Float     @default(0)
+  limiteCredito   Float     @default(0)
+  disponivel      Float     @default(0)
+  reservado       Float     @default(0)
+  
+  cor             String    @default("#1e40af")
+  icone           String    @default("credit_card")
+  
+  ativo           Boolean   @default(true)
+  bloqueado       Boolean   @default(false)
+  
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
 
-  usuario       User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  gastos        Gasto[]
+  usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos          Gasto[]
 
-  @@map("cartoes")
+  @@unique([usuarioId, numero])
+  @@map("Cartao")
+  @@index([usuarioId, ativo])
+  @@index([usuarioId, tipo])
 }
 
-// ====================== CATEGORIA ======================
 model Categoria {
-  id        String   @id @default(uuid())
-  usuarioId String?
-  nome      String
-  tipo      String
-  cor       String   @default("#6B7280")
-  icone     String   @default("category")
-  padrao    Boolean  @default(false)
-  ordem     Int      @default(999)
-  ativa     Boolean  @default(true)
+  id              String    @id @default(cuid())
+  nome            String
+  tipo            String    @default("despesa")
+  cor             String    @default("#6B7280")
+  icone           String    @default("category")
+  
+  padrao          Boolean   @default(false)
+  ativa           Boolean   @default(true)
+  ordem           Int       @default(999)
+  
+  usuarioId       String?
+  
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
 
-  usuario   User?    @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  gastos    Gasto[]
+  // Relações
+  usuario         User?     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos          Gasto[]
 
   @@unique([usuarioId, nome])
-  @@map("categorias")
+  @@map("Categoria")
+  // ÍNDICES PARA LISTAGEM RÁPIDA
+  @@index([padrao, ativa])
+  @@index([usuarioId, tipo])
 }
 
-// ====================== OBJETIVO ======================
+model Gasto {
+  id              String    @id @default(cuid())
+  usuarioId       String
+  cartaoId        String
+  categoriaId     String?
+  
+  tipo            String
+  valor           Float
+  descricao       String    @default("")
+  local           String?
+  data            DateTime  @default(now())
+  
+  parcelado       Json?
+  tags            String[]  @default([])
+  
+  excluido        Boolean   @default(false)
+  
+  criadoEm        DateTime  @default(now())
+  atualizadoEm    DateTime  @updatedAt
+
+  // Relações
+  usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cartao          Cartao    @relation(fields: [cartaoId], references: [id], onDelete: Restrict)
+  categoria       Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+
+  @@map("Gasto")
+  // ÍNDICES SUPER IMPORTANTES - QUERIES MAIS COMUNS
+  @@index([usuarioId, data(sort: Desc)])           // Listagem de gastos por data
+  @@index([usuarioId, tipo, data])                 // Filtro por tipo + data
+  @@index([usuarioId, categoriaId, data])          // Gastos por categoria
+  @@index([usuarioId, excluido, data])             // Gastos não excluídos
+  @@index([usuarioId, tipo, excluido, data])       // Query mais comum do dashboard
+  @@index([cartaoId])                              // Gastos por cartão
+  @@index([tags])                                  // Busca por tags
+}
+
 model Objetivo {
-  id                      String   @id @default(uuid())
-  usuarioId               String
-  titulo                  String
-  descricao               String?
-  categoria               String?
-  valorAlvo               Decimal
-  valorAtual              Decimal  @default(0)
-  dataFinal               DateTime
-  prioridade              String   @default("media")
-  cor                     String   @default("#10b981")
-  icone                   String   @default("target")
-  porcentagemDistribuicao Int      @default(0)
-  modoDistribuicao        String   @default("manual")
-  concluido               Boolean  @default(false)
-  criadoEm                DateTime @default(now())
+  id                        String    @id @default(cuid())
+  usuarioId                 String
+  
+  titulo                    String
+  descricao                 String    @default("")
+  categoria                 String?
+  
+  valorAlvo                 Float
+  valorAtual                Float     @default(0)
+  
+  dataInicio                DateTime  @default(now())
+  dataFinal                 DateTime
+  
+  prioridade                String    @default("media")
+  cor                       String    @default("#10b981")
+  icone                     String    @default("target")
+  
+  porcentagemDistribuicao   Int       @default(0)
+  modoDistribuicao          String    @default("manual")
+  
+  concluido                 Boolean   @default(false)
+  
+  criadoEm                  DateTime  @default(now())
+  atualizadoEm              DateTime  @updatedAt
 
-  usuario                 User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  // Relações
+  usuario                   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  @@map("objetivos")
+  @@map("Objetivo")
+  // ÍNDICES PARA QUERIES DE OBJETIVOS
+  @@index([usuarioId, concluido, dataFinal])
+  @@index([usuarioId, modoDistribuicao, concluido])
+  @@index([usuarioId, prioridade])
 }

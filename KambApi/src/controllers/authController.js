@@ -1,37 +1,33 @@
 // src/controllers/authController.js
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
-const { gerarTokens } = require('../middleware/auth');
 const AppError = require('../middleware/AppError');
 
-/**
- * REGISTRO DE NOVA CONTA (AJUSTADO PARA NOVO SCHEMA)
- */
-const registrar = async (req, res, next) => {
-  // Desestruturação dos novos campos obrigatórios
-  const { 
-    nome, 
-    email, 
-    telefone, 
-    senha, 
-    dataNascimento, 
-    sexo, 
-    morada,
-    rendaMensalMedia 
-  } = req.body;
+// ==========================================
+// SECRETS - CORRIGIDO: SEM FALLBACK INSEGURO
+// ==========================================
+const JWT_SECRET = process.env.JWT_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
 
-  // 1. Validação de campos obrigatórios conforme o novo schema
-  if (!nome || !email || !senha || !dataNascimento || !sexo || !morada) {
-    return next(new AppError('Kamba, preenche todos os campos obrigatórios (nome, email, senha, nascimento, sexo e morada).', 400));
-  }
+// Validação em runtime (defesa adicional)
+if (!JWT_SECRET || !REFRESH_SECRET) {
+  throw new Error('CRITICAL: JWT_SECRET ou REFRESH_SECRET não configurados! Aplicação não pode iniciar.');
+}
+
+// ==========================================
+// REGISTRO
+// ==========================================
+const registrar = async (req, res, next) => {
+  const { nome, email, telefone, senha, dataNascimento, sexo, morada, rendaMensalMedia } = req.body;
 
   try {
-    // 2. Verifica duplicidade (Email ou Telefone)
+    // Verifica duplicidade
     const existe = await prisma.user.findFirst({
       where: {
         OR: [
           { email: email.toLowerCase() },
-          { telefone: telefone || undefined } // evita erro se telefone for null
+          { telefone: telefone || undefined }
         ]
       }
     });
@@ -43,17 +39,17 @@ const registrar = async (req, res, next) => {
       return next(new AppError(msg, 409));
     }
 
-    // 3. Criptografa senha
+    // Hash senha com 12 rounds (seguro)
     const senhaHash = await bcrypt.hash(senha, 12);
 
-    // 4. Cria usuário com os novos campos
-    const user = await prisma.user.create({
+    // Cria usuário
+    const usuario = await prisma.user.create({
       data: {
         nome: nome.trim(),
         email: email.toLowerCase(),
         telefone,
         senha: senhaHash,
-        dataNascimento: new Date(dataNascimento), // Conversão para objeto Date
+        dataNascimento: new Date(dataNascimento),
         sexo,
         morada,
         rendaMensalMedia: rendaMensalMedia ? parseFloat(rendaMensalMedia) : 0,
@@ -73,12 +69,29 @@ const registrar = async (req, res, next) => {
       }
     });
 
-    const { accessToken, refreshToken } = gerarTokens(user.id);
+    // Gera tokens
+    const accessToken = jwt.sign(
+      { id: usuario.id },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    const refreshToken = jwt.sign(
+      { id: usuario.id },
+      REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Salva refresh token no banco
+    await prisma.user.update({
+      where: { id: usuario.id },
+      data: { refreshToken }
+    });
 
     res.status(201).json({
       success: true,
-      message: 'Conta criada com sucesso! Bem-vindo ao KambaPro, kamba!',
-      user,
+      message: 'Conta criada com sucesso! Bem-vindo ao KambaPro 🇦🇴',
+      user: usuario,
       accessToken,
       refreshToken
     });
@@ -88,9 +101,9 @@ const registrar = async (req, res, next) => {
   }
 };
 
-/**
- * LOGIN (COM VERIFICAÇÃO DE BLOQUEIO E ÚLTIMO LOGIN)
- */
+// ==========================================
+// LOGIN
+// ==========================================
 const login = async (req, res, next) => {
   const { email, senha } = req.body;
 
@@ -99,58 +112,65 @@ const login = async (req, res, next) => {
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
-      select: {
-        id: true,
-        nome: true,
-        email: true,
-        telefone: true,
-        senha: true,
-        role: true,
-        ativo: true,
-        bloqueado: true // Campo adicionado na migração
-      }
+    const usuario = await prisma.user.findUnique({
+      where: { email: email.toLowerCase() }
     });
 
-    if (!user) {
+    if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
       return next(new AppError('Email ou senha incorretos', 401));
     }
-    
-    if (!user.ativo) {
+
+    if (!usuario.ativo) {
       return next(new AppError('Conta desativada. Contacta o suporte.', 403));
     }
-    
-    if (user.bloqueado) {
+
+    if (usuario.bloqueado) {
       return next(new AppError('Conta bloqueada temporariamente.', 403));
     }
 
-    const senhaValida = await bcrypt.compare(senha, user.senha);
-    if (!senhaValida) {
-      return next(new AppError('Email ou senha incorretos', 401));
-    }
+    // Gera novos tokens
+    const accessToken = jwt.sign(
+      { id: usuario.id },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
 
-    // Atualiza campo 'ultimoLogin' criado na migração
+    const refreshToken = jwt.sign(
+      { id: usuario.id },
+      REFRESH_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    // Atualiza último login + refresh token
     await prisma.user.update({
-      where: { id: user.id },
-      data: { ultimoLogin: new Date() }
+      where: { id: usuario.id },
+      data: {
+        refreshToken,
+        ultimoLogin: new Date()
+      }
     });
 
-    const { accessToken, refreshToken } = gerarTokens(user.id);
-
-    const userPublic = {
-      id: user.id,
-      nome: user.nome,
-      email: user.email,
-      role: user.role
+    const dadosUsuario = {
+      id: usuario.id,
+      nome: usuario.nome,
+      email: usuario.email,
+      telefone: usuario.telefone,
+      role: usuario.role
     };
+
+    // Cookie seguro para refresh token
+    res.cookie('refreshToken', refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
+    });
 
     res.json({
       success: true,
-      message: `Bem-vindo de volta, ${user.nome.split(' ')[0]}!`,
-      user: userPublic,
-      accessToken,
-      refreshToken
+      message: `Bem-vindo de volta, ${usuario.nome.split(' ')[0]}!`,
+      user: dadosUsuario,
+      accessToken
     });
 
   } catch (err) {
@@ -158,21 +178,73 @@ const login = async (req, res, next) => {
   }
 };
 
-/**
- * PERFIL (INCLUINDO NOVOS CAMPOS NO RETORNO)
- */
+// ==========================================
+// REFRESH TOKEN
+// ==========================================
+const refresh = async (req, res, next) => {
+  const token = req.cookies.refreshToken || req.body.refreshToken;
+
+  if (!token) {
+    return next(new AppError('Refresh token não fornecido', 401));
+  }
+
+  try {
+    const decoded = jwt.verify(token, REFRESH_SECRET);
+
+    const usuario = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, refreshToken: true, ativo: true, bloqueado: true }
+    });
+
+    if (!usuario) {
+      return next(new AppError('Token inválido', 403));
+    }
+
+    if (!usuario.ativo || usuario.bloqueado) {
+      return next(new AppError('Conta inativa ou bloqueada', 403));
+    }
+
+    // Valida se o token bate com o armazenado (previne replay attacks)
+    if (usuario.refreshToken !== token) {
+      return next(new AppError('Token inválido ou já foi revogado', 403));
+    }
+
+    // Gera novo access token
+    const novoAccessToken = jwt.sign(
+      { id: usuario.id },
+      JWT_SECRET,
+      { expiresIn: '15m' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Token renovado',
+      accessToken: novoAccessToken
+    });
+
+  } catch (err) {
+    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
+      return next(new AppError('Sessão expirada. Faça login novamente.', 403));
+    }
+    next(err);
+  }
+};
+
+// ==========================================
+// PERFIL
+// ==========================================
 const perfil = async (req, res, next) => {
   try {
-    const user = await prisma.user.findUnique({
+    const usuario = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: {
         id: true,
         nome: true,
         email: true,
         telefone: true,
-        dataNascimento: true, // Novo
-        sexo: true,           // Novo
-        morada: true,         // Novo
+        dataNascimento: true,
+        sexo: true,
+        morada: true,
         rendaMensalMedia: true,
         role: true,
         criadoEm: true,
@@ -180,10 +252,14 @@ const perfil = async (req, res, next) => {
       }
     });
 
+    if (!usuario) {
+      return next(new AppError('Usuário não encontrado', 404));
+    }
+
     res.json({
       success: true,
       message: 'Perfil carregado',
-      user
+      user: usuario
     });
 
   } catch (err) {
@@ -191,30 +267,29 @@ const perfil = async (req, res, next) => {
   }
 };
 
-/**
- * ATUALIZAR PERFIL (CAMPOS ADICIONAIS PERMITIDOS)
- */
+// ==========================================
+// ATUALIZAR PERFIL
+// ==========================================
 const atualizarPerfil = async (req, res, next) => {
   const camposPermitidos = ['nome', 'telefone', 'morada', 'sexo', 'rendaMensalMedia'];
   const dados = {};
 
-  camposPermitidos.forEach(campo => {
+  for (const campo of camposPermitidos) {
     if (req.body[campo] !== undefined) {
-      // Garantir que renda seja um float para o Prisma
       if (campo === 'rendaMensalMedia') {
         dados[campo] = parseFloat(req.body[campo]);
       } else {
         dados[campo] = req.body[campo];
       }
     }
-  });
+  }
 
   if (Object.keys(dados).length === 0) {
-    return next(new AppError('Nada para atualizar', 400));
+    return next(new AppError('Nenhum dado válido para atualizar', 400));
   }
 
   try {
-    const user = await prisma.user.update({
+    const usuario = await prisma.user.update({
       where: { id: req.user.id },
       data: dados,
       select: {
@@ -231,7 +306,7 @@ const atualizarPerfil = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
-      user
+      user: usuario
     });
 
   } catch (err) {
@@ -242,25 +317,33 @@ const atualizarPerfil = async (req, res, next) => {
   }
 };
 
-// Funções de Refresh permanecem iguais...
-const refresh = async (req, res, next) => {
-  const { refreshToken } = req.body;
-  if (!refreshToken) return next(new AppError('Refresh token não fornecido', 401));
-
+// ==========================================
+// LOGOUT (REVOGA REFRESH TOKEN)
+// ==========================================
+const logout = async (req, res, next) => {
   try {
-    const { verificarToken } = require('../middleware/auth');
-    const decoded = await verificarToken(refreshToken, process.env.REFRESH_SECRET);
-    const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    await prisma.user.update({
+      where: { id: req.user.id },
+      data: { refreshToken: null }
+    });
 
-    if (!user) return next(new AppError('Token inválido', 401));
+    res.clearCookie('refreshToken');
 
-    const tokens = gerarTokens(user.id);
-    await prisma.user.update({ where: { id: user.id }, data: { refreshToken: tokens.refreshToken } });
+    res.json({
+      success: true,
+      message: 'Logout realizado com sucesso'
+    });
 
-    res.json({ success: true, ...tokens });
   } catch (err) {
-    next(new AppError('Sessão expirada. Faça login novamente.', 401));
+    next(err);
   }
 };
 
-module.exports = { registrar, login, refresh, perfil, atualizarPerfil };
+module.exports = {
+  registrar,
+  login,
+  refresh,
+  perfil,
+  atualizarPerfil,
+  logout
+};

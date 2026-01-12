@@ -18,21 +18,27 @@ const { protegerRota } = require('../middleware/auth');
 router.use(protegerRota);
 
 // ==========================================
-// SCHEMA DE VALIDAÇÃO JOI
+// SCHEMA DE VALIDAÇÃO JOI - CORRIGIDO
 // ==========================================
 const criarGastoSchema = validar(
   Joi.object({
-    cartao: Joi.string().hex().length(24).required()
+    // CORRIGIDO: cartao → cartaoId (alinhado com controller)
+    cartaoId: Joi.string().required()
       .messages({ 'any.required': 'Cartão é obrigatório' }),
 
-    tipo: Joi.string().valid('despesa', 'receita').required(),
+    tipo: Joi.string().valid('despesa', 'receita').required()
+      .messages({ 'any.required': 'Tipo é obrigatório (despesa ou receita)' }),
 
     valor: Joi.number().positive().required()
-      .messages({ 'number.positive': 'Valor deve ser positivo' }),
+      .messages({ 
+        'number.positive': 'Valor deve ser positivo',
+        'any.required': 'Valor é obrigatório'
+      }),
 
     descricao: Joi.string().max(150).allow('').optional(),
 
-    categoria: Joi.string().required()
+    // CORRIGIDO: categoria → categoriaId (alinhado com controller)
+    categoriaId: Joi.string().required()
       .messages({ 'any.required': 'Categoria é obrigatória' }),
 
     data: Joi.date().iso().default(() => new Date()),
@@ -45,8 +51,8 @@ const criarGastoSchema = validar(
       recorrencia: Joi.string().valid('unica', 'mensal', 'anual').default('unica')
     }).optional(),
 
-    objetivo: Joi.string().hex().length(24).allow(null).optional(),
-
+    // CORRIGIDO: removido campo objetivo (não existe relação no schema)
+    
     tags: Joi.array()
       .items(Joi.string().max(30).lowercase())
       .max(10)
@@ -57,15 +63,20 @@ const criarGastoSchema = validar(
 // ==========================================
 // ROTAS
 // ==========================================
+
+// Criar novo gasto/receita
 router.post('/', criarGastoSchema, criarGasto);
 
+// Listar gastos com filtros e paginação
 router.get('/', listarGastos);
-// ?pagina=1&limite=20&tipo=despesa&categoria=alimentacao&cartao=abc123&dataInicio=2025-01-01&dataFim=2025-01-31&busca=mercado
+// Query params aceitos:
+// ?pagina=1&limite=20&tipo=despesa&categoria=<id>&cartao=<id>&dataInicio=2025-01-01&dataFim=2025-01-31&busca=mercado
 
+// Resumo por categoria (mês específico)
 router.get('/por-categoria', gastosPorCategoria);
-// ?mes=1&ano=2025 → resumo do mês especificado
+// Query params: ?mes=1&ano=2025
 
+// Deletar gasto (soft delete)
 router.delete('/:id', deletarGasto);
 
-// Exportar router corretamente
 module.exports = router;

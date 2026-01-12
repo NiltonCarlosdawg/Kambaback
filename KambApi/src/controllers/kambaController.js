@@ -172,7 +172,7 @@ const conversarComKamba = async (req, res, next) => {
             finalContent = data.choices?.[0]?.message?.content;
         }
 
-        return kambaRes(res, finalContent || "O sinal da banda tá fraco, kamba. Tenta de novo.");
+        return kambaRes(res, finalContent || "Me deixa só descansar um pouco. Tenta mais tarde, yha?");
 
     } catch (err) {
         console.error('[KAMBA ERROR]:', err.message);

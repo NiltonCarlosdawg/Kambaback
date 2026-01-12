@@ -211,89 +211,133 @@ const adicionarProgresso = async (req, res, next) => {
 
 /**
  * DISTRIBUIR POUPANÇA AUTOMÁTICA DO MÊS
+ * CORRIGIDO: Transação atômica para evitar race conditions
  */
 const distribuirPoupanca = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
 
-    // 1. Calcula poupança líquida do mês atual
-    const hoje = new Date();
-    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59);
+    // Executa tudo dentro de uma única transação
+    const resultado = await prisma.$transaction(async (tx) => {
+      // 1. Calcula poupança líquida do mês atual
+      const hoje = new Date();
+      const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+      const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59);
 
-    const movimentos = await prisma.gasto.groupBy({
-      by: ['tipo'],
-      where: {
-        usuarioId,
-        data: { gte: inicioMes, lte: fimMes },
-        excluido: false
-      },
-      _sum: { valor: true }
+      const movimentos = await tx.gasto.groupBy({
+        by: ['tipo'],
+        where: {
+          usuarioId,
+          data: { gte: inicioMes, lte: fimMes },
+          excluido: false
+        },
+        _sum: { valor: true }
+      });
+
+      let receitas = 0, despesas = 0;
+      movimentos.forEach(m => {
+        if (m.tipo === 'receita') receitas = m._sum.valor || 0;
+        if (m.tipo === 'despesa') despesas = m._sum.valor || 0;
+      });
+
+      const poupancaDisponivel = receitas - despesas;
+
+      if (poupancaDisponivel <= 0) {
+        return {
+          semPoupanca: true,
+          poupancaDisponivel,
+          distribuidos: []
+        };
+      }
+
+      // 2. Busca objetivos com distribuição automática
+      const objetivos = await tx.objetivo.findMany({
+        where: {
+          usuarioId,
+          concluido: false,
+          modoDistribuicao: 'automatico',
+          porcentagemDistribuicao: { gt: 0 }
+        }
+      });
+
+      if (objetivos.length === 0) {
+        return {
+          semObjetivos: true,
+          poupancaDisponivel,
+          distribuidos: []
+        };
+      }
+
+      // 3. Distribui proporcionalmente - AGORA TUDO NA MESMA TRANSAÇÃO
+      const distribuidos = [];
+      
+      // Calcula todos os updates primeiro
+      const updates = objetivos.map(obj => {
+        const valor = Math.round(poupancaDisponivel * (obj.porcentagemDistribuicao / 100));
+        if (valor <= 0) return null;
+
+        const novoAtual = Math.min(obj.valorAtual + valor, obj.valorAlvo);
+        
+        return {
+          id: obj.id,
+          titulo: obj.titulo,
+          valor,
+          progressoAnterior: Math.round((obj.valorAtual / obj.valorAlvo) * 100),
+          progressoAtual: Math.round((novoAtual / obj.valorAlvo) * 100),
+          novoAtual,
+          concluido: novoAtual >= obj.valorAlvo
+        };
+      }).filter(Boolean);
+
+      // Executa todos os updates de forma atômica
+      for (const update of updates) {
+        await tx.objetivo.update({
+          where: { id: update.id },
+          data: {
+            valorAtual: update.novoAtual,
+            concluido: update.concluido
+          }
+        });
+
+        distribuidos.push({
+          objetivo: update.titulo,
+          valor: update.valor,
+          progressoAnterior: update.progressoAnterior,
+          progressoAtual: update.progressoAtual
+        });
+      }
+
+      return {
+        sucesso: true,
+        poupancaDisponivel,
+        distribuidos
+      };
     });
 
-    let receitas = 0, despesas = 0;
-    movimentos.forEach(m => {
-      if (m.tipo === 'receita') receitas = m._sum.valor || 0;
-      if (m.tipo === 'despesa') despesas = m._sum.valor || 0;
-    });
-
-    const poupancaDisponivel = receitas - despesas;
-    if (poupancaDisponivel <= 0) {
+    // Retorna resposta baseada no resultado da transação
+    if (resultado.semPoupanca) {
       return res.json({
         success: true,
         message: 'Sem poupança este mês. Continua a lutar, kamba!',
-        poupancaDisponivel,
+        poupancaDisponivel: resultado.poupancaDisponivel,
         distribuidos: []
       });
     }
 
-    // 2. Busca objetivos com distribuição automática
-    const objetivos = await prisma.objetivo.findMany({
-      where: {
-        usuarioId,
-        concluido: false,
-        modoDistribuicao: 'automatico',
-        porcentagemDistribuicao: { gt: 0 }
-      }
-    });
-
-    if (objetivos.length === 0) {
+    if (resultado.semObjetivos) {
       return res.json({
         success: true,
         message: 'Poupança disponível, mas sem objetivos automáticos configurados',
-        poupancaDisponivel
-      });
-    }
-
-    // 3. Distribui proporcionalmente
-    const distribuidos = [];
-    for (const obj of objetivos) {
-      const valor = Math.round(poupancaDisponivel * (obj.porcentagemDistribuicao / 100));
-      if (valor <= 0) continue;
-
-      const novoAtual = Math.min(obj.valorAtual + valor, obj.valorAlvo);
-
-      await prisma.objetivo.update({
-        where: { id: obj.id },
-        data: {
-          valorAtual: novoAtual,
-          concluido: novoAtual >= obj.valorAlvo
-        }
-      });
-
-      distribuidos.push({
-        objetivo: obj.titulo,
-        valor,
-        progressoAnterior: Math.round((obj.valorAtual / obj.valorAlvo) * 100),
-        progressoAtual: Math.round((novoAtual / obj.valorAlvo) * 100)
+        poupancaDisponivel: resultado.poupancaDisponivel,
+        distribuidos: []
       });
     }
 
     res.json({
       success: true,
-      message: `Poupança distribuída automaticamente! ${poupancaDisponivel.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })} investidos no teu futuro`,
-      poupancaDisponivel,
-      distribuidos
+      message: `Poupança distribuída automaticamente! ${resultado.poupancaDisponivel.toLocaleString('pt-AO', { style: 'currency', currency: 'AOA' })} investidos no teu futuro`,
+      poupancaDisponivel: resultado.poupancaDisponivel,
+      distribuidos: resultado.distribuidos
     });
 
   } catch (err) {
