@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // A URL é gerida via prisma.config.js no Prisma 7
+  // A URL é gerida via .env (DATABASE_URL)
 }
 
 model User {
@@ -31,11 +31,20 @@ model User {
   criadoEm          DateTime  @default(now())
   atualizadoEm      DateTime  @updatedAt
 
-  // Relações
+  // Relações existentes
   cartoes           Cartao[]
   gastos            Gasto[]
   objetivos         Objetivo[]
   categorias        Categoria[]
+
+  // Novas relações – Kamba IA
+  kambaMemoria      KambaMemoria[]
+  kambaUsage        KambaUsage[]
+  kambaLembretes    KambaLembrete[]
+  kambaFeedback     KambaFeedback[]
+  dispositivos      DispositivoPush[]
+  notificacoes      NotificacaoPush[]
+  preferenciasPush  PreferenciasNotificacao?
 
   @@map("usuarios")
   @@index([email])
@@ -57,7 +66,6 @@ model Cartao {
   
   cor             String    @default("#1e40af")
   icone           String    @default("credit_card")
-  
   ativo           Boolean   @default(true)
   bloqueado       Boolean   @default(false)
   
@@ -67,73 +75,37 @@ model Cartao {
   usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   gastos          Gasto[]
 
-  @@unique([usuarioId, numero])
   @@map("Cartao")
   @@index([usuarioId, ativo])
-  @@index([usuarioId, tipo])
-}
-
-model Categoria {
-  id              String    @id @default(cuid())
-  nome            String
-  tipo            String    @default("despesa")
-  cor             String    @default("#6B7280")
-  icone           String    @default("category")
-  
-  padrao          Boolean   @default(false)
-  ativa           Boolean   @default(true)
-  ordem           Int       @default(999)
-  
-  usuarioId       String?
-  
-  criadoEm        DateTime  @default(now())
-  atualizadoEm    DateTime  @updatedAt
-
-  // Relações
-  usuario         User?     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  gastos          Gasto[]
-
-  @@unique([usuarioId, nome])
-  @@map("Categoria")
-  // ÍNDICES PARA LISTAGEM RÁPIDA
-  @@index([padrao, ativa])
-  @@index([usuarioId, tipo])
 }
 
 model Gasto {
-  id              String    @id @default(cuid())
-  usuarioId       String
-  cartaoId        String
-  categoriaId     String?
+  id          String    @id @default(cuid())
+  usuarioId   String
+  cartaoId    String
+  tipo        String    // 'despesa' | 'receita'
+  valor       Float
+  descricao   String?
+  categoriaId String?
+  data        DateTime
+  local       String?
+  excluido    Boolean   @default(false)
   
-  tipo            String
-  valor           Float
-  descricao       String    @default("")
-  local           String?
-  data            DateTime  @default(now())
+  parcelado   Json?     // { totalParcelas, parcelaAtual, recorrencia }
+  tags        String[]  @default([])
   
-  parcelado       Json?
-  tags            String[]  @default([])
-  
-  excluido        Boolean   @default(false)
-  
-  criadoEm        DateTime  @default(now())
-  atualizadoEm    DateTime  @updatedAt
+  criadoEm    DateTime  @default(now())
+  atualizadoEm DateTime @updatedAt
 
-  // Relações
-  usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  cartao          Cartao    @relation(fields: [cartaoId], references: [id], onDelete: Restrict)
-  categoria       Categoria? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  usuario     User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cartao      Cartao    @relation(fields: [cartaoId], references: [id], onDelete: Restrict)
+  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
 
   @@map("Gasto")
-  // ÍNDICES SUPER IMPORTANTES - QUERIES MAIS COMUNS
-  @@index([usuarioId, data(sort: Desc)])           // Listagem de gastos por data
-  @@index([usuarioId, tipo, data])                 // Filtro por tipo + data
-  @@index([usuarioId, categoriaId, data])          // Gastos por categoria
-  @@index([usuarioId, excluido, data])             // Gastos não excluídos
-  @@index([usuarioId, tipo, excluido, data])       // Query mais comum do dashboard
-  @@index([cartaoId])                              // Gastos por cartão
-  @@index([tags])                                  // Busca por tags
+  @@index([usuarioId, excluido, data(sort: Desc)])
+  @@index([usuarioId, tipo, excluido, data])
+  @@index([cartaoId])
+  @@index([tags])
 }
 
 model Objetivo {
@@ -162,12 +134,95 @@ model Objetivo {
   criadoEm                  DateTime  @default(now())
   atualizadoEm              DateTime  @updatedAt
 
-  // Relações
   usuario                   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@map("Objetivo")
-  // ÍNDICES PARA QUERIES DE OBJETIVOS
   @@index([usuarioId, concluido, dataFinal])
   @@index([usuarioId, modoDistribuicao, concluido])
   @@index([usuarioId, prioridade])
+}
+
+model Categoria {
+  id          String    @id @default(cuid())
+  usuarioId   String?
+  nome        String
+  tipo        String    // 'despesa' | 'receita'
+  cor         String?
+  icone       String?
+  ordem       Int       @default(0)
+  padrao      Boolean   @default(false)
+  ativa       Boolean   @default(true)
+  
+  criadoEm    DateTime  @default(now())
+  atualizadoEm DateTime @updatedAt
+
+  usuario     User?     @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  gastos      Gasto[]
+
+  @@map("Categoria")
+  @@unique([usuarioId, nome, tipo], name: "categoria_usuario_nome_tipo")
+  @@index([padrao, ordem, nome])
+}
+
+// ─────────────────────────────────────────────
+//          MODELOS NOVOS – KAMBA IA
+// ─────────────────────────────────────────────
+
+model KambaMemoria {
+  id        String    @id @default(uuid())
+  usuarioId String
+  role      String    // 'user' | 'assistant' | 'system' (opcional)
+  content   String    @db.Text
+  timestamp DateTime  @default(now())
+
+  usuario   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, timestamp(sort: Desc)])
+  @@map("kamba_memoria")
+}
+
+model KambaUsage {
+  id        String    @id @default(uuid())
+  usuarioId String
+  tokens    Int
+  modelo    String    @default("gpt-oss-120b")
+  sucesso   Boolean   @default(true)
+  latencia  Int?      // ms
+  erro      String?   @db.Text
+  timestamp DateTime  @default(now())
+
+  usuario   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, timestamp(sort: Desc)])
+  @@map("kamba_usage")
+}
+
+model KambaLembrete {
+  id           String    @id @default(uuid())
+  usuarioId    String
+  tipo         String    // 'gasto_alto', 'objetivo_perto', 'fundo_baixo', 'poupanca_diaria', etc
+  mensagem     String    @db.Text
+  enviado      Boolean   @default(false)
+  agendadoPara DateTime
+  criadoEm     DateTime  @default(now())
+
+  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, enviado, agendadoPara])
+  @@map("kamba_lembretes")
+}
+
+model KambaFeedback {
+  id         String    @id @default(uuid())
+  usuarioId  String
+  mensagemId String?   // pode referenciar id de KambaMemoria
+  avaliacao  String    // 'positivo' | 'negativo' | 'neutro'
+  comentario String?   @db.Text
+  criadoEm   DateTime  @default(now())
+
+  usuario    User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, avaliacao])
+  @@index([mensagemId])
+  @@map("kamba_feedback")
 }

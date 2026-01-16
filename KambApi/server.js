@@ -7,6 +7,9 @@ require('dotenv').config();
 const { validateEnvironment } = require('./src/config/envValidator');
 validateEnvironment(); 
 
+const { iniciarCronJobs } = require('./src/jobs/kambaCronJobs');
+iniciarCronJobs();
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
