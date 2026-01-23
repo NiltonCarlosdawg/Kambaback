@@ -188,32 +188,18 @@ const deletarCartao = async (req, res, next) => {
   const { id } = req.params;
 
   try {
-    // Verifica se tem gastos associados
-    const temGastos = await prisma.gasto.count({
-      where: {
-        cartaoId: id,
-        usuarioId: req.user.id,
-        excluido: false
-      }
+    const atualizado = await prisma.gasto.update({
+      where: { id, usuarioId: req.user.id },
+      data: { excluido: true }
     });
 
-    if (temGastos > 0) {
-      return next(new AppError('Não podes apagar um cartão com transações. Desativa-o primeiro.', 400));
-    }
-
-    const deletado = await prisma.cartao.deleteMany({
-      where: { id, usuarioId: req.user.id }
-    });
-
-    if (deletado.count === 0) {
-      return next(new AppError('Cartão não encontrado', 404));
-    }
+    // Invalida cache se tiver
+    await invalidarCacheUsuario(req.user.id);
 
     res.json({
       success: true,
-      message: 'Cartão removido com sucesso'
+      message: 'Gasto removido com sucesso (movido para lixeira)'
     });
-
   } catch (err) {
     next(err);
   }

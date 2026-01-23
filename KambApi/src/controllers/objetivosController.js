@@ -352,19 +352,18 @@ const deletarObjetivo = async (req, res, next) => {
   const { id } = req.params;
 
   try {
-    const deletado = await prisma.objetivo.deleteMany({
-      where: { id, usuarioId: req.user.id }
+    const atualizado = await prisma.gasto.update({
+      where: { id, usuarioId: req.user.id },
+      data: { excluido: true }
     });
 
-    if (deletado.count === 0) {
-      return next(new AppError('Objetivo não encontrado', 404));
-    }
+    // Invalida cache se tiver
+    await invalidarCacheUsuario(req.user.id);
 
     res.json({
       success: true,
-      message: 'Objetivo removido com sucesso'
+      message: 'Gasto removido com sucesso (movido para lixeira)'
     });
-
   } catch (err) {
     next(err);
   }

@@ -135,36 +135,18 @@ const deletarCategoria = async (req, res, next) => {
   const { id } = req.params;
 
   try {
-    // Verifica se está em uso em algum gasto
-    const emUso = await prisma.gasto.count({
-      where: {
-        categoriaId: id,
-        usuarioId: req.user.id,
-        excluido: false
-      }
+    const atualizado = await prisma.gasto.update({
+      where: { id, usuarioId: req.user.id },
+      data: { excluido: true }
     });
 
-    if (emUso > 0) {
-      return next(new AppError('Não podes apagar uma categoria que está em uso. Muda os gastos primeiro.', 400));
-    }
-
-    const deletada = await prisma.categoria.deleteMany({
-      where: {
-        id,
-        usuarioId: req.user.id,
-        padrao: false
-      }
-    });
-
-    if (deletada.count === 0) {
-      return next(new AppError('Categoria não encontrada ou não pode ser apagada', 404));
-    }
+    // Invalida cache se tiver
+    await invalidarCacheUsuario(req.user.id);
 
     res.json({
       success: true,
-      message: 'Categoria removida com sucesso'
+      message: 'Gasto removido com sucesso (movido para lixeira)'
     });
-
   } catch (err) {
     next(err);
   }

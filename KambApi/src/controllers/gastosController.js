@@ -237,41 +237,22 @@ const gastosPorCategoria = async (req, res, next) => {
  */
 const deletarGasto = async (req, res, next) => {
   const { id } = req.params;
-  const usuarioId = req.user.id;
 
   try {
-    await prisma.$transaction(async (tx) => {
-      const gasto = await tx.gasto.findFirst({
-        where: { id, usuarioId },
-        include: { cartao: true }
-      });
-
-      if (!gasto) throw new AppError('Gasto não encontrado', 404);
-      if (gasto.excluido) throw new AppError('Gasto já foi removido', 400);
-
-      // Soft delete
-      await tx.gasto.update({
-        where: { id },
-        data: { excluido: true }
-      });
-
-      // Reverte o saldo do cartão
-      if (gasto.cartao) {
-        const ajuste = gasto.tipo === 'despesa' ? +gasto.valor : -gasto.valor;
-        await tx.cartao.update({
-          where: { id: gasto.cartaoId },
-          data: { saldoAtual: { increment: ajuste } }
-        });
-      }
+    const atualizado = await prisma.gasto.update({
+      where: { id, usuarioId: req.user.id },
+      data: { excluido: true }
     });
 
-    // OTIMIZAÇÃO: Invalida cache após deletar
-    await invalidarCacheUsuario(usuarioId);
+    // Invalida cache se tiver
+    await invalidarCacheUsuario(req.user.id);
 
-    res.json({ success: true, message: 'Gasto removido com sucesso' });
-
+    res.json({
+      success: true,
+      message: 'Gasto removido com sucesso (movido para lixeira)'
+    });
   } catch (err) {
-    next(err instanceof AppError ? err : new AppError('Erro ao deletar gasto', 500));
+    next(err);
   }
 };
 

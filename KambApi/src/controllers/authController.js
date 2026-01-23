@@ -5,15 +5,23 @@ const prisma = require('../lib/prisma');
 const AppError = require('../middleware/AppError');
 
 // ==========================================
-// SECRETS - CORRIGIDO: SEM FALLBACK INSEGURO
+// SECRETS – sem fallback inseguro
 // ==========================================
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
 
-// Validação em runtime (defesa adicional)
 if (!JWT_SECRET || !REFRESH_SECRET) {
-  throw new Error('CRITICAL: JWT_SECRET ou REFRESH_SECRET não configurados! Aplicação não pode iniciar.');
+  throw new Error('CRITICAL: JWT_SECRET ou REFRESH_SECRET não configurados!');
 }
+
+// ==========================================
+// GERAR TOKENS
+// ==========================================
+const gerarTokens = (userId) => {
+  const accessToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ id: userId }, REFRESH_SECRET, { expiresIn: '7d' });
+  return { accessToken, refreshToken };
+};
 
 // ==========================================
 // REGISTRO
@@ -39,22 +47,18 @@ const registrar = async (req, res, next) => {
       return next(new AppError(msg, 409));
     }
 
-    // Hash senha com 12 rounds (seguro)
     const senhaHash = await bcrypt.hash(senha, 12);
 
-    // Cria usuário
     const usuario = await prisma.user.create({
       data: {
-        nome: nome.trim(),
+        nome,
         email: email.toLowerCase(),
         telefone,
         senha: senhaHash,
-        dataNascimento: new Date(dataNascimento),
+        dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
         sexo,
         morada,
         rendaMensalMedia: rendaMensalMedia ? parseFloat(rendaMensalMedia) : 0,
-        role: 'user',
-        ativo: true
       },
       select: {
         id: true,
@@ -64,23 +68,12 @@ const registrar = async (req, res, next) => {
         dataNascimento: true,
         sexo: true,
         morada: true,
-        role: true,
+        rendaMensalMedia: true,
         criadoEm: true
       }
     });
 
-    // Gera tokens
-    const accessToken = jwt.sign(
-      { id: usuario.id },
-      JWT_SECRET,
-      { expiresIn: '15m' }
-    );
-
-    const refreshToken = jwt.sign(
-      { id: usuario.id },
-      REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
+    const { accessToken, refreshToken } = gerarTokens(usuario.id);
 
     // Salva refresh token no banco
     await prisma.user.update({
@@ -90,8 +83,8 @@ const registrar = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Conta criada com sucesso! Bem-vindo ao KambaPro 🇦🇴',
-      user: usuario,
+      message: 'Conta criada com sucesso!',
+      usuario,
       accessToken,
       refreshToken
     });
@@ -107,70 +100,33 @@ const registrar = async (req, res, next) => {
 const login = async (req, res, next) => {
   const { email, senha } = req.body;
 
-  if (!email || !senha) {
-    return next(new AppError('Email e senha são obrigatórios', 400));
-  }
-
   try {
     const usuario = await prisma.user.findUnique({
       where: { email: email.toLowerCase() }
     });
 
     if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
-      return next(new AppError('Email ou senha incorretos', 401));
+      return next(new AppError('Credenciais inválidas', 401));
     }
 
-    if (!usuario.ativo) {
-      return next(new AppError('Conta desativada. Contacta o suporte.', 403));
-    }
+    const { accessToken, refreshToken } = gerarTokens(usuario.id);
 
-    if (usuario.bloqueado) {
-      return next(new AppError('Conta bloqueada temporariamente.', 403));
-    }
-
-    // Gera novos tokens
-    const accessToken = jwt.sign(
-      { id: usuario.id },
-      JWT_SECRET,
-      { expiresIn: '15m' }
-    );
-
-    const refreshToken = jwt.sign(
-      { id: usuario.id },
-      REFRESH_SECRET,
-      { expiresIn: '7d' }
-    );
-
-    // Atualiza último login + refresh token
     await prisma.user.update({
       where: { id: usuario.id },
-      data: {
-        refreshToken,
-        ultimoLogin: new Date()
-      }
-    });
-
-    const dadosUsuario = {
-      id: usuario.id,
-      nome: usuario.nome,
-      email: usuario.email,
-      telefone: usuario.telefone,
-      role: usuario.role
-    };
-
-    // Cookie seguro para refresh token
-    res.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 dias
+      data: { refreshToken, ultimoLogin: new Date() }
     });
 
     res.json({
       success: true,
-      message: `Bem-vindo de volta, ${usuario.nome.split(' ')[0]}!`,
-      user: dadosUsuario,
-      accessToken
+      message: 'Login realizado',
+      usuario: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        telefone: usuario.telefone
+      },
+      accessToken,
+      refreshToken
     });
 
   } catch (err) {
@@ -182,50 +138,41 @@ const login = async (req, res, next) => {
 // REFRESH TOKEN
 // ==========================================
 const refresh = async (req, res, next) => {
-  const token = req.cookies.refreshToken || req.body.refreshToken;
+  const { refreshToken } = req.body;
 
-  if (!token) {
-    return next(new AppError('Refresh token não fornecido', 401));
-  }
+  if (!refreshToken) return next(new AppError('Refresh token necessário', 401));
 
   try {
-    const decoded = jwt.verify(token, REFRESH_SECRET);
-
-    const usuario = await prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true, refreshToken: true, ativo: true, bloqueado: true }
+    const decoded = await new Promise((resolve, reject) => {
+      jwt.verify(refreshToken, REFRESH_SECRET, (err, dec) => {
+        if (err) reject(new AppError('Refresh token inválido ou expirado', 401));
+        resolve(dec);
+      });
     });
 
-    if (!usuario) {
-      return next(new AppError('Token inválido', 403));
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, refreshToken: true }
+    });
+
+    if (!user || user.refreshToken !== refreshToken) {
+      return next(new AppError('Sessão inválida', 401));
     }
 
-    if (!usuario.ativo || usuario.bloqueado) {
-      return next(new AppError('Conta inativa ou bloqueada', 403));
-    }
+    const { accessToken, refreshToken: novoRefresh } = gerarTokens(user.id);
 
-    // Valida se o token bate com o armazenado (previne replay attacks)
-    if (usuario.refreshToken !== token) {
-      return next(new AppError('Token inválido ou já foi revogado', 403));
-    }
-
-    // Gera novo access token
-    const novoAccessToken = jwt.sign(
-      { id: usuario.id },
-      JWT_SECRET,
-      { expiresIn: '15m' }
-    );
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { refreshToken: novoRefresh }
+    });
 
     res.json({
       success: true,
-      message: 'Token renovado',
-      accessToken: novoAccessToken
+      accessToken,
+      refreshToken: novoRefresh
     });
 
   } catch (err) {
-    if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') {
-      return next(new AppError('Sessão expirada. Faça login novamente.', 403));
-    }
     next(err);
   }
 };
@@ -242,24 +189,21 @@ const perfil = async (req, res, next) => {
         nome: true,
         email: true,
         telefone: true,
-        dataNascimento: true,
-        sexo: true,
         morada: true,
+        sexo: true,
+        dataNascimento: true,
         rendaMensalMedia: true,
-        role: true,
         criadoEm: true,
         ultimoLogin: true
       }
     });
 
-    if (!usuario) {
-      return next(new AppError('Usuário não encontrado', 404));
-    }
+    if (!usuario) return next(new AppError('Usuário não encontrado', 404));
 
     res.json({
       success: true,
       message: 'Perfil carregado',
-      user: usuario
+      usuario
     });
 
   } catch (err) {
@@ -299,14 +243,14 @@ const atualizarPerfil = async (req, res, next) => {
         telefone: true,
         morada: true,
         sexo: true,
-        role: true
+        rendaMensalMedia: true
       }
     });
 
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
-      user: usuario
+      usuario
     });
 
   } catch (err) {
@@ -318,7 +262,7 @@ const atualizarPerfil = async (req, res, next) => {
 };
 
 // ==========================================
-// LOGOUT (REVOGA REFRESH TOKEN)
+// LOGOUT
 // ==========================================
 const logout = async (req, res, next) => {
   try {

@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  // A URL é gerida via .env (DATABASE_URL)
+
 }
 
 model User {
@@ -31,166 +31,140 @@ model User {
   criadoEm          DateTime  @default(now())
   atualizadoEm      DateTime  @updatedAt
 
-  // Relações existentes
+  // Relações
   cartoes           Cartao[]
   gastos            Gasto[]
   objetivos         Objetivo[]
   categorias        Categoria[]
-
-  // Novas relações – Kamba IA
   kambaMemoria      KambaMemoria[]
   kambaUsage        KambaUsage[]
   kambaLembretes    KambaLembrete[]
   kambaFeedback     KambaFeedback[]
   dispositivos      DispositivoPush[]
   notificacoes      NotificacaoPush[]
-  preferenciasPush  PreferenciasNotificacao?
+  preferencias      PreferenciasUsuario?
 
-  @@map("usuarios")
+  // Índices úteis
   @@index([email])
-  @@index([ativo, bloqueado])
+  @@index([telefone])
+  @@index([refreshToken])
+  @@index([ultimoLogin(sort: Desc)])
 }
 
 model Cartao {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   usuarioId       String
   nome            String
   tipo            String
   banco           String?
   numero          String?
-  
   saldoAtual      Float     @default(0)
-  limiteCredito   Float     @default(0)
-  disponivel      Float     @default(0)
-  reservado       Float     @default(0)
-  
-  cor             String    @default("#1e40af")
-  icone           String    @default("credit_card")
+  limiteCredito   Float?    @default(0)
+  disponivel      Float?
+  cor             String?
+  icone           String?
   ativo           Boolean   @default(true)
   bloqueado       Boolean   @default(false)
-  
   criadoEm        DateTime  @default(now())
-  atualizadoEm    DateTime  @updatedAt
-
+  excluido      Boolean   @default(false)
   usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   gastos          Gasto[]
 
-  @@map("Cartao")
   @@index([usuarioId, ativo])
+  @@index([usuarioId, criadoEm(sort: Desc)])
 }
 
 model Gasto {
-  id          String    @id @default(cuid())
-  usuarioId   String
-  cartaoId    String
-  tipo        String    // 'despesa' | 'receita'
-  valor       Float
-  descricao   String?
-  categoriaId String?
-  data        DateTime
-  local       String?
-  excluido    Boolean   @default(false)
-  
-  parcelado   Json?     // { totalParcelas, parcelaAtual, recorrencia }
-  tags        String[]  @default([])
-  
-  criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @updatedAt
+  id            String    @id @default(uuid())
+  usuarioId     String
+  cartaoId      String
+  categoriaId   String
+  tipo          String
+  valor         Float
+  descricao     String?
+  data          DateTime
+  local         String?
+  parcelado     Json?
+  tags          String[]
+  excluido      Boolean   @default(false)
+  criadoEm      DateTime  @default(now())
 
-  usuario     User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  cartao      Cartao    @relation(fields: [cartaoId], references: [id], onDelete: Restrict)
-  categoria   Categoria? @relation(fields: [categoriaId], references: [id])
+  usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cartao        Cartao    @relation(fields: [cartaoId], references: [id])
+  categoria     Categoria @relation(fields: [categoriaId], references: [id])
 
-  @@map("Gasto")
-  @@index([usuarioId, excluido, data(sort: Desc)])
-  @@index([usuarioId, tipo, excluido, data])
-  @@index([cartaoId])
-  @@index([tags])
+  @@index([usuarioId, data(sort: Desc)])
+  @@index([usuarioId, tipo])
+  @@index([usuarioId, categoriaId])
+  @@index([usuarioId, cartaoId])
+  @@index([usuarioId, excluido])
+  @@index([data])
 }
 
 model Objetivo {
-  id                        String    @id @default(cuid())
-  usuarioId                 String
-  
-  titulo                    String
-  descricao                 String    @default("")
-  categoria                 String?
-  
-  valorAlvo                 Float
-  valorAtual                Float     @default(0)
-  
-  dataInicio                DateTime  @default(now())
-  dataFinal                 DateTime
-  
-  prioridade                String    @default("media")
-  cor                       String    @default("#10b981")
-  icone                     String    @default("target")
-  
-  porcentagemDistribuicao   Int       @default(0)
-  modoDistribuicao          String    @default("manual")
-  
-  concluido                 Boolean   @default(false)
-  
-  criadoEm                  DateTime  @default(now())
-  atualizadoEm              DateTime  @updatedAt
+  id                      String    @id @default(uuid())
+  usuarioId               String
+  titulo                  String
+  descricao               String?
+  categoria               String
+  valorAlvo               Float
+  valorAtual              Float     @default(0)
+  dataPrevista            DateTime
+  prioridade              String    @default("media")
+  cor                     String?
+  icone                   String?
+  concluido               Boolean   @default(false)
+  porcentagemDistribuicao Float?    @default(0)
+  modoDistribuicao        String    @default("automatico")
+  criadoEm                DateTime  @default(now())
+  excluido      Boolean   @default(false)
+  usuario                 User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  usuario                   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@map("Objetivo")
-  @@index([usuarioId, concluido, dataFinal])
-  @@index([usuarioId, modoDistribuicao, concluido])
-  @@index([usuarioId, prioridade])
+  @@index([usuarioId, concluido])
+  @@index([usuarioId, dataPrevista])
+  @@index([usuarioId, concluido, dataPrevista])
 }
 
 model Categoria {
-  id          String    @id @default(cuid())
-  usuarioId   String?
+  id          String    @id @default(uuid())
   nome        String
-  tipo        String    // 'despesa' | 'receita'
+  tipo        String
   cor         String?
   icone       String?
   ordem       Int       @default(0)
   padrao      Boolean   @default(false)
+  usuarioId   String?
   ativa       Boolean   @default(true)
-  
-  criadoEm    DateTime  @default(now())
-  atualizadoEm DateTime @updatedAt
-
-  usuario     User?     @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+   excluido      Boolean   @default(false)
+  usuario     User?     @relation(fields: [usuarioId], references: [id])
   gastos      Gasto[]
 
-  @@map("Categoria")
-  @@unique([usuarioId, nome, tipo], name: "categoria_usuario_nome_tipo")
-  @@index([padrao, ordem, nome])
+  @@index([usuarioId, padrao])
+  @@index([usuarioId, tipo, ordem])
 }
 
-// ─────────────────────────────────────────────
-//          MODELOS NOVOS – KAMBA IA
-// ─────────────────────────────────────────────
-
 model KambaMemoria {
-  id        String    @id @default(uuid())
-  usuarioId String
-  role      String    // 'user' | 'assistant' | 'system' (opcional)
-  content   String    @db.Text
-  timestamp DateTime  @default(now())
+  id           String    @id @default(uuid())
+  usuarioId    String
+  contexto     Json?
+  mensagem     String    @db.Text
+  resposta     String    @db.Text
+  criadoEm     DateTime  @default(now())
+  excluido      Boolean   @default(false)
+  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  usuario   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, timestamp(sort: Desc)])
-  @@map("kamba_memoria")
+  @@index([usuarioId, criadoEm(sort: Desc)])
 }
 
 model KambaUsage {
   id        String    @id @default(uuid())
   usuarioId String
-  tokens    Int
-  modelo    String    @default("gpt-oss-120b")
+  model     String    @default("gpt-oss-120b")
   sucesso   Boolean   @default(true)
-  latencia  Int?      // ms
+  latencia  Int?
   erro      String?   @db.Text
   timestamp DateTime  @default(now())
-
+  
   usuario   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, timestamp(sort: Desc)])
@@ -200,12 +174,12 @@ model KambaUsage {
 model KambaLembrete {
   id           String    @id @default(uuid())
   usuarioId    String
-  tipo         String    // 'gasto_alto', 'objetivo_perto', 'fundo_baixo', 'poupanca_diaria', etc
+  tipo         String
   mensagem     String    @db.Text
   enviado      Boolean   @default(false)
   agendadoPara DateTime
   criadoEm     DateTime  @default(now())
-
+  excluido      Boolean   @default(false)
   usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, enviado, agendadoPara])
@@ -215,14 +189,56 @@ model KambaLembrete {
 model KambaFeedback {
   id         String    @id @default(uuid())
   usuarioId  String
-  mensagemId String?   // pode referenciar id de KambaMemoria
-  avaliacao  String    // 'positivo' | 'negativo' | 'neutro'
+  mensagemId String?
+  avaliacao  String
   comentario String?   @db.Text
   criadoEm   DateTime  @default(now())
-
+  excluido      Boolean   @default(false)
   usuario    User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   @@index([usuarioId, avaliacao])
   @@index([mensagemId])
   @@map("kamba_feedback")
+}
+
+// Modelos que estavam truncados no teu documento original
+// (adicionados de forma genérica com base no contexto da aplicação)
+
+model DispositivoPush {
+  id           String    @id @default(uuid())
+  usuarioId    String
+  token        String    @unique
+  tipo         String    // "android" | "ios" | "web"
+  ativo        Boolean   @default(true)
+  criadoEm     DateTime  @default(now())
+
+  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, ativo])
+}
+
+model NotificacaoPush {
+  id           String    @id @default(uuid())
+  usuarioId    String
+  titulo       String
+  corpo        String    @db.Text
+  lida         Boolean   @default(false)
+  tipo         String    // "lembrete", "alerta_gasto", "meta_alcancada", etc
+  criadoEm     DateTime  @default(now())
+
+  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, lida, criadoEm(sort: Desc)])
+}
+
+model PreferenciasUsuario {
+  id                  String    @id @default(uuid())
+  usuarioId           String    @unique
+  idioma              String    @default("pt")
+  tema                String    @default("light")
+  notificacoesAtivas  Boolean   @default(true)
+  moedaPadrao         String    @default("AOA")
+  atualizadoEm        DateTime  @updatedAt
+
+  usuario             User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 }
