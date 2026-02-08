@@ -3,12 +3,10 @@ require('dotenv').config();
 // ==========================================
 // 1. VALIDA AMBIENTE ANTES DE TUDO
 // ==========================================
-// Certifique-se de que este arquivo existe em src/config/
 const { validateEnvironment } = require('./src/config/envValidator');
 validateEnvironment(); 
 
 const { iniciarCronJobs } = require('./src/jobs/kambaCronJobs');
-iniciarCronJobs();
 
 const express = require('express');
 const cors = require('cors');
@@ -19,15 +17,9 @@ const morgan = require('morgan');
 const prisma = require('./src/lib/prisma');
 
 // ==========================================
-// 2. IMPORTA RATE LIMITERS
+// 2. IMPORTA APENAS O RATE LIMITER DE AUTH
 // ==========================================
-const {
-  limiteGlobal,
-  limiteAuth,
-  limiteKamba,
-  limiteFinanceiro,
-  slowDownLimiter
-} = require('./src/middleware/rateLimiter');
+const { limiteAuth } = require('./src/middleware/rateLimiter');
 
 // ==========================================
 // 3. IMPORTA ROTAS
@@ -56,16 +48,25 @@ const PORT = process.env.PORT || 5000;
 // ==========================================
 // 6. MIDDLEWARES DE SEGURANÇA
 // ==========================================
-
-// Helmet - Headers de segurança
 app.use(helmet({
   contentSecurityPolicy: false, 
   crossOriginEmbedderPolicy: false
 }));
 
-// CORS configurado para Produção e Local
+// CORS
+const corsOrigins = process.env.NODE_ENV === 'production' 
+  ? [process.env.CLIENT_URL].filter(Boolean)
+  : ['http://localhost:3000', 'http://localhost:3001'];
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || ['http://localhost:5173', 'https://kwanza.app'],
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (corsOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Não permitido por CORS'), false);
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -79,93 +80,74 @@ app.use(cookieParser());
 // Sanitização contra injeções
 app.use(mongoSanitize());
 
-// Trust proxy (essencial para Rate Limiting em Heroku/Render/Vercel)
+// Trust proxy
 app.set('trust proxy', 1);
 
-// Logger para desenvolvimento
+// Logger
 if (process.env.NODE_ENV !== 'production') {
   app.use(morgan('dev'));
 }
 
 // ==========================================
-// 7. RATE LIMITING GLOBAL
-// ==========================================
-app.use(limiteGlobal); 
-app.use(slowDownLimiter);
-
-// ==========================================
 // 8. ROTAS
 // ==========================================
 
-// Rota de health check (Pública para monitoramento)
 app.get('/health', async (req, res) => {
+  const healthcheck = {
+    success: true,
+    message: 'KambaPro API está online! 🇦🇴',
+    database: 'verificando...',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  };
+
   try {
-    // Verifica se o DB está vivo
     await prisma.$queryRaw`SELECT 1`;
-    res.json({
-      success: true,
-      message: 'KambaPro API está online! 🇦🇴',
-      database: 'Conectado',
-      version: '2.0.0',
-      timestamp: new Date().toISOString()
-    });
+    healthcheck.database = 'conectado ✅';
+    res.status(200).json(healthcheck);
   } catch (err) {
-    res.status(503).json({ success: false, database: 'Offline', error: err.message });
+    healthcheck.success = false;
+    res.status(503).json(healthcheck);
   }
 });
 
-// APLICAÇÃO DE ROTAS COM LIMITES ESPECÍFICOS
-app.use('/api/auth', limiteAuth, authRoutes);
-app.use('/api/kamba', limiteKamba, kambaRoutes);
-
-// OPERAÇÕES FINANCEIRAS
-app.use('/api/cartoes', limiteFinanceiro, cartoesRoutes);
-app.use('/api/gastos', limiteFinanceiro, gastosRoutes);
-app.use('/api/objetivos', limiteFinanceiro, objetivosRoutes);
-
-// DADOS E INSIGHTS
-app.use('/api/categorias', categoriasRoutes);
-app.use('/api/insights', insightsRoutes);
-app.use('/api/noticias', noticiasRoutes);
-app.use('/api/ai', aiRoutes);
+// APLICAÇÃO DE ROTAS - APENAS AUTH TEM RATE LIMIT
+app.use('/api/auth', limiteAuth, authRoutes);        // ✅ Com proteção (5 tentativas/15min)
+app.use('/api/kamba', kambaRoutes);                   // ❌ Sem rate limit
+app.use('/api/cartoes', cartoesRoutes);               // ❌ Sem rate limit
+app.use('/api/gastos', gastosRoutes);                 // ❌ Sem rate limit
+app.use('/api/objetivos', objetivosRoutes);           // ❌ Sem rate limit
+app.use('/api/categorias', categoriasRoutes);         // ❌ Sem rate limit
+app.use('/api/insights', insightsRoutes);             // ❌ Sem rate limit
+app.use('/api/noticias', noticiasRoutes);             // ❌ Sem rate limit
+app.use('/api/ai', aiRoutes);                         // ❌ Sem rate limit
 
 // ==========================================
-// 9. TRATAMENTO DE ERROS (ORDEM CRÍTICA)
+// 9. TRATAMENTO DE ERROS
 // ==========================================
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ==========================================
-// 10. INICIALIZAÇÃO DO SERVIDOR COM PRISMA
+// 10. INICIALIZAÇÃO DO SERVIDOR
 // ==========================================
 const startServer = async () => {
   try {
     await prisma.$connect();
+    console.log('✅ PostgreSQL conectado');
+    
+    iniciarCronJobs();
     
     const server = app.listen(PORT, () => {
-      console.log('\n╔═══════════════════════════════════════════════════════════╗');
-      console.log('║                                                           ║');
-      console.log('║           🇦🇴  KAMBAPRO API - SERVIDOR ONLINE 🇦🇴           ║');
-      console.log('║                                                           ║');
-      console.log('╠═══════════════════════════════════════════════════════════╣');
-      console.log(`║  Ambiente: ${process.env.NODE_ENV?.toUpperCase().padEnd(46)} ║`);
-      console.log(`║  Porta: ${PORT.toString().padEnd(49)} ║`);
-      console.log(`║  Base de Dados: PostgreSQL (Prisma)                       ║`);
-      console.log('╠═══════════════════════════════════════════════════════════╣');
-      console.log('║  ✅ Proteção contra Bruteforce: ATIVA                     ║');
-      console.log('║  ✅ Sanitização de Dados: ATIVA                           ║');
-      console.log('║  ✅ Segurança de Headers: ATIVA                           ║');
-      console.log('╚═══════════════════════════════════════════════════════════╝\n');
+      console.log(`\n🚀 Servidor online na porta ${PORT}`);
+      console.log('🔒 Rate limiting: APENAS em /api/auth (login/register)');
     });
 
-    // ==========================================
-    // 11. GRACEFUL SHUTDOWN
-    // ==========================================
+    // Graceful shutdown
     const shutdown = (signal) => {
-      console.log(`\n⚠️  ${signal} recebido. Encerrando servidor...`);
+      console.log(`\n⚠️ ${signal} recebido. Encerrando...`);
       server.close(async () => {
         await prisma.$disconnect();
-        console.log('✅ Conexões encerradas com sucesso.');
         process.exit(0);
       });
     };
@@ -174,23 +156,10 @@ const startServer = async () => {
     process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (error) {
-    console.error('❌ Erro crítico na inicialização:', error);
+    console.error('❌ Erro crítico:', error);
     process.exit(1);
   }
 };
 
-// ==========================================
-// 12. MONITORAMENTO DE ERROS GLOBAIS
-// ==========================================
-process.on('uncaughtException', (err) => {
-  console.error('❌ UNCAUGHT EXCEPTION:', err);
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  console.error('❌ UNHANDLED REJECTION:', reason);
-});
-
 startServer();
-
 module.exports = app;

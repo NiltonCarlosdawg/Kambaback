@@ -1,3 +1,4 @@
+// src/middleware/validator.js
 const Joi = require('joi');
 const AppError = require('./AppError');
 
@@ -27,7 +28,9 @@ const validar = (schema) => {
 };
 
 /**
- * SCHEMAS DE VALIDAÇÃO – ATUALIZADOS PARA O NOVO PRISMA SCHEMA
+ * ==========================================
+ * SCHEMAS DE VALIDAÇÃO - AUTENTICAÇÃO
+ * ==========================================
  */
 
 // REGISTRO (100% Sincronizado com a migração add_user_details)
@@ -52,7 +55,7 @@ const registroSchema = Joi.object({
     'any.required': 'Senha é obrigatória'
   }),
 
-  // --- NOVOS CAMPOS OBRIGATÓRIOS ---
+  // NOVOS CAMPOS OBRIGATÓRIOS
   dataNascimento: Joi.date().iso().required().messages({
     'date.base': 'Data de nascimento inválida',
     'any.required': 'Data de nascimento é obrigatória'
@@ -71,7 +74,7 @@ const registroSchema = Joi.object({
   rendaMensalMedia: Joi.number().min(0).default(0).optional()
 });
 
-// LOGIN (Permanecer igual)
+// LOGIN
 const loginSchema = Joi.object({
   email: Joi.string().email().required(),
   senha: Joi.string().required()
@@ -86,9 +89,99 @@ const atualizarPerfilSchema = Joi.object({
   rendaMensalMedia: Joi.number().min(0).optional()
 }).min(1);
 
+/**
+ * ==========================================
+ * SCHEMAS DE VALIDAÇÃO - CATEGORIAS
+ * ==========================================
+ */
+
+// CRIAR CATEGORIA
+const criarCategoriaSchema = Joi.object({
+  nome: Joi.string()
+    .min(2)
+    .max(40)
+    .trim()
+    .required()
+    .messages({ 
+      'string.min': 'Nome deve ter pelo menos 2 caracteres',
+      'string.max': 'Nome deve ter no máximo 40 caracteres',
+      'any.required': 'Nome da categoria é obrigatório' 
+    }),
+  
+  // Tipos intuitivos em português
+  tipo: Joi.string()
+    .trim()
+    .uppercase() // Converte para maiúsculas antes de validar
+    .valid('ESSENCIAL', 'FLEXIVEL', 'POUPANCA', 'RENDIMENTO')
+    .required()
+    .messages({ 
+      'any.required': 'Tipo é obrigatório',
+      'any.only': 'Tipo deve ser: ESSENCIAL, FLEXIVEL, POUPANCA ou RENDIMENTO'
+    }),
+  
+  cor: Joi.string()
+    .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+    .optional()
+    .messages({ 
+      'string.pattern.base': 'Cor deve ser hexadecimal (ex: #FF6384)' 
+    }),
+  
+  icone: Joi.string()
+    .max(50)
+    .optional()
+    .messages({
+      'string.max': 'Nome do ícone deve ter no máximo 50 caracteres'
+    })
+});
+
+// ATUALIZAR CATEGORIA
+const atualizarCategoriaSchema = Joi.object({
+  nome: Joi.string()
+    .min(2)
+    .max(40)
+    .trim()
+    .optional()
+    .messages({ 
+      'string.min': 'Nome deve ter pelo menos 2 caracteres',
+      'string.max': 'Nome deve ter no máximo 40 caracteres'
+    }),
+  
+  cor: Joi.string()
+    .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
+    .optional()
+    .messages({ 
+      'string.pattern.base': 'Cor deve ser hexadecimal (ex: #FF6384)' 
+    }),
+  
+  icone: Joi.string()
+    .max(50)
+    .optional()
+    .messages({
+      'string.max': 'Nome do ícone deve ter no máximo 50 caracteres'
+    }),
+  
+  ordem: Joi.number()
+    .integer()
+    .min(0)
+    .optional()
+    .messages({
+      'number.min': 'Ordem deve ser um número positivo',
+      'number.integer': 'Ordem deve ser um número inteiro'
+    }),
+  
+  ativa: Joi.boolean()
+    .optional()
+})
+.min(1)
+.messages({ 
+  'object.min': 'Pelo menos um campo deve ser enviado para atualização' 
+});
+
 module.exports = {
   validar,
   registroSchema,
   loginSchema,
-  atualizarPerfilSchema
+  atualizarPerfilSchema,
+  criarCategoriaSchema,
+  atualizarCategoriaSchema
 };

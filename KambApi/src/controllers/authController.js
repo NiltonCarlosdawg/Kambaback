@@ -5,7 +5,7 @@ const prisma = require('../lib/prisma');
 const AppError = require('../middleware/AppError');
 
 // ==========================================
-// SECRETS – sem fallback inseguro
+// SECRETS
 // ==========================================
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
@@ -13,6 +13,40 @@ const REFRESH_SECRET = process.env.REFRESH_SECRET;
 if (!JWT_SECRET || !REFRESH_SECRET) {
   throw new Error('CRITICAL: JWT_SECRET ou REFRESH_SECRET não configurados!');
 }
+
+// ==========================================
+// HELPERS – Validação de Enums
+// ==========================================
+
+// Mapeamento flexível: aceita "Masculino" ou "MASCULINO"
+const mapSexo = (sexo) => {
+  if (!sexo) return 'PREFIRO_NAO_DIZER';
+  
+  const map = {
+    'masculino': 'MASCULINO',
+    'feminino': 'FEMININO',
+    'outro': 'OUTRO',
+    'prefiro_nao_dizer': 'PREFIRO_NAO_DIZER',
+    'prefiro não dizer': 'PREFIRO_NAO_DIZER',
+    // Já em maiúsculo (caso frontend envie correto)
+    'MASCULINO': 'MASCULINO',
+    'FEMININO': 'FEMININO',
+    'OUTRO': 'OUTRO',
+    'PREFIRO_NAO_DIZER': 'PREFIRO_NAO_DIZER'
+  };
+  
+  return map[sexo.toString().toLowerCase().replace(/\s+/g, '_')] || 'PREFIRO_NAO_DIZER';
+};
+
+const validarSexo = (sexo) => {
+  const valoresValidos = ['MASCULINO', 'FEMININO', 'OUTRO', 'PREFIRO_NAO_DIZER'];
+  const valorMapeado = mapSexo(sexo);
+  
+  if (!valoresValidos.includes(valorMapeado)) {
+    throw new AppError('Sexo inválido. Use: masculino, feminino, outro ou prefiro_nao_dizer', 400);
+  }
+  return valorMapeado;
+};
 
 // ==========================================
 // GERAR TOKENS
@@ -27,9 +61,26 @@ const gerarTokens = (userId) => {
 // REGISTRO
 // ==========================================
 const registrar = async (req, res, next) => {
-  const { nome, email, telefone, senha, dataNascimento, sexo, morada, rendaMensalMedia } = req.body;
+  const { 
+    nome, 
+    email, 
+    telefone, 
+    senha, 
+    dataNascimento, 
+    sexo, 
+    morada, 
+    rendaMensalMedia 
+  } = req.body;
 
   try {
+    // Validação doEnum Sexo
+    let sexoValidado;
+    try {
+      sexoValidado = validarSexo(sexo);
+    } catch (err) {
+      return next(err);
+    }
+
     // Verifica duplicidade
     const existe = await prisma.user.findFirst({
       where: {
@@ -51,14 +102,15 @@ const registrar = async (req, res, next) => {
 
     const usuario = await prisma.user.create({
       data: {
-        nome,
-        email: email.toLowerCase(),
-        telefone,
+        nome: nome.trim(),
+        email: email.toLowerCase().trim(),
+        telefone: telefone?.trim() || null,
         senha: senhaHash,
         dataNascimento: dataNascimento ? new Date(dataNascimento) : undefined,
-        sexo,
-        morada,
+        sexo: sexoValidado, // ⚡ Enum válido: MASCULINO, FEMININO, etc.
+        morada: morada?.trim() || null,
         rendaMensalMedia: rendaMensalMedia ? parseFloat(rendaMensalMedia) : 0,
+        // role e perfilDeRisco usam defaults do schema (USER, MOD_ERADO)
       },
       select: {
         id: true,
@@ -84,7 +136,10 @@ const registrar = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Conta criada com sucesso!',
-      usuario,
+      usuario: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia) // Decimal → Number
+      },
       accessToken,
       refreshToken
     });
@@ -123,7 +178,11 @@ const login = async (req, res, next) => {
         id: usuario.id,
         nome: usuario.nome,
         email: usuario.email,
-        telefone: usuario.telefone
+        telefone: usuario.telefone,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia), // ⚡ Converte Decimal
+        sexo: usuario.sexo,
+        role: usuario.role,
+        perfilDeRisco: usuario.perfilDeRisco
       },
       accessToken,
       refreshToken
@@ -193,6 +252,10 @@ const perfil = async (req, res, next) => {
         sexo: true,
         dataNascimento: true,
         rendaMensalMedia: true,
+        perfilDeRisco: true,
+        role: true,
+        ativo: true,
+        verificado: true,
         criadoEm: true,
         ultimoLogin: true
       }
@@ -203,7 +266,10 @@ const perfil = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil carregado',
-      usuario
+      usuario: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia) // ⚡ Converte Decimal
+      }
     });
 
   } catch (err) {
@@ -215,15 +281,29 @@ const perfil = async (req, res, next) => {
 // ATUALIZAR PERFIL
 // ==========================================
 const atualizarPerfil = async (req, res, next) => {
-  const camposPermitidos = ['nome', 'telefone', 'morada', 'sexo', 'rendaMensalMedia'];
+  const camposPermitidos = ['nome', 'telefone', 'morada', 'sexo', 'rendaMensalMedia', 'perfilDeRisco'];
   const dados = {};
 
   for (const campo of camposPermitidos) {
     if (req.body[campo] !== undefined) {
       if (campo === 'rendaMensalMedia') {
         dados[campo] = parseFloat(req.body[campo]);
+      } else if (campo === 'sexo') {
+        try {
+          dados[campo] = validarSexo(req.body[campo]);
+        } catch (err) {
+          return next(err);
+        }
+      } else if (campo === 'perfilDeRisco') {
+        // Validar enum PerfilRisco
+        const perfisValidos = ['CONSERVADOR', 'MOD_ERADO', 'ARROJADO'];
+        const perfil = req.body[campo]?.toUpperCase();
+        if (!perfisValidos.includes(perfil)) {
+          return next(new AppError('Perfil de risco inválido. Use: conservador, moderado ou arrojado', 400));
+        }
+        dados[campo] = perfil;
       } else {
-        dados[campo] = req.body[campo];
+        dados[campo] = req.body[campo]?.trim?.() || req.body[campo];
       }
     }
   }
@@ -243,14 +323,18 @@ const atualizarPerfil = async (req, res, next) => {
         telefone: true,
         morada: true,
         sexo: true,
-        rendaMensalMedia: true
+        rendaMensalMedia: true,
+        perfilDeRisco: true
       }
     });
 
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
-      usuario
+      usuario: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia)
+      }
     });
 
   } catch (err) {

@@ -2,7 +2,7 @@ process.env.TZ = 'UTC';
 
 const cron = require('node-cron');
 const Proatividade = require('../services/kambaProatividadeService');
-const prisma = require('../lib/prisma'); // import estático (melhor prática)
+const prisma = require('../lib/prisma');
 
 /**
  * Configura todas as tarefas agendadas do Kamba
@@ -55,10 +55,6 @@ const iniciarCronJobs = () => {
     console.log('[CRON] Iniciando limpeza de cache...');
     try {
       // TODO: implementar limpeza real (Redis ou memória)
-      // Exemplo:
-      // const { clearCache } = require('../utils/cache');
-      // clearCache();
-      
       console.log('[CRON] Limpeza de cache concluída');
     } catch (err) {
       console.error('[CRON] Erro ao limpar cache:', err.message);
@@ -82,14 +78,26 @@ const iniciarCronJobs = () => {
       const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
       const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      const stats = await prisma.kambaUsage.aggregate({
-        where: {
-          timestamp: { gte: inicioMes, lte: fimMes }
-        },
-        _sum: { tokens: true },
-        _avg: { latencia: true },
-        _count: { _all: true }
-      });
+      // ✅ CORREÇÃO: Try-catch defensivo para tabela inexistente
+      let stats;
+      try {
+        stats = await prisma.kambaUsage.aggregate({
+          where: {
+            timestamp: { gte: inicioMes, lte: fimMes }
+          },
+          _sum: { tokens: true },
+          _avg: { latencia: true },
+          _count: { _all: true }
+        });
+      } catch (aggregateErr) {
+        // Se tabela não existe (P2021), loga warning e pula
+        if (aggregateErr.code === 'P2021') {
+          console.warn('[CRON] ⚠️  Tabela KambaUsage não existe no schema - pulando relatório mensal');
+          console.warn('[CRON] Execute: npx prisma migrate dev --name add_kamba_usage para criar a tabela');
+          return;
+        }
+        throw aggregateErr; // Re-lança outros erros
+      }
 
       const totalInteracoes = stats._count._all ?? 0;
       const totalTokens = stats._sum.tokens ?? 0;
@@ -100,8 +108,6 @@ const iniciarCronJobs = () => {
       console.log(`  Total de interações: ${totalInteracoes}`);
       console.log(`  Total de tokens consumidos: ${totalTokens}`);
       console.log(`  Latência média: ${latenciaMedia} ms`);
-
-      // TODO: aqui podes adicionar envio por email, slack, ou salvar em tabela de relatórios
 
     } catch (err) {
       console.error('[CRON] Erro ao gerar relatório mensal:', err.message, err.stack);

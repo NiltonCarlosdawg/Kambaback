@@ -42,7 +42,8 @@ const analisarECriarLembretes = async (usuarioId) => {
       where: {
         usuarioId,
         concluido: false,
-        prazo: {
+        excluido: false,
+        dataPrevista: {  // CORRIGIDO: era 'dataFinal', agora é 'dataPrevista'
           gte: agora,
           lte: new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000) // 7 dias
         }
@@ -53,20 +54,33 @@ const analisarECriarLembretes = async (usuarioId) => {
       const progresso = (Number(obj.valorAtual) / Number(obj.valorAlvo)) * 100;
       if (progresso < 80) {
         await criarLembrete(usuarioId, 'objetivo_perto',
-          `⏰ Meta "${obj.nome}" vence em breve e tá ${progresso.toFixed(0)}%! Faltam ${(Number(obj.valorAlvo) - Number(obj.valorAtual)).toLocaleString('pt-AO')} Kz. Bora acelerar? 🚀`
+          `⏰ Meta "${obj.titulo}" vence em breve e tá ${progresso.toFixed(0)}%! Faltam ${(Number(obj.valorAlvo) - Number(obj.valorAtual)).toLocaleString('pt-AO')} Kz. Bora acelerar? 🚀`
         );
       }
     }
 
     // 3. VERIFICA FUNDO DE EMERGÊNCIA
     const cartoes = await prisma.cartao.findMany({
-      where: { usuarioId, ativo: true, tipo: 'RESERVA' }
+      where: { 
+        usuarioId, 
+        ativo: true,
+        excluido: false,
+        OR: [
+          { tipo: 'POUPANCA' },  // CORRIGIDO: 'investimento' → 'POUPANCA'
+          { nome: { contains: 'Reserva', mode: 'insensitive' } },
+          { nome: { contains: 'Emergência', mode: 'insensitive' } }
+        ]
+      }
     });
 
     const reservaTotal = cartoes.reduce((acc, c) => acc + Number(c.saldoAtual), 0);
-    const mesesReserva = reservaTotal / (totalGasto / new Date().getDate());
+    
+    // Evitar divisão por zero
+    const diasNoMes = new Date().getDate();
+    const gastoMedioDiario = totalGasto / (diasNoMes > 0 ? diasNoMes : 1);
+    const mesesReserva = gastoMedioDiario > 0 ? reservaTotal / (gastoMedioDiario * 30) : 0;
 
-    if (mesesReserva < 3) {
+    if (mesesReserva < 3 && reservaTotal > 0) {
       await criarLembrete(usuarioId, 'fundo_baixo',
         `🛡️ Teu fundo de emergência cobre apenas ${mesesReserva.toFixed(1)} meses. Ideal é 6 meses! Bora reforçar, kamba? 💪`
       );
@@ -87,18 +101,32 @@ const analisarECriarLembretes = async (usuarioId) => {
 };
 
 /**
- * Cria lembrete no banco
+ * Helper para gerar título baseado no tipo de lembrete
+ */
+const getTituloPorTipo = (tipo) => {
+  const titulos = {
+    'gasto_alto': '⚠️ Gasto Elevado',
+    'objetivo_perto': '⏰ Meta Próxima',
+    'fundo_baixo': '🛡️ Fundo de Emergência Baixo',
+    'balanco_semanal': '📊 Balanço Semanal',
+    'dica_economia': '💡 Dica de Economia'
+  };
+  return titulos[tipo] || '📢 Notificação';
+};
+
+/**
+ * Cria lembrete no banco - CORRIGIDO
  */
 const criarLembrete = async (usuarioId, tipo, mensagem) => {
   try {
-    // Verifica se já existe lembrete similar não enviado
+    // Verifica se já existe lembrete similar não enviado nas últimas 24h
     const jaExiste = await prisma.kambaLembrete.findFirst({
       where: {
         usuarioId,
         tipo,
         enviado: false,
-        agendadoPara: {
-          gte: new Date(Date.now() - 24 * 60 * 60 * 1000) // últimas 24h
+        dataHora: {  // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
         }
       }
     });
@@ -112,9 +140,11 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
       data: {
         usuarioId,
         tipo,
+        titulo: getTituloPorTipo(tipo),  // CORRIGIDO: campo obrigatório adicionado
         mensagem,
-        agendadoPara: new Date(),
-        enviado: false
+        dataHora: new Date(),  // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
+        enviado: false,        // CORRIGIDO: campo adicionado
+        lido: false            // CORRIGIDO: campo adicionado
       }
     });
 
@@ -125,17 +155,21 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
 };
 
 /**
- * Busca lembretes pendentes de um usuário
+ * Busca lembretes pendentes de um usuário - CORRIGIDO
  */
 const buscarLembretesPendentes = async (usuarioId) => {
   try {
     const lembretes = await prisma.kambaLembrete.findMany({
       where: {
         usuarioId,
-        enviado: false,
-        agendadoPara: { lte: new Date() }
+        enviado: false,  // CORRIGIDO: campo correto
+        dataHora: {      // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
+          lte: new Date()
+        }
       },
-      orderBy: { agendadoPara: 'asc' },
+      orderBy: { 
+        dataHora: 'asc'  // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
+      },
       take: 3 // Máximo 3 lembretes por vez
     });
 
@@ -147,16 +181,34 @@ const buscarLembretesPendentes = async (usuarioId) => {
 };
 
 /**
- * Marca lembrete como enviado
+ * Marca lembrete como enviado - CORRIGIDO
  */
 const marcarLembreteEnviado = async (lembreteId) => {
   try {
     await prisma.kambaLembrete.update({
       where: { id: lembreteId },
-      data: { enviado: true }
+      data: { 
+        enviado: true  // CORRIGIDO: campo correto
+      }
     });
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao marcar:', err.message);
+    console.error('[LEMBRETE] Erro ao marcar enviado:', err.message);
+  }
+};
+
+/**
+ * Marca lembrete como lido - NOVO
+ */
+const marcarLembreteLido = async (lembreteId) => {
+  try {
+    await prisma.kambaLembrete.update({
+      where: { id: lembreteId },
+      data: { 
+        lido: true  // NOVO: marca como lido pelo usuário
+      }
+    });
+  } catch (err) {
+    console.error('[LEMBRETE] Erro ao marcar lido:', err.message);
   }
 };
 
@@ -164,24 +216,29 @@ const marcarLembreteEnviado = async (lembreteId) => {
  * Adiciona lembretes à resposta do Kamba
  */
 const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
-  const lembretes = await buscarLembretesPendentes(usuarioId);
-  
-  if (lembretes.length === 0) {
+  try {
+    const lembretes = await buscarLembretesPendentes(usuarioId);
+    
+    if (lembretes.length === 0) {
+      return respostaOriginal;
+    }
+
+    let respostaComLembretes = respostaOriginal + '\n\n---\n\n';
+    
+    for (const lembrete of lembretes) {
+      respostaComLembretes += `🔔 **${lembrete.titulo}**\n${lembrete.mensagem}\n\n`;
+      await marcarLembreteEnviado(lembrete.id);
+    }
+
+    return respostaComLembretes;
+  } catch (err) {
+    console.error('[LEMBRETE] Erro ao adicionar na resposta:', err.message);
     return respostaOriginal;
   }
-
-  let respostaComLembretes = respostaOriginal + '\n\n---\n\n';
-  
-  for (const lembrete of lembretes) {
-    respostaComLembretes += lembrete.mensagem + '\n\n';
-    await marcarLembreteEnviado(lembrete.id);
-  }
-
-  return respostaComLembretes;
 };
 
 /**
- * Cron Job - Executar análise diária (integrar com node-cron ou similar)
+ * Cron Job - Executar análise diária
  */
 const executarAnaliseDiaria = async () => {
   try {
@@ -258,10 +315,14 @@ const gerarDicaProativa = async (usuarioId) => {
   }
 };
 
+// ==========================================
+// EXPORTAÇÕES
+// ==========================================
 module.exports = {
   analisarECriarLembretes,
   buscarLembretesPendentes,
   marcarLembreteEnviado,
+  marcarLembreteLido,        // NOVO: exportado
   adicionarLembretesNaResposta,
   executarAnaliseDiaria,
   gerarDicaProativa

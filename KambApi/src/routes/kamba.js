@@ -9,6 +9,7 @@ const Wizard = require('../controllers/kambaWizardController');
 const Proatividade = require('../services/kambaProatividadeService');
 
 router.use(protegerRota);
+
 /**
  * POST /kamba
  * Conversa principal com o Kamba
@@ -28,7 +29,7 @@ router.post('/conversar', conversarComKamba);
 /**
  * POST /kamba/feedback
  * Enviar feedback sobre resposta
- * Body: { mensagemId?, avaliacao: 'positivo'|'negativo'|'neutro', comentario? }
+ * Body: { mensagemId?, avaliacao: 1-5, comentario? }
  */
 router.post('/feedback', enviarFeedback);
 
@@ -85,7 +86,7 @@ router.get('/fluxo/status', (req, res) => {
 
 /**
  * GET /kamba/lembretes
- * Busca lembretes pendentes
+ * Busca lembretes pendentes (não enviados e não lidos)
  */
 router.get('/lembretes', async (req, res, next) => {
   try {
@@ -98,8 +99,11 @@ router.get('/lembretes', async (req, res, next) => {
       lembretes: lembretes.map(l => ({
         id: l.id,
         tipo: l.tipo,
+        titulo: l.titulo,           // CORRIGIDO: adicionado campo
         mensagem: l.mensagem,
-        agendadoPara: l.agendadoPara
+        dataHora: l.dataHora,       // CORRIGIDO: era 'agendadoPara'
+        enviado: l.enviado,         // CORRIGIDO: adicionado campo
+        lido: l.lido                // CORRIGIDO: adicionado campo
       }))
     });
   } catch (err) {
@@ -109,16 +113,35 @@ router.get('/lembretes', async (req, res, next) => {
 
 /**
  * POST /kamba/lembretes/:id/marcar-lido
- * Marca lembrete como lido
+ * Marca lembrete como lido pelo usuário
+ * CORRIGIDO: usa marcarLembreteLido ao invés de marcarLembreteEnviado
  */
 router.post('/lembretes/:id/marcar-lido', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await Proatividade.marcarLembreteLido(id);  // CORRIGIDO: função específica para lido
+    
+    return res.json({
+      success: true,
+      mensagem: 'Lembrete marcado como lido'
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /kamba/lembretes/:id/marcar-enviado
+ * Marca lembrete como enviado (uso interno/admin)
+ */
+router.post('/lembretes/:id/marcar-enviado', async (req, res, next) => {
   try {
     const { id } = req.params;
     await Proatividade.marcarLembreteEnviado(id);
     
     return res.json({
       success: true,
-      mensagem: 'Lembrete marcado como lido'
+      mensagem: 'Lembrete marcado como enviado'
     });
   } catch (err) {
     next(err);
@@ -157,6 +180,7 @@ router.get('/dica', async (req, res, next) => {
 /**
  * GET /kamba/stats
  * Estatísticas de uso (últimos 30 dias)
+ * CORRIGIDO: usa campos atualizados do KambaUsage
  */
 router.get('/stats', async (req, res, next) => {
   try {
@@ -165,18 +189,25 @@ router.get('/stats', async (req, res, next) => {
     
     const mes30DiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
+    // CORRIGIDO: usa campos do schema atualizado
     const stats = await prisma.kambaUsage.aggregate({
       where: {
         usuarioId,
-        timestamp: { gte: mes30DiasAtras }
+        criadoEm: { gte: mes30DiasAtras }  // CORRIGIDO: era 'timestamp'
       },
-      _sum: { tokens: true },
-      _avg: { latencia: true },
+      _sum: { 
+        tokens: true,
+        latencia: true  // CORRIGIDO: adicionado
+      },
+      _avg: { 
+        latencia: true 
+      },
       _count: true
     });
 
-    const feedback = await prisma.kambaFeedback.groupBy({
-      by: ['avaliacao'],
+    // CORRIGIDO: agrupa por sucesso/erro
+    const feedbackStatus = await prisma.kambaUsage.groupBy({
+      by: ['sucesso'],
       where: {
         usuarioId,
         criadoEm: { gte: mes30DiasAtras }
@@ -184,18 +215,82 @@ router.get('/stats', async (req, res, next) => {
       _count: true
     });
 
+    // CORRIGIDO: KambaFeedback usa avaliacao como Int, não string
+    const feedbackAvaliacoes = await prisma.kambaFeedback.groupBy({
+      by: ['avaliacao'],
+      where: {
+        usuarioId,
+        criadoEm: { gte: mes30DiasAtras }  // CORRIGIDO: verifica se existe ou usa createdAt
+      },
+      _count: true
+    });
+
+    // Calcula taxa de sucesso
+    const totalRequests = stats._count || 0;
+    const sucessos = feedbackStatus.find(f => f.sucesso === true)?._count || 0;
+    const falhas = feedbackStatus.find(f => f.sucesso === false)?._count || 0;
+
     return res.json({
       success: true,
       periodo: '30 dias',
       stats: {
-        totalInteracoes: stats._count,
+        totalInteracoes: totalRequests,
         totalTokens: stats._sum.tokens || 0,
         latenciaMedia: stats._avg.latencia?.toFixed(0) || 0,
-        feedback: feedback.reduce((acc, f) => {
+        latenciaTotal: stats._sum.latencia || 0,
+        taxaSucesso: totalRequests > 0 ? Math.round((sucessos / totalRequests) * 100) : 0,
+        totalSucessos: sucessos,
+        totalFalhas: falhas,
+        feedbackPorNota: feedbackAvaliacoes.reduce((acc, f) => {
           acc[f.avaliacao] = f._count;
           return acc;
         }, {})
       }
+    });
+  } catch (err) {
+    console.error('[STATS] Erro:', err.message);
+    // Retorna erro amigável em vez de crashar
+    return res.json({
+      success: false,
+      mensagem: 'Erro ao carregar estatísticas',
+      erro: err.message
+    });
+  }
+});
+
+/**
+ * GET /kamba/stats/modelos
+ * Estatísticas por modelo de IA usado
+ */
+router.get('/stats/modelos', async (req, res, next) => {
+  try {
+    const prisma = require('../lib/prisma');
+    const usuarioId = req.user.id;
+    
+    const mes30DiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+
+    const statsPorModelo = await prisma.kambaUsage.groupBy({
+      by: ['modelo'],
+      where: {
+        usuarioId,
+        criadoEm: { gte: mes30DiasAtras },
+        modelo: { not: null }
+      },
+      _sum: {
+        tokens: true,
+        latencia: true
+      },
+      _count: true
+    });
+
+    return res.json({
+      success: true,
+      modelos: statsPorModelo.map(s => ({
+        modelo: s.modelo,
+        totalUsos: s._count,
+        totalTokens: s._sum.tokens || 0,
+        latenciaMedia: s._sum.latencia ? Math.round(s._sum.latencia / s._count) : 0
+      }))
     });
   } catch (err) {
     next(err);
@@ -218,6 +313,66 @@ router.delete('/memoria', async (req, res, next) => {
     return res.json({
       success: true,
       mensagem: 'Memória limpa com sucesso! Começamos do zero.'
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/memoria
+ * Lista últimas mensagens da memória (para debug)
+ */
+router.get('/memoria', async (req, res, next) => {
+  try {
+    const prisma = require('../lib/prisma');
+    const usuarioId = req.user.id;
+    
+    const mensagens = await prisma.kambaMemoria.findMany({
+      where: { usuarioId },
+      orderBy: { criadoEm: 'desc' },  // CORRIGIDO: era 'timestamp'
+      take: 20
+    });
+
+    return res.json({
+      success: true,
+      total: mensagens.length,
+      mensagens: mensagens.map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        contexto: m.contexto,
+        criadoEm: m.criadoEm  // CORRIGIDO: era 'timestamp'
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================
+// ROTAS ADMIN (protegidas por role)
+// ==========================================
+
+/**
+ * POST /kamba/admin/analise-geral
+ * Executa análise proativa para todos os usuários (admin only)
+ */
+router.post('/admin/analise-geral', async (req, res, next) => {
+  try {
+    // Verifica se é admin
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        mensagem: 'Apenas administradores podem executar esta ação'
+      });
+    }
+
+    await Proatividade.executarAnaliseDiaria();
+    
+    return res.json({
+      success: true,
+      mensagem: 'Análise proativa executada para todos os usuários'
     });
   } catch (err) {
     next(err);

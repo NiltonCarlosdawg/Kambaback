@@ -14,51 +14,57 @@ const {
 const { protegerRota } = require('../middleware/auth');
 
 // ==========================================
-// TODAS AS ROTAS DE CARTÕES SÃO PROTEGIDAS
+// SCHEMAS DE VALIDAÇÃO JOI (ATUALIZADOS)
 // ==========================================
-router.use(protegerRota);
 
-// ==========================================
-// SCHEMAS DE VALIDAÇÃO JOI
-// ==========================================
 const criarCartaoSchema = validar(
   Joi.object({
-    nome: Joi.string().min(2).max(50).required()
+    nome: Joi.string().min(2).max(100).required()
       .messages({ 'any.required': 'Nome do cartão é obrigatório' }),
 
+    // ATUALIZADO: Apenas Enums válidos do schema Prisma
     tipo: Joi.string()
-      .valid('multicaixa', 'conta_bancaria', 'ekwanza', 'credito', 'debito', 'investimento')
+      .valid('DEBITO', 'CREDITO', 'POUPANCA')
       .required()
-      .messages({ 'any.required': 'Tipo de cartão é obrigatório' }),
+      .messages({ 
+        'any.required': 'Tipo de cartão é obrigatório',
+        'any.only': 'Tipo deve ser: DEBITO, CREDITO ou POUPANCA'
+      }),
 
-    banco: Joi.string().max(60).allow('').optional(),
+    banco: Joi.string().max(100).allow('', null).optional(),
 
     numero: Joi.string()
-      .pattern(/^\d{13,19}$/)
-      .allow('')
-      .optional()
-      .messages({ 'string.pattern.base': 'Número do cartão deve ter entre 13 e 19 dígitos' }),
+      .max(50)
+      .allow('', null)
+      .optional(),
 
+    // Decimal do Prisma aceita number, mas garantimos que é positivo
     saldoAtual: Joi.number().min(0).default(0),
     limiteCredito: Joi.number().min(0).default(0),
 
     cor: Joi.string()
       .pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/)
-      .default('#1e40af')
-      .messages({ 'string.pattern.base': 'Cor inválida (use formato hexadecimal, ex: #1e40af)' }),
+      .default('#6366f1')
+      .messages({ 'string.pattern.base': 'Cor inválida (use formato hexadecimal)' }),
 
-    icone: Joi.string().default('credit_card')
+    icone: Joi.string().max(50).default('credit-card'),
+    
+    // NOVO CAMPO: Distribuição automática de receitas
+    distribuirParaObjetivos: Joi.boolean().default(false)
   })
 );
 
 const atualizarCartaoSchema = validar(
   Joi.object({
-    nome: Joi.string().min(2).max(50),
-    banco: Joi.string().max(60).allow(''),
+    nome: Joi.string().min(2).max(100),
+    banco: Joi.string().max(100).allow('', null),
     cor: Joi.string().pattern(/^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/),
-    icone: Joi.string(),
+    icone: Joi.string().max(50),
     ativo: Joi.boolean(),
-    bloqueado: Joi.boolean()
+    limiteCredito: Joi.number().min(0),
+    // REMOVIDO: bloqueado (não existe no schema Cartao)
+    // ADICIONADO: distribuirParaObjetivos
+    distribuirParaObjetivos: Joi.boolean()
   })
   .min(1)
   .messages({ 'object.min': 'Pelo menos um campo deve ser enviado para atualização' })
@@ -68,23 +74,21 @@ const atualizarSaldoSchema = validar(
   Joi.object({
     valor: Joi.number().positive().required()
       .messages({ 'number.positive': 'O valor deve ser positivo' }),
-    tipoTransacao: Joi.string().valid('despesa', 'receita').required()
-      .messages({ 'any.only': 'Tipo de transação deve ser "despesa" ou "receita"' })
+    // ATUALIZADO: Enums maiúsculos conforme schema
+    tipoTransacao: Joi.string().valid('DESPESA', 'RECEITA').required()
+      .messages({ 'any.only': 'Tipo de transação deve ser "DESPESA" ou "RECEITA"' })
   })
 );
 
 // ==========================================
 // ROTAS
 // ==========================================
+router.use(protegerRota);
+
 router.get('/', listarCartoes);
-
 router.post('/', criarCartaoSchema, criarCartao);
-
 router.patch('/:id', atualizarCartaoSchema, atualizarCartao);
-
 router.patch('/:id/saldo', atualizarSaldoSchema, atualizarSaldo);
-
 router.delete('/:id', deletarCartao);
 
-// Exportar router corretamente
 module.exports = router;

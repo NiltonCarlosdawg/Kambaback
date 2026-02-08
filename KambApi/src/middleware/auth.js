@@ -3,12 +3,24 @@ const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
 const AppError = require('./AppError');
 
-const {
-  JWT_SECRET = 'kamba_pro_jwt_secret_2025_angola',
-  REFRESH_SECRET = 'kamba_pro_refresh_secret_2025_angola',
-  JWT_EXPIRES_IN = '15m',
-  REFRESH_EXPIRES_IN = '7d'
-} = process.env;
+// ==========================================
+// SECRETS – CORREÇÃO: Agora definidos do process.env
+// ==========================================
+const JWT_SECRET = process.env.JWT_SECRET;
+const REFRESH_SECRET = process.env.REFRESH_SECRET;
+
+// Validação crítica: não inicia sem secrets configurados
+if (!JWT_SECRET || !REFRESH_SECRET) {
+  throw new Error('CRITICAL: JWT_SECRET ou REFRESH_SECRET não configurados no ambiente!');
+}
+
+if (JWT_SECRET.length < 32 || REFRESH_SECRET.length < 32) {
+  console.warn('⚠️ AVISO: Secrets JWT devem ter pelo menos 32 caracteres para segurança adequada!');
+}
+
+if (JWT_SECRET === REFRESH_SECRET) {
+  throw new Error('CRITICAL: JWT_SECRET e REFRESH_SECRET devem ser diferentes!');
+}
 
 /**
  * VERIFICA TOKEN (access ou refresh)
@@ -44,10 +56,10 @@ const protegerRota = async (req, res, next) => {
       return next(new AppError('Acesso negado. Token não fornecido.', 401));
     }
 
-    // 2. Verifica token
+    // 2. Verifica token usando JWT_SECRET (agora definido)
     const decoded = await verificarToken(token, JWT_SECRET);
 
-    // 3. Busca usuário — SÓ CAMPOS QUE REALMENTE EXISTEM NO TEU SCHEMA ATUAL
+    // 3. Busca usuário — SÓ CAMPOS QUE REALMENTE EXISTEM NO SCHEMA ATUAL
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       select: {
@@ -94,8 +106,8 @@ const protegerRota = async (req, res, next) => {
  * GERAR PAR DE TOKENS
  */
 const gerarTokens = (userId) => {
-  const accessToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
-  const refreshToken = jwt.sign({ id: userId }, REFRESH_SECRET, { expiresIn: REFRESH_EXPIRES_IN });
+  const accessToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' });
+  const refreshToken = jwt.sign({ id: userId }, REFRESH_SECRET, { expiresIn: '7d' });
 
   return { accessToken, refreshToken };
 };
@@ -112,14 +124,19 @@ const refreshToken = async (req, res, next) => {
 
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: { id: true }
+      select: { id: true, refreshToken: true }
     });
 
     if (!user) return next(new AppError('Token inválido.', 401));
 
+    // Verifica se o refresh token no banco corresponde ao enviado
+    if (user.refreshToken !== token) {
+      return next(new AppError('Sessão inválida ou token reutilizado.', 401));
+    }
+
     const { accessToken, refreshToken: novoRefresh } = gerarTokens(user.id);
 
-    // Salva novo refresh token no banco (segurança máxima)
+    // Salva novo refresh token no banco (segurança máxima - rotação de tokens)
     await prisma.user.update({
       where: { id: user.id },
       data: { refreshToken: novoRefresh }
@@ -149,12 +166,14 @@ const restringirA = (...roles) => {
 
 /**
  * RATE LIMIT POR USUÁRIO
+ * Nota: Esta função retorna o middleware configurado
  */
-const rateLimit = require('express-rate-limit');
-
-const rateLimitPorUsuario = (janelaMs = 15 * 60 * 1000, max = 120) => {
+const rateLimitPorUsuario = (windowMs = 15 * 60 * 1000, max = 120) => {
+  // Importação dinâmica para evitar dependência circular se necessário
+  const rateLimit = require('express-rate-limit');
+  
   return rateLimit({
-    windowMs: janelaMs,
+    windowMs,
     max,
     keyGenerator: (req) => req.user?.id || req.ip,
     standardHeaders: true,
@@ -172,5 +191,4 @@ module.exports = {
   refreshToken,
   restringirA,
   rateLimitPorUsuario,
-  verificarToken
 };

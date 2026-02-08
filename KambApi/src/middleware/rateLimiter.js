@@ -2,106 +2,91 @@
 const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 const Redis = require('ioredis');
-const slowDown = require('express-slow-down');
 
 /**
  * ==========================================
- * CONFIGURAÇÃO DE REDIS
+ * CONFIGURAÇÃO DE REDIS (opcional)
  * ==========================================
  */
 let redisClient = null;
+let redisAvailable = false;
+
 if (process.env.REDIS_URL) {
   try {
     redisClient = new Redis(process.env.REDIS_URL, {
       enableOfflineQueue: false,
-      maxRetriesPerRequest: 3
+      maxRetriesPerRequest: 3,
+      retryStrategy: (times) => Math.min(times * 50, 2000),
+      reconnectOnError: (err) => {
+        console.error('[REDIS] Erro de conexão:', err.message);
+        return true;
+      }
     });
-    redisClient.on('connect', () => console.log('✅ Redis conectado para Rate Limiting'));
+
+    redisClient.on('connect', () => {
+      redisAvailable = true;
+      console.log('✅ Redis conectado para Rate Limiting');
+    });
+
+    redisClient.on('error', (err) => {
+      redisAvailable = false;
+      console.warn('[REDIS] Erro:', err.message);
+    });
+    
   } catch (err) {
     console.warn('⚠️ Falha ao conectar Redis - usando memória local');
+    redisClient = null;
   }
+} else {
+  console.log('[RATE LIMIT] REDIS_URL não configurada - usando memória local');
 }
 
-/**
- * FUNÇÃO AUXILIAR PARA REDIS STORE (v3+)
- */
 const getRedisStore = (prefix) => {
-  if (!redisClient) return undefined;
+  if (!redisClient || !redisAvailable) return undefined;
+  
   return new RedisStore({
-    sendCommand: (...args) => redisClient.call(...args),
+    sendCommand: (...args) => redisClient.sendCommand(args),
     prefix: prefix
   });
 };
 
-const mensagemLimite = {
-  success: false,
-  error: { message: 'Muitas requisições, kamba! Tenta mais tarde.' }
+const getStore = (prefix) => {
+  const redisStore = getRedisStore(prefix);
+  if (redisStore) return redisStore;
+  return undefined;
 };
 
-const validateOptions = { default: false, ip: false, trustProxy: false };
+const mensagemLimite = {
+  success: false,
+  error: { message: 'Muitas tentativas, kamba! Tenta mais tarde.' }
+};
+
+const validateOptions = { ip: false, trustProxy: false };
 
 /**
  * ==========================================
- * DEFINIÇÃO DOS LIMITADORES
+ * APENAS RATE LIMIT DE AUTENTICAÇÃO
+ * Protege contra brute force em login/register
  * ==========================================
  */
-
-// 1. GLOBAL
-const limiteGlobal = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+const limiteAuth = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // 5 tentativas
   validate: validateOptions,
+  skipSuccessfulRequests: true, // Não conta logins bem-sucedidos
   standardHeaders: true,
   legacyHeaders: false,
-  handler: (req, res) => res.status(429).json(mensagemLimite),
-  store: getRedisStore('rl:global:')
+  message: { 
+    ...mensagemLimite, 
+    error: { message: 'Muitas tentativas de login. Aguarda 15 minutos, kamba!' } 
+  },
+  store: getStore('rl:auth:')
 });
 
-// 2. AUTENTICAÇÃO
-const limiteAuth = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  validate: validateOptions,
-  skipSuccessfulRequests: true,
-  handler: (req, res) => res.status(429).json({ ...mensagemLimite, error: { message: 'Muitas tentativas de login!' } }),
-  store: getRedisStore('rl:auth:')
-});
+const isRedisAvailable = () => redisAvailable && redisClient?.status === 'ready';
 
-// 3. KAMBA IA
-const limiteKamba = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 30,
-  validate: validateOptions,
-  store: getRedisStore('rl:kamba:')
-});
-
-// 4. FINANCEIRO (O que estava a faltar!)
-const limiteFinanceiro = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 60,
-  validate: validateOptions,
-  store: getRedisStore('rl:financeiro:')
-});
-
-// 5. SLOW DOWN
-const slowDownLimiter = slowDown({
-  windowMs: 15 * 60 * 1000,
-  delayAfter: 50,
-  delayMs: () => 500,
-  validate: { ip: false, trustProxy: false },
-  store: getRedisStore('sd:gen:')
-});
-
-/**
- * ==========================================
- * EXPORTAÇÃO (Sincronizada com o server.js)
- * ==========================================
- */
 module.exports = {
-  limiteGlobal,
   limiteAuth,
-  limiteKamba,
-  limiteFinanceiro, // Essencial para as rotas de cartões/gastos/objetivos
-  slowDownLimiter,
-  redisClient 
+  redisClient,
+  isRedisAvailable
 };

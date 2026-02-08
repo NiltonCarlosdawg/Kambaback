@@ -1,4 +1,3 @@
-
 /**
  * ==========================================
  * VALIDADOR DE VARIÁVEIS DE AMBIENTE
@@ -17,7 +16,8 @@ const optionalEnvVars = {
   'KAMBA_AI_API_KEY': 'IA conversacional não funcionará',
   'KAMBA_AI_BASE_URL': 'Usando URL padrão da API de IA',
   'GNEWS_API_KEY': 'Notícias usarão fallback offline',
-  'PORT': 'Usando porta padrão 3000'
+  'PORT': 'Usando porta padrão 3000',
+  'REDIS_URL': 'Cache em memória (não recomendado para produção)'
 };
 
 /**
@@ -52,32 +52,55 @@ const validateRequiredEnv = () => {
 };
 
 /**
- * Valida força dos secrets JWT
+ * ✅ CORRIGIDO: Validação de entropia (força do secret) ao invés de substring
+ */
+const hasGoodEntropy = (secret) => {
+  if (!secret || secret.length < 32) return false;
+  
+  // Verifica variedade de caracteres
+  const hasLower = /[a-z]/.test(secret);
+  const hasUpper = /[A-Z]/.test(secret);
+  const hasNumber = /[0-9]/.test(secret);
+  const hasSpecial = /[^a-zA-Z0-9]/.test(secret);
+  
+  const varietyScore = [hasLower, hasUpper, hasNumber, hasSpecial].filter(Boolean).length;
+  return varietyScore >= 3; // Pelo menos 3 tipos de caracteres
+};
+
+/**
+ * ✅ CORRIGIDO: Validação de secrets JWT
  */
 const validateJWTSecrets = () => {
   const jwtSecret = process.env.JWT_SECRET;
   const refreshSecret = process.env.REFRESH_SECRET;
   const warnings = [];
+  const errors = [];
 
-  // Verifica tamanho mínimo (32 caracteres)
-  if (jwtSecret.length < 32) {
-    warnings.push('JWT_SECRET deve ter pelo menos 32 caracteres');
+  // Verifica existência (já validado em validateRequiredEnv, mas double-check)
+  if (!jwtSecret || !refreshSecret) {
+    errors.push('JWT_SECRET e REFRESH_SECRET são obrigatórios');
+    return { errors, warnings };
   }
 
+  // Verifica tamanho mínimo
+  if (jwtSecret.length < 32) {
+    errors.push('JWT_SECRET deve ter pelo menos 32 caracteres');
+  }
   if (refreshSecret.length < 32) {
-    warnings.push('REFRESH_SECRET deve ter pelo menos 32 caracteres');
+    errors.push('REFRESH_SECRET deve ter pelo menos 32 caracteres');
   }
 
   // Verifica se são diferentes
   if (jwtSecret === refreshSecret) {
-    warnings.push('JWT_SECRET e REFRESH_SECRET devem ser diferentes!');
+    errors.push('JWT_SECRET e REFRESH_SECRET devem ser diferentes!');
   }
 
-  // Verifica se não são valores padrão conhecidos
+  // ✅ CORRIGIDO: Validação por igualdade exata (não substring)
+  // Apenas avisa se for EXATAMENTE um desses valores
   const defaultSecrets = [
     'secret',
     'mysecret',
-    'kamba',
+    'kamba',  // Apenas a palavra exata
     'kwanza',
     'angola',
     'kamba_pro_jwt_secret_2025_angola',
@@ -85,25 +108,24 @@ const validateJWTSecrets = () => {
     'kwanza_angola_2025_super_secreto'
   ];
 
-  if (defaultSecrets.some(s => jwtSecret.toLowerCase().includes(s))) {
-    warnings.push('⚠️  JWT_SECRET parece ser um valor padrão - ALTERE IMEDIATAMENTE!');
+  if (defaultSecrets.includes(jwtSecret.toLowerCase())) {
+    warnings.push('⚠️  JWT_SECRET é um valor padrão conhecido - ALTERE IMEDIATAMENTE!');
   }
 
-  if (defaultSecrets.some(s => refreshSecret.toLowerCase().includes(s))) {
-    warnings.push('⚠️  REFRESH_SECRET parece ser um valor padrão - ALTERE IMEDIATAMENTE!');
+  if (defaultSecrets.includes(refreshSecret.toLowerCase())) {
+    warnings.push('⚠️  REFRESH_SECRET é um valor padrão conhecido - ALTERE IMEDIATAMENTE!');
   }
 
-  if (warnings.length > 0) {
-    console.warn('\n⚠️  AVISOS DE SEGURANÇA:\n');
-    warnings.forEach(w => console.warn(`   - ${w}`));
-    console.warn('\n   Gere secrets fortes usando: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"\n');
-    
-    // Em produção, bloqueia inicialização
-    if (process.env.NODE_ENV === 'production') {
-      console.error('\n❌ BLOQUEADO: Secrets fracos não são permitidos em PRODUÇÃO!\n');
-      process.exit(1);
-    }
+  // ✅ NOVO: Validação de entropia (força real do secret)
+  if (!hasGoodEntropy(jwtSecret)) {
+    warnings.push('⚠️  JWT_SECRET tem baixa entropia - use letras maiúsculas, minúsculas, números e símbolos');
   }
+
+  if (!hasGoodEntropy(refreshSecret)) {
+    warnings.push('⚠️  REFRESH_SECRET tem baixa entropia - misture diferentes tipos de caracteres');
+  }
+
+  return { errors, warnings };
 };
 
 /**
@@ -142,14 +164,38 @@ const validateNodeEnv = () => {
 };
 
 /**
- * Validação completa do ambiente
+ * ✅ CORRIGIDO: Validação completa - REMOVIDO código solto que crashava
  */
 const validateEnvironment = () => {
   console.log('\n🔍 Validando configuração do ambiente...\n');
 
   validateNodeEnv();
   validateRequiredEnv();
-  validateJWTSecrets();
+  
+  const { errors, warnings } = validateJWTSecrets();
+  
+  // Trata erros críticos
+  if (errors.length > 0) {
+    console.error('\n❌ ERROS CRÍTICOS DE SEGURANÇA:\n');
+    errors.forEach(e => console.error(`   ✖ ${e}`));
+    console.error('\nAplicação não pode iniciar com secrets inválidos.\n');
+    process.exit(1);
+  }
+  
+  // Mostra avisos
+  if (warnings.length > 0) {
+    console.warn('\n⚠️  AVISOS DE SEGURANÇA:\n');
+    warnings.forEach(w => console.warn(`   ${w}`));
+    console.warn('\n   Gere secrets fortes usando:');
+    console.warn('   node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"\n');
+    
+    // Em produção, avisos se tornam erros
+    if (process.env.NODE_ENV === 'production') {
+      console.error('❌ BLOQUEADO: Ajuste os warnings acima antes de deploy em produção!\n');
+      process.exit(1);
+    }
+  }
+  
   checkOptionalEnv();
 
   console.log('✅ Validação de ambiente concluída!\n');

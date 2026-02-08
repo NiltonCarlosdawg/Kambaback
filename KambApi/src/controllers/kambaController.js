@@ -92,16 +92,31 @@ const verificarRateLimit = (usuarioId) => {
   return { bloqueado: false };
 };
 
-// Memória persistente
-const salvarMemoria = async (usuarioId, role, content) => {
+// ==========================================
+// MEMÓRIA PERSISTENTE - CORRIGIDO
+// ==========================================
+
+/**
+ * Salva mensagem na memória do Kamba
+ * CORREÇÕES:
+ * - Adicionado campos obrigatórios: role, content, contexto
+ * - Usa criadoEm ao invés de timestamp
+ */
+const salvarMemoria = async (usuarioId, role, content, contexto = '') => {
   try {
     await prisma.kambaMemoria.create({
-      data: { usuarioId, role, content, timestamp: new Date() }
+      data: { 
+        usuarioId, 
+        role, 
+        content, 
+        contexto: contexto || content.substring(0, 200) // Contexto truncado se não fornecido
+      }
     });
 
+    // Mantém apenas últimas 20 mensagens
     const todas = await prisma.kambaMemoria.findMany({
       where: { usuarioId },
-      orderBy: { timestamp: 'desc' }
+      orderBy: { criadoEm: 'desc' } // CORRIGIDO: usa criadoEm
     });
 
     if (todas.length > 20) {
@@ -115,11 +130,15 @@ const salvarMemoria = async (usuarioId, role, content) => {
   }
 };
 
+/**
+ * Carrega histórico de memória do usuário
+ * CORREÇÃO: ordena por criadoEm ao invés de timestamp
+ */
 const carregarMemoria = async (usuarioId) => {
   try {
     const mensagens = await prisma.kambaMemoria.findMany({
       where: { usuarioId },
-      orderBy: { timestamp: 'asc' },
+      orderBy: { criadoEm: 'asc' }, // CORRIGIDO: era timestamp
       take: 15
     });
     return mensagens.map(m => ({ role: m.role, content: m.content }));
@@ -129,7 +148,10 @@ const carregarMemoria = async (usuarioId) => {
   }
 };
 
-// System prompt melhorado
+// ==========================================
+// SYSTEM PROMPT
+// ==========================================
+
 const gerarSystemPrompt = (perfil, idade) => {
   return `Tu és o KAMBA, assistente virtual de gestão financeira focado na realidade de Angola.
 
@@ -192,7 +214,6 @@ Kamba: "Eish, kamba! Bora rever teus gastos e criar um plano pra evitar isso de 
 User: "A tabua que tenho agora não chega"
 Kamba: "Calma, mano! Vamos analisar teus gastos e ver onde podes cortar pra melhorar teu fluxo. Quer um resumo do mês?"
 
-
 User: "Quanto gastei?"
 Kamba: "Deixa ver... [usa tool] 45k AOA este mês, maior parte em alimentação. Tá ok!"
 
@@ -236,14 +257,14 @@ const conversarComKamba = async (req, res, next) => {
     if (Wizard.temFluxoAtivo(usuarioId)) {
       if (msgLower === 'cancelar' || msgLower === 'sair') {
         const resp = Wizard.cancelarFluxo(usuarioId);
-        await salvarMemoria(usuarioId, 'user', mensagem);
-        await salvarMemoria(usuarioId, 'assistant', resp);
+        await salvarMemoria(usuarioId, 'user', mensagem, 'fluxo_cancelado');
+        await salvarMemoria(usuarioId, 'assistant', resp, 'fluxo_cancelado');
         return kambaRes(res, resp);
       }
 
       const resultado = await Wizard.processarRespostaFluxo(usuarioId, msg);
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', resultado.mensagem);
+      await salvarMemoria(usuarioId, 'user', mensagem, `fluxo_${resultado.fluxoTipo || 'ativo'}`);
+      await salvarMemoria(usuarioId, 'assistant', resultado.mensagem, `fluxo_${resultado.fluxoTipo || 'ativo'}`);
       
       return kambaRes(res, resultado.mensagem, { 
         fluxoAtivo: resultado.continuar,
@@ -255,8 +276,8 @@ const conversarComKamba = async (req, res, next) => {
     const intencaoFluxo = Wizard.detectarIntencaoFluxo(msgLower);
     if (intencaoFluxo) {
       const perguntaInicial = Wizard.iniciarFluxo(usuarioId, intencaoFluxo);
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', perguntaInicial);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'inicio_fluxo');
+      await salvarMemoria(usuarioId, 'assistant', perguntaInicial, 'inicio_fluxo');
       return kambaRes(res, perguntaInicial, { fluxoAtivo: true, fluxoTipo: intencaoFluxo });
     }
 
@@ -280,15 +301,15 @@ const conversarComKamba = async (req, res, next) => {
 
 Manda aí, kamba! `;
       
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', ajuda);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'ajuda');
+      await salvarMemoria(usuarioId, 'assistant', ajuda, 'ajuda');
       return kambaRes(res, ajuda);
     }
 
     if (msgLower === 'fluxos' || msgLower.includes('o que fazes')) {
       const lista = Wizard.listarFluxos();
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', lista);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'listar_fluxos');
+      await salvarMemoria(usuarioId, 'assistant', lista, 'listar_fluxos');
       return kambaRes(res, lista);
     }
 
@@ -314,8 +335,8 @@ Manda aí, kamba! `;
     // 8. REGRAS HEURÍSTICAS (respostas rápidas)
     if (msgLower.includes('oi') || msgLower.includes('olá') || msgLower.includes('hey')) {
       const resp = `Komé..., ${perfil.nome}! 👊 Como posso ajudar hoje?`;
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', resp);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'saudacao');
+      await salvarMemoria(usuarioId, 'assistant', resp, 'saudacao');
       salvarCache(usuarioId, msgLower, resp);
       return kambaRes(res, resp);
     }
@@ -327,16 +348,16 @@ Manda aí, kamba! `;
       
       if (cartoes.length === 0) {
         const resp = getFallback('sem_dados');
-        await salvarMemoria(usuarioId, 'user', mensagem);
-        await salvarMemoria(usuarioId, 'assistant', resp);
+        await salvarMemoria(usuarioId, 'user', mensagem, 'consulta_saldo');
+        await salvarMemoria(usuarioId, 'assistant', resp, 'consulta_saldo');
         return kambaRes(res, resp);
       }
 
       const total = cartoes.reduce((acc, c) => acc + Number(c.saldoAtual || 0), 0);
       const resp = `Tens *${total.toLocaleString('pt-AO')} AOA* no total, kamba! 💰`;
       
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', resp);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'consulta_saldo');
+      await salvarMemoria(usuarioId, 'assistant', resp, 'consulta_saldo');
       salvarCache(usuarioId, msgLower, resp);
       return kambaRes(res, resp);
     }
@@ -350,14 +371,14 @@ Manda aí, kamba! `;
 
       if (!ultimo) {
         const resp = getFallback('sem_dados');
-        await salvarMemoria(usuarioId, 'user', mensagem);
-        await salvarMemoria(usuarioId, 'assistant', resp);
+        await salvarMemoria(usuarioId, 'user', mensagem, 'consulta_ultimo_gasto');
+        await salvarMemoria(usuarioId, 'assistant', resp, 'consulta_ultimo_gasto');
         return kambaRes(res, resp);
       }
 
       const resp = `Último gasto: *${Number(ultimo.valor).toLocaleString('pt-AO')} AOA* em *${ultimo.categoria?.nome || 'Geral'}* 📝`;
-      await salvarMemoria(usuarioId, 'user', mensagem);
-      await salvarMemoria(usuarioId, 'assistant', resp);
+      await salvarMemoria(usuarioId, 'user', mensagem, 'consulta_ultimo_gasto');
+      await salvarMemoria(usuarioId, 'assistant', resp, 'consulta_ultimo_gasto');
       salvarCache(usuarioId, msgLower, resp);
       return kambaRes(res, resp);
     }
@@ -448,34 +469,52 @@ Manda aí, kamba! `;
     // 10. ADICIONAR LEMBRETES PROATIVOS
     finalContent = await Proatividade.adicionarLembretesNaResposta(usuarioId, finalContent);
 
-    // 11. SALVAR MEMÓRIA
-    await salvarMemoria(usuarioId, 'user', mensagem);
-    await salvarMemoria(usuarioId, 'assistant', finalContent);
+    // 11. SALVAR MEMÓRIA - CORRIGIDO com contexto
+    await salvarMemoria(usuarioId, 'user', mensagem, 'conversa_ia');
+    await salvarMemoria(usuarioId, 'assistant', finalContent, 'conversa_ia');
     salvarCache(usuarioId, msgLower, finalContent);
 
-    // 12. LOG DE PERFORMANCE
+    // 12. LOG DE PERFORMANCE - CORRIGIDO
     const latencia = Date.now() - inicio;
-    console.log(`[KAMBA] User: ${usuarioId} | Latência: ${latencia}ms | Tokens: ${data.usage?.total_tokens || 0}`);
+    const tokensUsados = data.usage?.total_tokens || 0;
+    console.log(`[KAMBA] User: ${usuarioId} | Latência: ${latencia}ms | Tokens: ${tokensUsados}`);
 
-    // Salvar estatísticas
+    // Salvar estatísticas - CORRIGIDO com campos do schema atualizado
     try {
       await prisma.kambaUsage.create({
         data: {
           usuarioId,
-          tokens: data.usage?.total_tokens || 0,
-          sucesso: true,
-          latencia,
-          modelo: GROQ_MODEL
+          tokens: tokensUsados,
+          latencia: latencia,
+          modelo: GROQ_MODEL,
+          sucesso: true
         }
       });
     } catch (err) {
-      console.error('[STATS] Erro:', err.message);
+      console.error('[STATS] Erro ao salvar estatísticas:', err.message);
     }
 
     return kambaRes(res, finalContent, { latencia: `${latencia}ms` });
 
   } catch (err) {
     console.error('[KAMBA ERROR]:', err.message);
+    
+    // Tenta salvar log de erro
+    try {
+      await prisma.kambaUsage.create({
+        data: {
+          usuarioId: req.user?.id,
+          tokens: 0,
+          latencia: Date.now() - inicio,
+          modelo: GROQ_MODEL || 'unknown',
+          sucesso: false,
+          erro: err.message
+        }
+      });
+    } catch (logErr) {
+      console.error('[STATS] Erro ao logar falha:', logErr.message);
+    }
+    
     return kambaRes(res, getFallback('erro_generico'));
   }
 };
@@ -512,7 +551,7 @@ const availableTools = [
 ];
 
 // ==========================================
-// ROTA DE FEEDBACK
+// ROTA DE FEEDBACK - CORRIGIDO
 // ==========================================
 
 const enviarFeedback = async (req, res, next) => {
@@ -520,18 +559,20 @@ const enviarFeedback = async (req, res, next) => {
     const { mensagemId, avaliacao, comentario } = req.body;
     const usuarioId = req.user.id;
 
-    if (!['positivo', 'negativo', 'neutro'].includes(avaliacao)) {
+    // CORRIGIDO: validação para Int ao invés de String enum
+    const avaliacaoInt = parseInt(avaliacao);
+    if (isNaN(avaliacaoInt) || avaliacaoInt < 1 || avaliacaoInt > 5) {
       return res.status(400).json({
         success: false,
-        message: 'Avaliação inválida'
+        message: 'Avaliação inválida. Use número de 1 a 5'
       });
     }
 
     await prisma.kambaFeedback.create({
       data: {
         usuarioId,
-        mensagemId,
-        avaliacao,
+        mensagemId: mensagemId || null,
+        avaliacao: avaliacaoInt,
         comentario: comentario || null
       }
     });
@@ -546,6 +587,9 @@ const enviarFeedback = async (req, res, next) => {
   }
 };
 
+// ==========================================
+// EXPORTS
+// ==========================================
 module.exports = { 
   conversarComKamba,
   enviarFeedback

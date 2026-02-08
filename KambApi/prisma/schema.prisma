@@ -4,22 +4,22 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-
+  url      = env("DATABASE_URL")
 }
 
 model User {
   id                String    @id @default(cuid())
-  nome              String
-  email             String    @unique
-  telefone          String?   @unique
-  senha             String
+  nome              String    @db.VarChar(100)
+  email             String    @unique @db.VarChar(255)
+  telefone          String?   @unique @db.VarChar(20)
+  senha             String    @db.VarChar(255)
   dataNascimento    DateTime
-  sexo              String
-  morada            String
-  rendaMensalMedia  Float     @default(0)
-  perfilDeRisco     String    @default("moderado")
+  sexo              Sexo
+  morada            String    @db.VarChar(255)
+  rendaMensalMedia  Decimal   @default(0) @db.Decimal(12, 2)
+  perfilDeRisco     PerfilRisco @default(MOD_ERADO)
   
-  role              String    @default("user")
+  role              Role      @default(USER)
   ativo             Boolean   @default(true)
   bloqueado         Boolean   @default(false)
   verificado        Boolean   @default(false)
@@ -44,201 +44,246 @@ model User {
   notificacoes      NotificacaoPush[]
   preferencias      PreferenciasUsuario?
 
-  // Índices úteis
   @@index([email])
   @@index([telefone])
-  @@index([refreshToken])
-  @@index([ultimoLogin(sort: Desc)])
 }
 
 model Cartao {
-  id              String    @id @default(uuid())
-  usuarioId       String
-  nome            String
-  tipo            String
-  banco           String?
-  numero          String?
-  saldoAtual      Float     @default(0)
-  limiteCredito   Float?    @default(0)
-  disponivel      Float?
-  cor             String?
-  icone           String?
-  ativo           Boolean   @default(true)
-  bloqueado       Boolean   @default(false)
-  criadoEm        DateTime  @default(now())
-  excluido      Boolean   @default(false)
-  usuario         User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  gastos          Gasto[]
+  id                      String   @id @default(cuid())
+  nome                    String   @db.VarChar(100)
+  tipo                    TipoCartao
+  banco                   String   @db.VarChar(100)
+  numero                  String?  @db.VarChar(50)
+  saldoAtual              Decimal  @default(0) @db.Decimal(12, 2)
+  limiteCredito           Decimal? @default(0) @db.Decimal(12, 2)
+  diaFechamento           Int?
+  diaVencimento           Int?
+  cor                     String   @default("#6366f1") @db.VarChar(7)
+  icone                   String   @default("credit-card") @db.VarChar(50)
+  
+  // NOVO: Campos para controle de saldo disponível e reservado
+  saldoDisponivel         Decimal  @default(0) @db.Decimal(12, 2)
+  saldoReservado          Decimal  @default(0) @db.Decimal(12, 2)
+  
+  // Define se o cartão distribui receitas automaticamente
+  distribuirParaObjetivos Boolean  @default(false)
+  
+  ativo                   Boolean  @default(true)
+  excluido                Boolean  @default(false)
+  usuarioId               String
+  usuario                 User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos                  Gasto[]
+  criadoEm                DateTime @default(now())
+  atualizadoEm            DateTime @updatedAt
 
-  @@index([usuarioId, ativo])
-  @@index([usuarioId, criadoEm(sort: Desc)])
-}
-
-model Gasto {
-  id            String    @id @default(uuid())
-  usuarioId     String
-  cartaoId      String
-  categoriaId   String
-  tipo          String
-  valor         Float
-  descricao     String?
-  data          DateTime
-  local         String?
-  parcelado     Json?
-  tags          String[]
-  excluido      Boolean   @default(false)
-  criadoEm      DateTime  @default(now())
-
-  usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  cartao        Cartao    @relation(fields: [cartaoId], references: [id])
-  categoria     Categoria @relation(fields: [categoriaId], references: [id])
-
-  @@index([usuarioId, data(sort: Desc)])
-  @@index([usuarioId, tipo])
-  @@index([usuarioId, categoriaId])
-  @@index([usuarioId, cartaoId])
-  @@index([usuarioId, excluido])
-  @@index([data])
+  @@index([usuarioId])
 }
 
 model Objetivo {
-  id                      String    @id @default(uuid())
-  usuarioId               String
-  titulo                  String
-  descricao               String?
-  categoria               String
-  valorAlvo               Float
-  valorAtual              Float     @default(0)
+  id                      String   @id @default(cuid())
+  titulo                  String   @db.VarChar(200)
+  descricao               String?  @db.Text
+  valorAlvo               Decimal  @db.Decimal(12, 2)
+  valorAtual              Decimal  @default(0) @db.Decimal(12, 2)
   dataPrevista            DateTime
-  prioridade              String    @default("media")
-  cor                     String?
-  icone                   String?
-  concluido               Boolean   @default(false)
-  porcentagemDistribuicao Float?    @default(0)
-  modoDistribuicao        String    @default("automatico")
-  criadoEm                DateTime  @default(now())
-  excluido      Boolean   @default(false)
-  usuario                 User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  categoria               String   @default("Geral") @db.VarChar(50)
+  prioridade              Prioridade @default(MEDIA) 
+  icone                   String   @default("target") @db.VarChar(50)
+  cor                     String   @default("#10b981") @db.VarChar(7)
+  
+  // Percentagem de distribuição automática (0-100)
+  porcentagemDistribuicao Decimal  @default(0) @db.Decimal(5, 2)
+  
+  concluido               Boolean  @default(false)
+  excluido                Boolean  @default(false)
+  usuarioId               String
+  usuario                 User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  
+  // Relação inversa para depósitos manuais
+  gastos                  Gasto[]
+  
+  criadoEm                DateTime @default(now())
+  atualizadoEm            DateTime @updatedAt
 
-  @@index([usuarioId, concluido])
-  @@index([usuarioId, dataPrevista])
-  @@index([usuarioId, concluido, dataPrevista])
+  @@index([usuarioId])
+}
+model Gasto {
+  id            String    @id @default(cuid())
+  tipo          TipoGasto
+  valor         Decimal   @db.Decimal(12, 2)
+  descricao     String    @db.VarChar(500)
+  data          DateTime  @default(now())
+  local         String?   @db.VarChar(200)
+  parcelado     Boolean   @default(false)
+  totalParcelas Int       @default(1)
+  parcelaAtual  Int       @default(1)
+  tags          String[]  @default([])
+  excluido      Boolean   @default(false)
+  
+  // NOVO: Flag para rastrear se houve distribuição automática (para estorno preciso)
+  distribuicaoAutomatica Boolean @default(false)
+  
+  usuarioId     String
+  usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  cartaoId      String
+  cartao        Cartao    @relation(fields: [cartaoId], references: [id], onDelete: Cascade)
+  categoriaId   String
+  categoria     Categoria @relation(fields: [categoriaId], references: [id])
+
+  // Campo opcional para vincular um gasto (depósito) a um objetivo
+  objetivoId    String?
+  objetivo      Objetivo? @relation(fields: [objetivoId], references: [id], onDelete: SetNull)
+
+  criadoEm      DateTime  @default(now())
+  atualizadoEm  DateTime  @updatedAt
+
+  @@index([usuarioId])
+  @@index([cartaoId])
+  @@index([categoriaId])
+  @@index([objetivoId])
+  @@index([data])
 }
 
 model Categoria {
-  id          String    @id @default(uuid())
-  nome        String
-  tipo        String
-  cor         String?
-  icone       String?
-  ordem       Int       @default(0)
-  padrao      Boolean   @default(false)
-  usuarioId   String?
-  ativa       Boolean   @default(true)
-   excluido      Boolean   @default(false)
-  usuario     User?     @relation(fields: [usuarioId], references: [id])
-  gastos      Gasto[]
+  id           String        @id @default(cuid())
+  nome         String        @db.VarChar(100)
+  tipo         TipoCategoria
+  cor          String        @default("#94a3b8") @db.VarChar(7)
+  icone        String?       @db.VarChar(50)
+  padrao       Boolean       @default(false)
+  ordem        Int           @default(0)
+  excluido     Boolean       @default(false)
+  ativa        Boolean       @default(true)
+  
+  usuarioId    String?  
+  usuario      User?         @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  gastos       Gasto[]
 
-  @@index([usuarioId, padrao])
-  @@index([usuarioId, tipo, ordem])
+  @@index([usuarioId])
+  @@index([tipo])
 }
 
+// Os modelos abaixo foram mantidos conforme a estrutura original do seu sistema
 model KambaMemoria {
-  id           String    @id @default(uuid())
-  usuarioId    String
-  contexto     Json?
-  mensagem     String    @db.Text
-  resposta     String    @db.Text
-  criadoEm     DateTime  @default(now())
-  excluido      Boolean   @default(false)
-  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, criadoEm(sort: Desc)])
+  id          String   @id @default(cuid())
+  role        String   @db.VarChar(20)    // "user" ou "assistant"
+  content     String   @db.Text
+  contexto    String   @db.Text            // Contexto da conversa (resumo/json)
+  usuarioId   String
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm    DateTime @default(now())
+  
+  @@index([usuarioId, criadoEm])
 }
 
 model KambaUsage {
-  id        String    @id @default(uuid())
-  usuarioId String
-  model     String    @default("gpt-oss-120b")
-  sucesso   Boolean   @default(true)
-  latencia  Int?
-  erro      String?   @db.Text
-  timestamp DateTime  @default(now())
+  id          String   @id @default(cuid())
+  tokens      Int
+  latencia    Int?                     // Tempo de resposta em ms
+  modelo      String?   @db.VarChar(100)  // Modelo de IA usado
+  sucesso     Boolean   @default(true)    // Se a requisição teve sucesso
+  erro        String?   @db.Text          // Mensagem de erro se falhou
+  usuarioId   String
+  usuario     User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm    DateTime  @default(now())
   
-  usuario   User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, timestamp(sort: Desc)])
-  @@map("kamba_usage")
+  @@index([usuarioId, criadoEm])
 }
 
 model KambaLembrete {
-  id           String    @id @default(uuid())
-  usuarioId    String
-  tipo         String
-  mensagem     String    @db.Text
-  enviado      Boolean   @default(false)
-  agendadoPara DateTime
-  criadoEm     DateTime  @default(now())
-  excluido      Boolean   @default(false)
-  usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, enviado, agendadoPara])
-  @@map("kamba_lembretes")
+  id          String   @id @default(cuid())
+  tipo        String   @db.VarChar(50)    // Tipo do lembrete (gasto_alto, objetivo_perto, etc)
+  titulo      String   @db.VarChar(200)
+  mensagem    String   @db.Text
+  dataHora    DateTime                    // Quando deve ser enviado
+  enviado     Boolean   @default(false)   // Se já foi enviado
+  lido        Boolean   @default(false)   // Se o usuário já leu
+  usuarioId   String
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  
+  @@index([usuarioId, enviado, dataHora])
 }
 
 model KambaFeedback {
-  id         String    @id @default(uuid())
-  usuarioId  String
-  mensagemId String?
-  avaliacao  String
-  comentario String?   @db.Text
-  criadoEm   DateTime  @default(now())
-  excluido      Boolean   @default(false)
-  usuario    User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, avaliacao])
-  @@index([mensagemId])
-  @@map("kamba_feedback")
+  id          String   @id @default(cuid())
+  avaliacao   Int
+  comentario  String?  @db.Text
+  usuarioId   String
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 }
 
-// Modelos que estavam truncados no teu documento original
-// (adicionados de forma genérica com base no contexto da aplicação)
-
 model DispositivoPush {
-  id           String    @id @default(uuid())
+  id           String    @id @default(cuid())
   usuarioId    String
-  token        String    @unique
-  tipo         String    // "android" | "ios" | "web"
+  token        String    @unique @db.Text
+  tipo         String    @db.VarChar(50)
   ativo        Boolean   @default(true)
   criadoEm     DateTime  @default(now())
-
   usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, ativo])
 }
 
 model NotificacaoPush {
-  id           String    @id @default(uuid())
+  id           String    @id @default(cuid())
   usuarioId    String
-  titulo       String
+  titulo       String    @db.VarChar(200)
   corpo        String    @db.Text
   lida         Boolean   @default(false)
-  tipo         String    // "lembrete", "alerta_gasto", "meta_alcancada", etc
+  tipo         String    @db.VarChar(50)
   criadoEm     DateTime  @default(now())
-
   usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-
-  @@index([usuarioId, lida, criadoEm(sort: Desc)])
 }
 
 model PreferenciasUsuario {
-  id                  String    @id @default(uuid())
+  id                  String    @id @default(cuid())
   usuarioId           String    @unique
-  idioma              String    @default("pt")
-  tema                String    @default("light")
+  idioma              String    @default("pt") @db.VarChar(10)
+  tema                String    @default("light") @db.VarChar(20)
   notificacoesAtivas  Boolean   @default(true)
-  moedaPadrao         String    @default("AOA")
-  atualizadoEm        DateTime  @updatedAt
-
+  moedaPadrao         String    @default("Kz") @db.VarChar(10)
   usuario             User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+}
+
+// Enums para padronização
+enum Sexo {
+  MASCULINO
+  FEMININO
+  OUTRO
+  PREFIRO_NAO_DIZER
+}
+
+enum Role {
+  USER
+  ADMIN
+  MODERADOR
+}
+
+enum PerfilRisco {
+  CONSERVADOR
+  MOD_ERADO
+  ARROJADO
+}
+
+enum TipoCartao {
+  DEBITO
+  CREDITO
+  POUPANCA
+}
+
+enum TipoGasto {
+  DESPESA
+  RECEITA
+}
+
+enum Prioridade {
+  BAIXA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum TipoCategoria {
+  ESSENCIAL    
+  FLEXIVEL     
+  POUPANCA     
+  RENDIMENTO  
 }

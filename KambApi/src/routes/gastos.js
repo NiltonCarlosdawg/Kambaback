@@ -13,21 +13,20 @@ const {
 const { protegerRota } = require('../middleware/auth');
 
 // ==========================================
-// TODAS AS ROTAS DE GASTOS SÃO PROTEGIDAS
+// SCHEMAS ATUALIZADOS PARA NOVO SCHEMA PRISMA
 // ==========================================
-router.use(protegerRota);
 
-// ==========================================
-// SCHEMA DE VALIDAÇÃO JOI - CORRIGIDO
-// ==========================================
 const criarGastoSchema = validar(
   Joi.object({
-    // CORRIGIDO: cartao → cartaoId (alinhado com controller)
     cartaoId: Joi.string().required()
       .messages({ 'any.required': 'Cartão é obrigatório' }),
 
-    tipo: Joi.string().valid('despesa', 'receita').required()
-      .messages({ 'any.required': 'Tipo é obrigatório (despesa ou receita)' }),
+    // ATUALIZADO: Enums maiúsculos conforme schema Prisma
+    tipo: Joi.string().valid('DESPESA', 'RECEITA').required()
+      .messages({ 
+        'any.required': 'Tipo é obrigatório',
+        'any.only': 'Tipo deve ser DESPESA ou RECEITA'
+      }),
 
     valor: Joi.number().positive().required()
       .messages({ 
@@ -35,48 +34,58 @@ const criarGastoSchema = validar(
         'any.required': 'Valor é obrigatório'
       }),
 
-    descricao: Joi.string().max(150).allow('').optional(),
+    descricao: Joi.string().max(500).required()
+      .messages({ 'any.required': 'Descrição é obrigatória' }),
 
-    // CORRIGIDO: categoria → categoriaId (alinhado com controller)
     categoriaId: Joi.string().required()
       .messages({ 'any.required': 'Categoria é obrigatória' }),
 
-    data: Joi.date().iso().default(() => new Date()),
+    // ATUALIZADO: Aceita string ISO de data (frontend envia YYYY-MM-DD ou ISO)
+    data: Joi.alternatives().try(
+      Joi.date().iso(),
+      Joi.string().isoDate()
+    ).default(() => new Date().toISOString()),
 
-    local: Joi.string().max(100).allow('').optional(),
+    local: Joi.string().max(200).allow('', null).optional(),
 
-    parcelado: Joi.object({
-      totalParcelas: Joi.number().min(1).max(48).default(1),
-      parcelaAtual: Joi.number().min(1).default(1),
-      recorrencia: Joi.string().valid('unica', 'mensal', 'anual').default('unica')
-    }).optional(),
+    // ATUALIZADO: Boolean simples + campos separados (conforme schema Prisma)
+    parcelado: Joi.boolean().default(false),
+    totalParcelas: Joi.number().min(1).max(48).default(1),
+    parcelaAtual: Joi.number().min(1).default(1),
 
-    // CORRIGIDO: removido campo objetivo (não existe relação no schema)
+    // NOVO CAMPO: Para depósito manual em objetivo (despesa direcionada)
+    objetivoId: Joi.string().optional().allow('', null),
     
     tags: Joi.array()
-      .items(Joi.string().max(30).lowercase())
-      .max(10)
+      .items(Joi.string().max(50))
+      .max(20)
       .optional()
   })
+);
+
+// Schema para filtros na listagem (query params)
+const listarGastosQuerySchema = validar(
+  Joi.object({
+    pagina: Joi.number().integer().min(1).default(1),
+    limite: Joi.number().integer().min(1).max(100).default(20),
+    tipo: Joi.string().valid('DESPESA', 'RECEITA', 'todos').optional(),
+    categoriaId: Joi.string().optional(),
+    cartaoId: Joi.string().optional(),
+    objetivoId: Joi.string().optional(),
+    dataInicio: Joi.date().iso().optional(),
+    dataFim: Joi.date().iso().optional()
+  }).unknown(true), // Permite outros query params
+  'query'
 );
 
 // ==========================================
 // ROTAS
 // ==========================================
+router.use(protegerRota);
 
-// Criar novo gasto/receita
 router.post('/', criarGastoSchema, criarGasto);
-
-// Listar gastos com filtros e paginação
-router.get('/', listarGastos);
-// Query params aceitos:
-// ?pagina=1&limite=20&tipo=despesa&categoria=<id>&cartao=<id>&dataInicio=2025-01-01&dataFim=2025-01-31&busca=mercado
-
-// Resumo por categoria (mês específico)
+router.get('/', listarGastosQuerySchema, listarGastos);
 router.get('/por-categoria', gastosPorCategoria);
-// Query params: ?mes=1&ano=2025
-
-// Deletar gasto (soft delete)
 router.delete('/:id', deletarGasto);
 
 module.exports = router;

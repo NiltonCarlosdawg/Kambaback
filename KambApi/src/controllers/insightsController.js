@@ -1,4 +1,4 @@
-// src/controllers/insightsController.js - OTIMIZADO
+// src/controllers/insightsController.js - OTIMIZADO E CORRIGIDO
 const prisma = require('../lib/prisma');
 const { getCache, setCache, deleteCache } = require('../utils/cache');
 
@@ -11,7 +11,7 @@ const { getCache, setCache, deleteCache } = require('../utils/cache');
 
 /**
  * Obtém o fluxo de caixa (receitas - despesas) para um determinado mês.
- * OTIMIZADO: Agora com cache de 5 minutos
+ * CORRIGIDO: Usa enum TipoGasto correto ('RECEITA', 'DESPESA')
  */
 const getFluxoCaixaMensal = async (usuarioId, ano, mes) => {
   try {
@@ -31,13 +31,13 @@ const getFluxoCaixaMensal = async (usuarioId, ano, mes) => {
     const inicioMes = new Date(anoFinal, mesFinal, 1);
     const fimMes = new Date(anoFinal, mesFinal + 1, 0, 23, 59, 59, 999);
 
-    // Query otimizada - usa aggregate em vez de groupBy quando possível
+    // CORRIGIDO: Usa string do enum TipoGasto em maiúsculas
     const [receitasTotal, despesasTotal] = await Promise.all([
       prisma.gasto.aggregate({
         _sum: { valor: true },
         where: {
           usuarioId,
-          tipo: 'receita',
+          tipo: 'RECEITA',  // CORRIGIDO: era 'receita', agora é 'RECEITA'
           data: { gte: inicioMes, lte: fimMes },
           excluido: false
         }
@@ -46,7 +46,7 @@ const getFluxoCaixaMensal = async (usuarioId, ano, mes) => {
         _sum: { valor: true },
         where: {
           usuarioId,
-          tipo: 'despesa',
+          tipo: 'DESPESA',  // CORRIGIDO: era 'despesa', agora é 'DESPESA'
           data: { gte: inicioMes, lte: fimMes },
           excluido: false
         }
@@ -79,6 +79,7 @@ const getFluxoCaixaMensal = async (usuarioId, ano, mes) => {
 /**
  * Obtém o status completo dos objetivos financeiros ativos.
  * OTIMIZADO: Query única + cálculos em memória
+ * CORRIGIDO: Usa 'dataPrevista' ao invés de 'dataFinal'
  */
 const getResumoObjetivos = async (usuarioId) => {
   try {
@@ -89,35 +90,37 @@ const getResumoObjetivos = async (usuarioId) => {
     const hoje = new Date();
 
     // Uma única query com todos os filtros
+    // CORRIGIDO: usa 'dataPrevista' conforme schema
     const objetivos = await prisma.objetivo.findMany({
       where: {
         usuarioId,
         concluido: false,
-        dataFinal: { gte: hoje }
+        dataPrevista: { gte: hoje }  // CORRIGIDO: era 'dataFinal', agora é 'dataPrevista'
       },
       select: {
         id: true,
         titulo: true,
         valorAlvo: true,
         valorAtual: true,
-        dataFinal: true,
+        dataPrevista: true,  // CORRIGIDO: era 'dataFinal', agora é 'dataPrevista'
         prioridade: true,
         categoria: true,
         cor: true
       },
       orderBy: [
         { prioridade: 'desc' },
-        { dataFinal: 'asc' }
+        { dataPrevista: 'asc' }  // CORRIGIDO
       ]
     });
 
     // Cálculos em memória (mais rápido que no DB)
     const resultado = objetivos.map(obj => {
-      const { valorAlvo, valorAtual, dataFinal } = obj;
+      const { valorAlvo, valorAtual, dataPrevista } = obj;  // CORRIGIDO
       const restante = Number(valorAlvo) - Number(valorAtual);
       
-      const meses = (dataFinal.getFullYear() - hoje.getFullYear()) * 12 
-                    + (dataFinal.getMonth() - hoje.getMonth());
+      // CORRIGIDO: usa dataPrevista
+      const meses = (dataPrevista.getFullYear() - hoje.getFullYear()) * 12 
+                    + (dataPrevista.getMonth() - hoje.getMonth());
       
       const poupancaMensalNecessaria = meses > 0 ? restante / meses : restante;
 
@@ -144,6 +147,7 @@ const getResumoObjetivos = async (usuarioId) => {
 /**
  * Verifica o status do fundo de emergência.
  * OTIMIZADO: Queries paralelas + cache
+ * CORRIGIDO: Usa enum 'POUPANCA' ao invés de 'investimento'
  */
 const getFundoEmergenciaStatus = async (usuarioId) => {
   try {
@@ -162,7 +166,7 @@ const getFundoEmergenciaStatus = async (usuarioId) => {
         _sum: { valor: true },
         where: {
           usuarioId,
-          tipo: 'despesa',
+          tipo: 'DESPESA',  // CORRIGIDO: maiúsculo
           excluido: false,
           data: { gte: seisMesesAtras }
         }
@@ -172,7 +176,12 @@ const getFundoEmergenciaStatus = async (usuarioId) => {
         where: { 
           usuarioId, 
           ativo: true,
-          nome: { contains: 'Reserva', mode: 'insensitive' }
+          excluido: false,
+          OR: [
+            { tipo: 'POUPANCA' },  // CORRIGIDO: 'investimento' → 'POUPANCA'
+            { nome: { contains: 'Reserva', mode: 'insensitive' } },
+            { nome: { contains: 'Emergência', mode: 'insensitive' } }
+          ]
         }
       })
     ]);
@@ -225,13 +234,22 @@ const resumoDashboard = async (req, res, next) => {
     const hoje = new Date();
 
     // OTIMIZADO: Todas as queries em paralelo!
-    const [fluxo, objetivosStatus, fundoStatus, cartoes, user] = await Promise.all([
+    // CORRIGIDO: usa campos corretos do schema Cartao
+    const [fluxo, objetivosStatus, fundoStatus, cartoesAgg, user] = await Promise.all([
       getFluxoCaixaMensal(usuarioId, hoje.getFullYear(), hoje.getMonth()),
       getResumoObjetivos(usuarioId),
       getFundoEmergenciaStatus(usuarioId),
       prisma.cartao.aggregate({
-        _sum: { saldoAtual: true, disponivel: true },
-        where: { usuarioId, ativo: true }
+        _sum: { 
+          saldoAtual: true, 
+          saldoDisponivel: true,  // CORRIGIDO: 'disponivel' → 'saldoDisponivel'
+          saldoReservado: true    // Adicionado para cálculo correto
+        },
+        where: { 
+          usuarioId, 
+          ativo: true,
+          excluido: false
+        }
       }),
       prisma.user.findUnique({
         where: { id: usuarioId },
@@ -239,8 +257,9 @@ const resumoDashboard = async (req, res, next) => {
       })
     ]);
 
-    const saldoTotal = Number(cartoes._sum.saldoAtual) || 0;
-    const disponivelTotal = Number(cartoes._sum.disponivel) || 0;
+    const saldoTotal = Number(cartoesAgg._sum.saldoAtual) || 0;
+    const disponivelTotal = Number(cartoesAgg._sum.saldoDisponivel) || 0;
+    const reservadoTotal = Number(cartoesAgg._sum.saldoReservado) || 0;
 
     // Gera alertas inteligentes
     const alertas = [];
@@ -276,7 +295,8 @@ const resumoDashboard = async (req, res, next) => {
       saldos: {
         total: saldoTotal,
         disponivel: disponivelTotal,
-        reservado: saldoTotal - disponivelTotal
+        reservado: reservadoTotal,
+        utilizavel: disponivelTotal - reservadoTotal // Dinheiro realmente disponível
       },
       esteMes: fluxo,
       objetivos: objetivosStatus.slice(0, 5), // Apenas top 5 para o dashboard
@@ -298,6 +318,7 @@ const resumoDashboard = async (req, res, next) => {
 /**
  * HISTÓRICO MENSAL
  * OTIMIZADO: Query única com rawQuery para performance máxima
+ * CORRIGIDO: Usa 'RECEITA' e 'DESPESA' em maiúsculas
  */
 const historicoMensal = async (req, res, next) => {
   try {
@@ -311,12 +332,13 @@ const historicoMensal = async (req, res, next) => {
     }
 
     // SUPER OTIMIZADO: Query raw SQL que faz tudo de uma vez
+    // CORRIGIDO: Usa valores do enum em maiúsculas na query
     const historico = await prisma.$queryRaw`
       SELECT 
         DATE_TRUNC('month', data) as mes,
-        SUM(CASE WHEN tipo = 'receita' THEN valor ELSE 0 END) as receitas,
-        SUM(CASE WHEN tipo = 'despesa' THEN valor ELSE 0 END) as despesas,
-        SUM(CASE WHEN tipo = 'receita' THEN valor ELSE -valor END) as poupanca
+        SUM(CASE WHEN tipo = 'RECEITA' THEN valor ELSE 0 END) as receitas,    -- CORRIGIDO
+        SUM(CASE WHEN tipo = 'DESPESA' THEN valor ELSE 0 END) as despesas,    -- CORRIGIDO
+        SUM(CASE WHEN tipo = 'RECEITA' THEN valor ELSE -valor END) as poupanca
       FROM "Gasto"
       WHERE "usuarioId" = ${usuarioId}
         AND excluido = false
@@ -355,6 +377,7 @@ const historicoMensal = async (req, res, next) => {
 /**
  * TOP CATEGORIAS
  * OTIMIZADO: Query única com JOIN e cache
+ * CORRIGIDO: Usa 'DESPESA' em maiúsculas
  */
 const topCategorias = async (req, res, next) => {
   try {
@@ -369,6 +392,7 @@ const topCategorias = async (req, res, next) => {
     const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
     // OTIMIZADO: Query raw com JOIN 
+    // CORRIGIDO: Usa 'DESPESA' em maiúsculas
     const top = await prisma.$queryRaw`
       SELECT 
         c.id,
@@ -379,7 +403,7 @@ const topCategorias = async (req, res, next) => {
       FROM "Gasto" g
       LEFT JOIN "Categoria" c ON g."categoriaId" = c.id
       WHERE g."usuarioId" = ${usuarioId}
-        AND g.tipo = 'despesa'
+        AND g.tipo = 'DESPESA'  -- CORRIGIDO: maiúsculo
         AND g.data >= ${inicioMes}
         AND g.excluido = false
       GROUP BY c.id, c.nome, c.cor
@@ -435,6 +459,9 @@ const invalidarCacheUsuario = async (usuarioId) => {
   }
 };
 
+// ==========================================
+// EXPORTS
+// ==========================================
 module.exports = {
   resumoDashboard,
   historicoMensal,
