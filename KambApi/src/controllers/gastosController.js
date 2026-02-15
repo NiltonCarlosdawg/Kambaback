@@ -2,9 +2,10 @@
 const prisma = require('../lib/prisma');
 const AppError = require('../middleware/AppError');
 const { invalidarCacheUsuario } = require('./insightsController');
+const NotificacaoService = require('../services/notificacaoService');
 
 /**
- * CRIAR NOVO GASTO / RECEITA (Versão Corrigida)
+ * CRIAR NOVO GASTO / RECEITA (Versão Corrigida com WebSocket)
  */
 const criarGasto = async (req, res, next) => {
   const {
@@ -52,6 +53,7 @@ const criarGasto = async (req, res, next) => {
 
       let distribuicaoAutomatica = false;
       let valorDistribuidoTotal = 0;
+      let distribuicoes = [];
 
       // --- LÓGICA DE OBJETIVOS ---
       // A) Distribuição Automática (Receita + Cartão Configurado)
@@ -71,11 +73,20 @@ const criarGasto = async (req, res, next) => {
           for (const obj of objetivos) {
             const valorFatiado = valorNum * (Number(obj.porcentagemDistribuicao) / 100);
             if (valorFatiado > 0) {
-              await tx.objetivo.update({
+              const objetivoAtualizado = await tx.objetivo.update({
                 where: { id: obj.id },
                 data: { valorAtual: { increment: valorFatiado } }
               });
+              
               valorDistribuidoTotal += valorFatiado;
+              distribuicoes.push({
+                objetivoId: obj.id,
+                titulo: obj.titulo,
+                porcentagem: Number(obj.porcentagemDistribuicao),
+                valor: valorFatiado,
+                novoValorAtual: Number(objetivoAtualizado.valorAtual),
+                valorAlvo: Number(obj.valorAlvo)
+              });
             }
           }
 
@@ -83,8 +94,7 @@ const criarGasto = async (req, res, next) => {
           await tx.cartao.update({
             where: { id: cartaoId },
             data: { 
-              saldoReservado: { increment: valorDistribuidoTotal },
-              // Disponível já será atualizado junto com saldoAtual abaixo
+              saldoReservado: { increment: valorDistribuidoTotal }
             }
           });
         }
@@ -92,9 +102,23 @@ const criarGasto = async (req, res, next) => {
 
       // B) Depósito Manual (Despesa direcionada a objetivo)
       if (tipo === 'DESPESA' && objetivoId) {
-        await tx.objetivo.update({
+        const objetivoAtualizado = await tx.objetivo.update({
           where: { id: objetivoId, usuarioId },
           data: { valorAtual: { increment: valorNum } }
+        });
+
+        // Verifica progresso para notificação
+        const progressoAnterior = Math.round(((Number(objetivoAtualizado.valorAtual) - valorNum) / Number(objetivoAtualizado.valorAlvo)) * 100);
+        const progressoAtual = Math.round((Number(objetivoAtualizado.valorAtual) / Number(objetivoAtualizado.valorAlvo)) * 100);
+        
+        // Adiciona às distribuições para notificação posterior
+        distribuicoes.push({
+          objetivoId: objetivoAtualizado.id,
+          titulo: objetivoAtualizado.titulo,
+          tipo: 'deposito_manual',
+          valor: valorNum,
+          progressoAnterior,
+          progressoAtual
         });
       }
 
@@ -118,7 +142,7 @@ const criarGasto = async (req, res, next) => {
         },
         include: {
           categoria: { select: { nome: true, icone: true } },
-          cartao: { select: { nome: true } },
+          cartao: { select: { nome: true, saldoAtual: true, saldoDisponivel: true } },
           objetivo: { select: { titulo: true } }
         }
       });
@@ -142,7 +166,7 @@ const criarGasto = async (req, res, next) => {
         // Reservado permanece igual
       }
 
-      await tx.cartao.update({
+      const cartaoAtualizado = await tx.cartao.update({
         where: { id: cartaoId },
         data: { 
           saldoAtual: novoSaldo,
@@ -151,17 +175,112 @@ const criarGasto = async (req, res, next) => {
         }
       });
 
-      return gasto;
+      return {
+        gasto,
+        cartao: cartaoAtualizado,
+        distribuicaoAutomatica,
+        valorDistribuidoTotal,
+        distribuicoes
+      };
     });
 
+    // ==========================================
+    // NOTIFICAÇÕES EM TEMPO REAL (fora da transação)
+    // ==========================================
+
+    // 1. Notificar novo gasto/receita
+    if (tipo === 'DESPESA') {
+      await NotificacaoService.notificarNovoGasto(usuarioId, resultado.gasto);
+    } else {
+      await NotificacaoService.notificarNovaReceita(usuarioId, resultado.gasto);
+    }
+
+    // 2. Notificar atualização de saldo do cartão
+    await NotificacaoService.notificarAtualizacaoSaldo(
+      usuarioId,
+      resultado.cartao,
+      tipo,
+      valorNum
+    );
+
+    // 3. Notificar distribuição automática de poupança
+    if (resultado.distribuicaoAutomatica && resultado.distribuicoes.length > 0) {
+      await NotificacaoService.notificarDistribuicaoPoupanca(
+        usuarioId,
+        resultado.valorDistribuidoTotal,
+        resultado.distribuicoes
+      );
+    }
+
+    // 4. Notificar progresso de objetivos (para depósitos manuais)
+    for (const dist of resultado.distribuicoes) {
+      if (dist.tipo === 'deposito_manual' || resultado.distribuicaoAutomatica) {
+        // Busca objetivo atualizado para calcular progresso
+        const objetivo = await prisma.objetivo.findUnique({
+          where: { id: dist.objetivoId }
+        });
+
+        if (objetivo) {
+          const progressoAtual = Math.round((Number(objetivo.valorAtual) / Number(objetivo.valorAlvo)) * 100);
+          const progressoAnterior = dist.progressoAnterior || Math.max(0, progressoAtual - Math.round((dist.valor / Number(objetivo.valorAlvo)) * 100));
+          
+          await NotificacaoService.notificarProgressoObjetivo(
+            usuarioId,
+            objetivo,
+            progressoAnterior,
+            progressoAtual
+          );
+        }
+      }
+    }
+
+    // 5. Verificar alerta de gasto alto (se for despesa)
+    if (tipo === 'DESPESA') {
+      const inicioMes = new Date();
+      inicioMes.setDate(1);
+      inicioMes.setHours(0, 0, 0, 0);
+      
+      const [totalMes, user] = await Promise.all([
+        prisma.gasto.aggregate({
+          _sum: { valor: true },
+          where: {
+            usuarioId,
+            tipo: 'DESPESA',
+            data: { gte: inicioMes },
+            excluido: false
+          }
+        }),
+        prisma.user.findUnique({
+          where: { id: usuarioId },
+          select: { rendaMensalMedia: true }
+        })
+      ]);
+
+      const totalGasto = Number(totalMes._sum.valor) || 0;
+      const percentual = user.rendaMensalMedia > 0 
+        ? Math.round((totalGasto / Number(user.rendaMensalMedia)) * 100) 
+        : 0;
+
+      if (percentual >= 80) {
+        await NotificacaoService.notificarGastoAlto(usuarioId, percentual, totalGasto);
+      }
+    }
+
     await invalidarCacheUsuario(usuarioId);
+
     res.status(201).json({ 
       success: true, 
       message: resultado.distribuicaoAutomatica 
         ? 'Receita registrada e distribuída automaticamente!' 
         : 'Transação registrada!',
-      data: resultado 
+      data: {
+        ...resultado.gasto,
+        valor: Number(resultado.gasto.valor),
+        distribuicaoAutomatica: resultado.distribuicaoAutomatica,
+        distribuicoes: resultado.distribuicoes
+      }
     });
+
   } catch (err) { 
     next(err); 
   }
@@ -173,7 +292,7 @@ const criarGasto = async (req, res, next) => {
 const listarGastos = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
-    const { pagina = 1, limite = 20, tipo, categoriaId, cartaoId, objetivoId } = req.query;
+    const { pagina = 1, limite = 20, tipo, categoriaId, cartaoId, objetivoId, dataInicio, dataFim } = req.query;
     const skip = (parseInt(pagina) - 1) * parseInt(limite);
 
     const where = {
@@ -182,7 +301,13 @@ const listarGastos = async (req, res, next) => {
       ...(tipo && { tipo }),
       ...(categoriaId && { categoriaId }),
       ...(cartaoId && { cartaoId }),
-      ...(objetivoId && { objetivoId })
+      ...(objetivoId && { objetivoId }),
+      ...(dataInicio && dataFim && {
+        data: {
+          gte: new Date(dataInicio),
+          lte: new Date(dataFim)
+        }
+      })
     };
 
     const [gastos, total] = await Promise.all([
@@ -226,14 +351,23 @@ const listarGastos = async (req, res, next) => {
 const gastosPorCategoria = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
+    const { dataInicio, dataFim } = req.query;
+    
+    const where = {
+      usuarioId, 
+      tipo: 'DESPESA', 
+      excluido: false,
+      ...(dataInicio && dataFim && {
+        data: {
+          gte: new Date(dataInicio),
+          lte: new Date(dataFim)
+        }
+      })
+    };
     
     const stats = await prisma.gasto.groupBy({
       by: ['categoriaId'],
-      where: { 
-        usuarioId, 
-        tipo: 'DESPESA', 
-        excluido: false 
-      },
+      where,
       _sum: { valor: true },
       _count: { id: true }
     });
@@ -243,32 +377,43 @@ const gastosPorCategoria = async (req, res, next) => {
       where: { id: { in: categoriasIds } }
     });
 
+    const totalGeral = stats.reduce((acc, s) => acc + Number(s._sum.valor || 0), 0);
+
     const resultado = stats.map(s => ({
       categoriaId: s.categoriaId,
       total: Number(s._sum.valor) || 0,
       quantidade: s._count.id,
-      categoria: categorias.find(c => c.id === s.categoriaId)?.nome || 'Outros'
-    }));
+      categoria: categorias.find(c => c.id === s.categoriaId)?.nome || 'Outros',
+      cor: categorias.find(c => c.id === s.categoriaId)?.cor || '#9E9E9E',
+      porcentagem: totalGeral > 0 ? Math.round((Number(s._sum.valor || 0) / totalGeral) * 100) : 0
+    })).sort((a, b) => b.total - a.total);
 
-    res.json({ success: true, data: resultado });
+    res.json({ 
+      success: true, 
+      totalGeral,
+      data: resultado 
+    });
   } catch (err) { 
     next(err); 
   }
 };
 
 /**
- * DELETAR GASTO (CORREÇÃO CRÍTICA: Estorno de distribuição automática)
+ * DELETAR GASTO (CORREÇÃO CRÍTICA: Estorno de distribuição automática + Notificações)
  */
 const deletarGasto = async (req, res, next) => {
   const { id } = req.params;
   const usuarioId = req.user.id;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    const resultado = await prisma.$transaction(async (tx) => {
       // Buscar gasto com relacionamentos necessários
       const gasto = await tx.gasto.findFirst({ 
         where: { id, usuarioId, excluido: false },
-        include: { cartao: true }
+        include: { 
+          cartao: true,
+          objetivo: true
+        }
       });
       
       if (!gasto) throw new AppError('Transação não encontrada', 404);
@@ -279,6 +424,7 @@ const deletarGasto = async (req, res, next) => {
 
       // Array de operações para Promise.all (independentes entre si)
       const operacoes = [];
+      const notificacoesReverter = [];
 
       // 1. Reverter saldo do cartão
       let ajusteSaldo = 0;
@@ -298,6 +444,12 @@ const deletarGasto = async (req, res, next) => {
               data: { valorAtual: { decrement: valor } }
             })
           );
+          
+          notificacoesReverter.push({
+            tipo: 'objetivo',
+            objetivoId: gasto.objetivoId,
+            valor: -valor
+          });
         }
       } else {
         // Estornar receita: tira o dinheiro
@@ -325,6 +477,12 @@ const deletarGasto = async (req, res, next) => {
                 })
               );
               totalRevertido += valorFatiado;
+              
+              notificacoesReverter.push({
+                tipo: 'objetivo',
+                objetivoId: obj.id,
+                valor: -valorFatiado
+              });
             }
           }
 
@@ -359,10 +517,81 @@ const deletarGasto = async (req, res, next) => {
       );
 
       await Promise.all(operacoes);
+
+      // Buscar cartão atualizado para notificação
+      const cartaoAtualizado = await tx.cartao.findUnique({
+        where: { id: gasto.cartaoId }
+      });
+
+      return {
+        gasto,
+        cartao: cartaoAtualizado,
+        tipoReverso: tipo === 'DESPESA' ? 'RECEITA' : 'DESPESA',
+        valorReverso: valor,
+        notificacoesReverter
+      };
     });
 
+    // ==========================================
+    // NOTIFICAÇÕES DE ESTORNO (fora da transação)
+    // ==========================================
+
+    // 1. Notificar estorno de saldo
+    await NotificacaoService.notificarAtualizacaoSaldo(
+      usuarioId,
+      resultado.cartao,
+      resultado.tipoReverso,
+      resultado.valorReverso
+    );
+
+    // 2. Notificar reversão de objetivos
+    for (const notif of resultado.notificacoesReverter) {
+      if (notif.tipo === 'objetivo') {
+        const objetivo = await prisma.objetivo.findUnique({
+          where: { id: notif.objetivoId }
+        });
+        
+        if (objetivo) {
+          await NotificacaoService.criarNotificacao(
+            usuarioId,
+            'REVERSAO_OBJETIVO',
+            '↩️ Contribuição Revertida',
+            `A contribuição de ${Math.abs(notif.valor).toLocaleString('pt-AO')} Kz para "${objetivo.titulo}" foi revertida`,
+            {
+              objetivoId: objetivo.id,
+              valorRevertido: Math.abs(notif.valor),
+              novoValorAtual: Number(objetivo.valorAtual)
+            }
+          );
+        }
+      }
+    }
+
+    // 3. Notificar exclusão da transação
+    await NotificacaoService.criarNotificacao(
+      usuarioId,
+      'TRANSACAO_REMOVIDA',
+      '🗑️ Transação Removida',
+      `${resultado.gasto.descricao || 'Transação'} de ${Number(resultado.gasto.valor).toLocaleString('pt-AO')} Kz foi removida`,
+      {
+        gastoId: resultado.gasto.id,
+        valor: Number(resultado.gasto.valor),
+        tipo: resultado.gasto.tipo
+      }
+    );
+
     await invalidarCacheUsuario(usuarioId);
-    res.json({ success: true, message: 'Transação removida e valores estornados.' });
+    
+    res.json({ 
+      success: true, 
+      message: 'Transação removida e valores estornados.',
+      data: {
+        estornado: true,
+        tipo: resultado.gasto.tipo,
+        valor: Number(resultado.gasto.valor)
+      }
+    });
+    
   } catch (err) { 
     next(err); 
   }
@@ -419,10 +648,72 @@ const dashboardStats = async (req, res, next) => {
   }
 };
 
+/**
+ * ATUALIZAR GASTO (NOVO - para edição de transações)
+ */
+const atualizarGasto = async (req, res, next) => {
+  const { id } = req.params;
+  const { descricao, categoriaId, data, local, tags } = req.body;
+  const usuarioId = req.user.id;
+
+  try {
+    const gastoExistente = await prisma.gasto.findFirst({
+      where: { id, usuarioId, excluido: false }
+    });
+
+    if (!gastoExistente) {
+      return next(new AppError('Transação não encontrada', 404));
+    }
+
+    const dadosAtualizacao = {};
+    if (descricao !== undefined) dadosAtualizacao.descricao = descricao.trim();
+    if (categoriaId !== undefined) dadosAtualizacao.categoriaId = categoriaId;
+    if (data !== undefined) dadosAtualizacao.data = new Date(data);
+    if (local !== undefined) dadosAtualizacao.local = local.trim();
+    if (tags !== undefined) dadosAtualizacao.tags = tags;
+
+    const gastoAtualizado = await prisma.gasto.update({
+      where: { id },
+      data: dadosAtualizacao,
+      include: {
+        categoria: { select: { nome: true, cor: true, icone: true } },
+        cartao: { select: { nome: true } }
+      }
+    });
+
+    // Notificar atualização
+    await NotificacaoService.criarNotificacao(
+      usuarioId,
+      'TRANSACAO_ATUALIZADA',
+      '✏️ Transação Atualizada',
+      `${gastoAtualizado.descricao || 'Transação'} modificada`,
+      {
+        gastoId: gastoAtualizado.id,
+        camposAlterados: Object.keys(dadosAtualizacao)
+      }
+    );
+
+    await invalidarCacheUsuario(usuarioId);
+
+    res.json({
+      success: true,
+      message: 'Transação atualizada com sucesso',
+      data: {
+        ...gastoAtualizado,
+        valor: Number(gastoAtualizado.valor)
+      }
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   criarGasto,
   listarGastos,
   gastosPorCategoria,
   deletarGasto,
-  dashboardStats
+  dashboardStats,
+  atualizarGasto // NOVO
 };

@@ -4,7 +4,9 @@ const AppError = require('../middleware/AppError');
 const { invalidarCacheUsuario } = require('./insightsController');
 
 /**
+ * ==========================================
  * LISTAR TODOS OS CARTÕES DO USUÁRIO
+ * ==========================================
  */
 const listarCartoes = async (req, res, next) => {
   try {
@@ -46,7 +48,12 @@ const listarCartoes = async (req, res, next) => {
 };
 
 /**
+ * ==========================================
  * CRIAR NOVO CARTÃO
+ * ==========================================
+ * Regras:
+ * - DEBITO/POUPANCA: saldoDisponivel = saldoAtual
+ * - CREDITO: saldoDisponivel = limiteCredito
  */
 const criarCartao = async (req, res, next) => {
   const {
@@ -54,24 +61,23 @@ const criarCartao = async (req, res, next) => {
     tipo,
     banco,
     numero,
-    saldoAtual = 0,
-    limiteCredito = 0,
-    cor = '#1e40af',
-    icone = 'credit_card',
+    saldoAtual,
+    limiteCredito,
+    diaFechamento,
+    diaVencimento,
+    cor = '#6366f1',
+    icone = 'credit-card',
     distribuirParaObjetivos = false
   } = req.body;
 
-  if (!nome || !tipo) {
-    return next(new AppError('Nome e tipo do cartão são obrigatórios', 400));
-  }
-
-  // Validar tipo do enum
+  // Validação de tipo
   const tiposValidos = ['DEBITO', 'CREDITO', 'POUPANCA'];
   if (!tiposValidos.includes(tipo)) {
     return next(new AppError('Tipo de cartão inválido. Use: DEBITO, CREDITO ou POUPANCA', 400));
   }
 
   try {
+    // Verifica duplicidade de número
     if (numero) {
       const existe = await prisma.cartao.findFirst({
         where: {
@@ -86,19 +92,36 @@ const criarCartao = async (req, res, next) => {
       }
     }
 
-    const saldoInicial = parseFloat(saldoAtual) || 0;
+    // 🎯 LÓGICA DE INICIALIZAÇÃO DO SALDO DISPONÍVEL
+    let saldoInicialAtual = 0;
+    let saldoInicialDisponivel = 0;
+    let limiteCredFinal = 0;
+
+    if (tipo === 'CREDITO') {
+      // Cartão de crédito: saldoDisponivel = limiteCredito
+      limiteCredFinal = parseFloat(limiteCredito) || 0;
+      saldoInicialDisponivel = limiteCredFinal;
+      saldoInicialAtual = 0; // Fatura sempre começa em 0
+    } else {
+      // DEBITO ou POUPANCA: saldoDisponivel = saldoAtual
+      saldoInicialAtual = parseFloat(saldoAtual) || 0;
+      saldoInicialDisponivel = saldoInicialAtual;
+      limiteCredFinal = 0; // Forçado a 0 conforme regra
+    }
 
     const cartao = await prisma.cartao.create({
       data: {
         usuarioId: req.user.id,
         nome: nome.trim(),
         tipo,
-        banco: banco?.trim() || null,
+        banco: banco?.trim() || 'Sem banco',
         numero: numero?.trim() || null,
-        saldoAtual: saldoInicial,
-        saldoDisponivel: saldoInicial, // Inicialmente disponível = saldo
+        saldoAtual: saldoInicialAtual,
+        saldoDisponivel: saldoInicialDisponivel,
         saldoReservado: 0,
-        limiteCredito: parseFloat(limiteCredito) || 0,
+        limiteCredito: limiteCredFinal,
+        diaFechamento: tipo === 'CREDITO' ? diaFechamento : null,
+        diaVencimento: tipo === 'CREDITO' ? diaVencimento : null,
         cor,
         icone,
         distribuirParaObjetivos: !!distribuirParaObjetivos,
@@ -111,26 +134,30 @@ const criarCartao = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Cartão adicionado com sucesso!',
+      message: `Cartão de ${tipo.toLowerCase()} adicionado com sucesso!`,
       cartao
     });
 
   } catch (err) {
-    if (err.code === 'P2002') return next(new AppError('Já tens um cartão com este número', 409));
+    if (err.code === 'P2002') {
+      return next(new AppError('Já tens um cartão com este número', 409));
+    }
     next(err);
   }
 };
 
 /**
- * ATUALIZAR CARTÃO (Campos permitidos)
+ * ==========================================
+ * ATUALIZAR CARTÃO
+ * ==========================================
  */
 const atualizarCartao = async (req, res, next) => {
   const { id } = req.params;
   
-  // Removido 'bloqueado' - esse campo só existe no User, não no Cartao
   const camposPermitidos = [
     'nome', 'banco', 'cor', 'icone', 'ativo', 
-    'distribuirParaObjetivos', 'limiteCredito'
+    'distribuirParaObjetivos', 'limiteCredito',
+    'diaFechamento', 'diaVencimento'
   ];
   
   const dados = {};
@@ -141,6 +168,8 @@ const atualizarCartao = async (req, res, next) => {
         dados[campo] = !!req.body[campo];
       } else if (campo === 'limiteCredito') {
         dados[campo] = parseFloat(req.body[campo]) || 0;
+      } else if (['diaFechamento', 'diaVencimento'].includes(campo)) {
+        dados[campo] = parseInt(req.body[campo]) || null;
       } else {
         dados[campo] = req.body[campo]?.trim?.() || req.body[campo];
       }
@@ -152,20 +181,29 @@ const atualizarCartao = async (req, res, next) => {
   }
 
   try {
-    const cartao = await prisma.cartao.updateMany({
+    // Verificar se o cartão existe e pertence ao usuário
+    const cartaoExistente = await prisma.cartao.findFirst({
       where: { 
         id, 
         usuarioId: req.user.id,
         excluido: false 
-      },
-      data: dados
+      }
     });
 
-    if (cartao.count === 0) {
+    if (!cartaoExistente) {
       return next(new AppError('Cartão não encontrado', 404));
     }
 
-    const atualizado = await prisma.cartao.findUnique({ where: { id } });
+    // Se atualizar limite de crédito, ajustar saldoDisponivel também
+    if (dados.limiteCredito !== undefined && cartaoExistente.tipo === 'CREDITO') {
+      const diferencaLimite = dados.limiteCredito - Number(cartaoExistente.limiteCredito);
+      dados.saldoDisponivel = Number(cartaoExistente.saldoDisponivel) + diferencaLimite;
+    }
+
+    const cartao = await prisma.cartao.update({
+      where: { id },
+      data: dados
+    });
 
     if (dados.ativo !== undefined || dados.distribuirParaObjetivos !== undefined) {
       await invalidarCacheUsuario(req.user.id);
@@ -174,7 +212,7 @@ const atualizarCartao = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Cartão atualizado com sucesso',
-      cartao: atualizado
+      cartao
     });
 
   } catch (err) {
@@ -183,7 +221,12 @@ const atualizarCartao = async (req, res, next) => {
 };
 
 /**
- * ATUALIZAR SALDO DO CARTÃO (Ajustado para Decimal e campos novos)
+ * ==========================================
+ * ATUALIZAR SALDO DO CARTÃO (REFATORADO)
+ * ==========================================
+ * Regras:
+ * - RECEITA: Verifica distribuição automática para objetivos
+ * - DESPESA: Valida saldo disponível (DEBITO) ou limite (CREDITO)
  */
 const atualizarSaldo = async (req, res, next) => {
   const { id } = req.params;
@@ -200,48 +243,149 @@ const atualizarSaldo = async (req, res, next) => {
 
   try {
     const resultado = await prisma.$transaction(async (tx) => {
+      // Buscar cartão
       const cartao = await tx.cartao.findFirst({
         where: { id, usuarioId: req.user.id, ativo: true, excluido: false }
       });
 
-      if (!cartao) throw new AppError('Cartão não encontrado ou inativo', 404);
+      if (!cartao) {
+        throw new AppError('Cartão não encontrado ou inativo', 404);
+      }
 
       const saldoAtual = Number(cartao.saldoAtual);
       const saldoDisponivel = Number(cartao.saldoDisponivel);
       const saldoReservado = Number(cartao.saldoReservado);
 
-      let novoSaldo, novoDisponivel;
+      let novoSaldoAtual = saldoAtual;
+      let novoSaldoDisponivel = saldoDisponivel;
+      let novoSaldoReservado = saldoReservado;
+      let distribuicoes = [];
 
-      if (tipoTransacao === 'DESPESA') {
-        // Verifica saldo disponível (desconsidera o reservado)
-        if (saldoDisponivel < valorNum) {
-          throw new AppError(`Saldo disponível insuficiente no cartão ${cartao.nome}. Disponível: ${saldoDisponivel}`, 400);
+      // ==========================================
+      // LÓGICA DE RECEITA
+      // ==========================================
+      if (tipoTransacao === 'RECEITA') {
+        if (cartao.tipo === 'CREDITO') {
+          // Crédito: receita reduz a fatura e aumenta disponível
+          novoSaldoAtual = Math.max(0, saldoAtual - valorNum);
+          novoSaldoDisponivel = saldoDisponivel + valorNum;
+        } else {
+          // Débito/Poupança: receita aumenta saldo e disponível
+          novoSaldoAtual = saldoAtual + valorNum;
+          novoSaldoDisponivel = saldoDisponivel + valorNum;
         }
-        novoSaldo = saldoAtual - valorNum;
-        novoDisponivel = saldoDisponivel - valorNum;
-        // Reservado permanece igual em despesas normais
-      } else {
-        // RECEITA
-        novoSaldo = saldoAtual + valorNum;
-        novoDisponivel = saldoDisponivel + valorNum;
+
+        // 🎯 DISTRIBUIÇÃO AUTOMÁTICA PARA OBJETIVOS
+        if (cartao.distribuirParaObjetivos) {
+          const objetivos = await tx.objetivo.findMany({
+            where: {
+              usuarioId: req.user.id,
+              concluido: false,
+              excluido: false,
+              porcentagemDistribuicao: { gt: 0 }
+            },
+            orderBy: { prioridade: 'desc' }
+          });
+
+          if (objetivos.length > 0) {
+            let totalDistribuido = 0;
+
+            for (const objetivo of objetivos) {
+              const porcentagem = Number(objetivo.porcentagemDistribuicao);
+              const valorObjetivo = (valorNum * porcentagem) / 100;
+              
+              // Atualizar valorAtual do objetivo
+              const objetivoAtualizado = await tx.objetivo.update({
+                where: { id: objetivo.id },
+                data: {
+                  valorAtual: {
+                    increment: valorObjetivo
+                  }
+                }
+              });
+
+              totalDistribuido += valorObjetivo;
+              distribuicoes.push({
+                objetivoId: objetivo.id,
+                titulo: objetivo.titulo,
+                porcentagem,
+                valor: valorObjetivo,
+                novoValorAtual: Number(objetivoAtualizado.valorAtual)
+              });
+            }
+
+            // 🔒 MOVER DO DISPONÍVEL PARA RESERVADO
+            if (totalDistribuido > 0) {
+              novoSaldoDisponivel -= totalDistribuido;
+              novoSaldoReservado += totalDistribuido;
+            }
+          }
+        }
       }
 
-      return await tx.cartao.update({
+      // ==========================================
+      // LÓGICA DE DESPESA
+      // ==========================================
+      else if (tipoTransacao === 'DESPESA') {
+        if (cartao.tipo === 'CREDITO') {
+          // Crédito: despesa aumenta fatura e diminui disponível
+          if (saldoDisponivel < valorNum) {
+            throw new AppError(
+              `Limite de crédito insuficiente no cartão ${cartao.nome}. ` +
+              `Disponível: ${saldoDisponivel.toFixed(2)} Kz`,
+              400
+            );
+          }
+          novoSaldoAtual = saldoAtual + valorNum;
+          novoSaldoDisponivel = saldoDisponivel - valorNum;
+        } else {
+          // Débito/Poupança: despesa diminui saldo
+          if (saldoDisponivel < valorNum) {
+            throw new AppError(
+              `Saldo disponível insuficiente no cartão ${cartao.nome}. ` +
+              `Disponível: ${saldoDisponivel.toFixed(2)} Kz`,
+              400
+            );
+          }
+          novoSaldoAtual = saldoAtual - valorNum;
+          novoSaldoDisponivel = saldoDisponivel - valorNum;
+        }
+      }
+
+      // Atualizar cartão
+      const cartaoAtualizado = await tx.cartao.update({
         where: { id },
         data: { 
-          saldoAtual: novoSaldo,
-          saldoDisponivel: novoDisponivel
+          saldoAtual: novoSaldoAtual,
+          saldoDisponivel: novoSaldoDisponivel,
+          saldoReservado: novoSaldoReservado
         }
       });
+
+      return {
+        cartao: cartaoAtualizado,
+        distribuicoes
+      };
     });
 
     await invalidarCacheUsuario(req.user.id);
 
-    res.json({
+    const response = {
       success: true,
       message: 'Saldo atualizado com sucesso',
-      cartao: resultado
-    });
+      cartao: resultado.cartao
+    };
+
+    // Incluir informações de distribuição se houver
+    if (resultado.distribuicoes && resultado.distribuicoes.length > 0) {
+      response.distribuicaoAutomatica = {
+        totalDistribuido: resultado.distribuicoes.reduce((acc, d) => acc + d.valor, 0),
+        objetivos: resultado.distribuicoes
+      };
+      response.message = `Saldo atualizado e ${resultado.distribuicoes.length} objetivo(s) financiado(s) automaticamente`;
+    }
+
+    res.json(response);
 
   } catch (err) {
     next(err instanceof AppError ? err : new AppError('Erro ao atualizar saldo', 500));
@@ -249,7 +393,9 @@ const atualizarSaldo = async (req, res, next) => {
 };
 
 /**
+ * ==========================================
  * DELETAR CARTÃO
+ * ==========================================
  */
 const deletarCartao = async (req, res, next) => {
   const { id } = req.params;
@@ -259,8 +405,11 @@ const deletarCartao = async (req, res, next) => {
       where: { id, usuarioId: req.user.id, excluido: false }
     });
 
-    if (!cartao) return next(new AppError('Cartão não encontrado', 404));
+    if (!cartao) {
+      return next(new AppError('Cartão não encontrado', 404));
+    }
 
+    // Verificar transações associadas
     const transacoes = await prisma.gasto.count({
       where: { cartaoId: id, usuarioId: req.user.id, excluido: false }
     });
@@ -272,14 +421,22 @@ const deletarCartao = async (req, res, next) => {
       ));
     }
 
+    // Soft delete
     await prisma.cartao.update({
       where: { id },
-      data: { ativo: false, excluido: true, numero: null }
+      data: { 
+        ativo: false, 
+        excluido: true, 
+        numero: null 
+      }
     });
 
     await invalidarCacheUsuario(req.user.id);
 
-    res.json({ success: true, message: 'Cartão removido com sucesso' });
+    res.json({ 
+      success: true, 
+      message: 'Cartão removido com sucesso' 
+    });
 
   } catch (err) {
     next(err);

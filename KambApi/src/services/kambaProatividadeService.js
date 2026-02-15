@@ -1,7 +1,8 @@
 // src/services/kambaProatividadeService.js
 
 const prisma = require('../lib/prisma');
-
+const { emitirLembrete } = require('../websocket/socketConfig');
+const NotificacaoService = require('../services/notificacaoService');
 // ==========================================
 // SISTEMA DE PROATIVIDADE DO KAMBA
 // ==========================================
@@ -105,13 +106,13 @@ const analisarECriarLembretes = async (usuarioId) => {
  */
 const getTituloPorTipo = (tipo) => {
   const titulos = {
-    'gasto_alto': '⚠️ Gasto Elevado',
-    'objetivo_perto': '⏰ Meta Próxima',
-    'fundo_baixo': '🛡️ Fundo de Emergência Baixo',
-    'balanco_semanal': '📊 Balanço Semanal',
-    'dica_economia': '💡 Dica de Economia'
+    'gasto_alto': ' Gasto Elevado',
+    'objetivo_perto': ' Meta Próxima',
+    'fundo_baixo': ' Fundo de Emergência Baixo',
+    'balanco_semanal': ' Balanço Semanal',
+    'dica_economia': ' Dica de Economia'
   };
-  return titulos[tipo] || '📢 Notificação';
+  return titulos[tipo] || ' Notificação';
 };
 
 /**
@@ -125,7 +126,7 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
         usuarioId,
         tipo,
         enviado: false,
-        dataHora: {  // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
+        dataHora: {
           gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
         }
       }
@@ -136,17 +137,35 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
       return;
     }
 
-    await prisma.kambaLembrete.create({
+    const lembrete = await prisma.kambaLembrete.create({
       data: {
         usuarioId,
         tipo,
-        titulo: getTituloPorTipo(tipo),  // CORRIGIDO: campo obrigatório adicionado
+        titulo: getTituloPorTipo(tipo),
         mensagem,
-        dataHora: new Date(),  // CORRIGIDO: era 'agendadoPara', agora é 'dataHora'
-        enviado: false,        // CORRIGIDO: campo adicionado
-        lido: false            // CORRIGIDO: campo adicionado
+        dataHora: new Date(),
+        enviado: false,
+        lido: false
       }
     });
+
+    // Emitir em tempo real se usuário estiver online
+    emitirLembrete(usuarioId, {
+      id: lembrete.id,
+      tipo: lembrete.tipo,
+      titulo: lembrete.titulo,
+      mensagem: lembrete.mensagem,
+      dataHora: lembrete.dataHora
+    });
+
+    // Também criar notificação persistente
+    await NotificacaoService.criarNotificacao(
+      usuarioId,
+      `LEMBRETE_${tipo.toUpperCase()}`,
+      lembrete.titulo,
+      mensagem,
+      { lembreteId: lembrete.id }
+    );
 
     console.log(`[LEMBRETE] Criado: ${tipo} para user ${usuarioId}`);
   } catch (err) {
@@ -226,7 +245,7 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
     let respostaComLembretes = respostaOriginal + '\n\n---\n\n';
     
     for (const lembrete of lembretes) {
-      respostaComLembretes += `🔔 **${lembrete.titulo}**\n${lembrete.mensagem}\n\n`;
+      respostaComLembretes += ` **${lembrete.titulo}**\n${lembrete.mensagem}\n\n`;
       await marcarLembreteEnviado(lembrete.id);
     }
 
@@ -300,10 +319,10 @@ const gerarDicaProativa = async (usuarioId) => {
     }
 
     const dicasPorCategoria = {
-      'Alimentação': `🍽️ Notei que gastas muito em Alimentação (${dados.total.toLocaleString('pt-AO')} Kz/mês). Que tal cozinhar mais em casa? Poupas até 40%! 💡`,
-      'Transporte': `🚗 Transporte tá pesando, kamba (${dados.total.toLocaleString('pt-AO')} Kz/mês). Considera usar candongueiro ou partilhar Uber! 💡`,
-      'Lazer': `🎉 ${dados.total.toLocaleString('pt-AO')} Kz em Lazer! Tá curtindo, mas controla pra não faltar no final do mês, yha? 💡`,
-      'Saúde': `💊 Investir em Saúde é importante! Mas ${dados.total.toLocaleString('pt-AO')} Kz/mês... Considera plano de saúde? 💡`
+      'Alimentação': ` Notei que gastas muito em Alimentação (${dados.total.toLocaleString('pt-AO')} Kz/mês). Que tal cozinhar mais em casa? Poupas até 40%! 💡`,
+      'Transporte': ` Transporte tá pesando, kamba (${dados.total.toLocaleString('pt-AO')} Kz/mês). Considera usar candongueiro ou partilhar Uber! 💡`,
+      'Lazer': ` ${dados.total.toLocaleString('pt-AO')} Kz em Lazer! Tá curtindo, mas controla pra não faltar no final do mês, yha? 💡`,
+      'Saúde': ` Investir em Saúde é importante! Mas ${dados.total.toLocaleString('pt-AO')} Kz/mês... Considera plano de saúde? 💡`
     };
 
     return dicasPorCategoria[catMaisGasta] || 

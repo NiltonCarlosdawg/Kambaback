@@ -6,6 +6,8 @@ require('dotenv').config();
 const { validateEnvironment } = require('./src/config/envValidator');
 validateEnvironment(); 
 
+const http = require('http');
+const { inicializarSocket } = require('./src/websocket/socketConfig');
 const { iniciarCronJobs } = require('./src/jobs/kambaCronJobs');
 
 const express = require('express');
@@ -33,6 +35,7 @@ const insightsRoutes = require('./src/routes/insights');
 const kambaRoutes = require('./src/routes/kamba');
 const noticiasRoutes = require('./src/routes/noticias');
 const aiRoutes = require('./src/routes/ai');
+const notificacoesRoutes = require('./src/routes/notificacoes'); // NOVO: WebSocket + Notificações
 
 // ==========================================
 // 4. IMPORTA ERROR HANDLERS
@@ -40,9 +43,10 @@ const aiRoutes = require('./src/routes/ai');
 const { errorHandler, notFoundHandler } = require('./src/middleware/errorHandler');
 
 // ==========================================
-// 5. INICIALIZA APP
+// 5. INICIALIZA APP E HTTP SERVER
 // ==========================================
 const app = express();
+const server = http.createServer(app); // Criar servidor HTTP para WebSocket
 const PORT = process.env.PORT || 5000;
 
 // ==========================================
@@ -53,10 +57,10 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// CORS
+// CORS - Atualizado para suportar WebSocket
 const corsOrigins = process.env.NODE_ENV === 'production' 
   ? [process.env.CLIENT_URL].filter(Boolean)
-  : ['http://localhost:3000', 'http://localhost:3001'];
+  : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'http://localhost:4173'];
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -89,38 +93,59 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // ==========================================
-// 8. ROTAS
+// 7. HEALTH CHECK E STATUS
 // ==========================================
 
 app.get('/health', async (req, res) => {
+  const { getEstatisticas, isUsuarioOnline } = require('./src/websocket/socketConfig');
   const healthcheck = {
     success: true,
-    message: 'KambaPro API está online! 🇦🇴',
+    message: 'KambaPro API está online! ',
     database: 'verificando...',
+    websocket: 'verificando...',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   };
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    healthcheck.database = 'conectado ✅';
+    healthcheck.database = 'conectado ';
+    
+    // Verifica status do WebSocket
+    try {
+      const stats = getEstatisticas();
+      healthcheck.websocket = {
+        status: 'ativo ',
+        conexoesTotais: stats.conexoesTotais,
+        salas: stats.salas
+      };
+    } catch (wsErr) {
+      healthcheck.websocket = 'inativo ';
+    }
+    
     res.status(200).json(healthcheck);
   } catch (err) {
     healthcheck.success = false;
+    healthcheck.database = 'erro ';
     res.status(503).json(healthcheck);
   }
 });
 
+// ==========================================
+// 8. ROTAS
+// ==========================================
+
 // APLICAÇÃO DE ROTAS - APENAS AUTH TEM RATE LIMIT
-app.use('/api/auth', limiteAuth, authRoutes);        // ✅ Com proteção (5 tentativas/15min)
-app.use('/api/kamba', kambaRoutes);                   // ❌ Sem rate limit
-app.use('/api/cartoes', cartoesRoutes);               // ❌ Sem rate limit
-app.use('/api/gastos', gastosRoutes);                 // ❌ Sem rate limit
-app.use('/api/objetivos', objetivosRoutes);           // ❌ Sem rate limit
-app.use('/api/categorias', categoriasRoutes);         // ❌ Sem rate limit
-app.use('/api/insights', insightsRoutes);             // ❌ Sem rate limit
-app.use('/api/noticias', noticiasRoutes);             // ❌ Sem rate limit
-app.use('/api/ai', aiRoutes);                         // ❌ Sem rate limit
+app.use('/api/auth', limiteAuth, authRoutes);       
+app.use('/api/kamba', kambaRoutes);                  
+app.use('/api/cartoes', cartoesRoutes);               
+app.use('/api/gastos', gastosRoutes);                 
+app.use('/api/objetivos', objetivosRoutes);           
+app.use('/api/categorias', categoriasRoutes);         
+app.use('/api/insights', insightsRoutes);             
+app.use('/api/noticias', noticiasRoutes);             
+app.use('/api/ai', aiRoutes);                      
+app.use('/api/notificacoes', notificacoesRoutes);     
 
 // ==========================================
 // 9. TRATAMENTO DE ERROS
@@ -129,37 +154,59 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ==========================================
-// 10. INICIALIZAÇÃO DO SERVIDOR
+// 10. INICIALIZAÇÃO DO SERVIDOR COM WEBSOCKET
 // ==========================================
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log('✅ PostgreSQL conectado');
+    console.log(' PostgreSQL conectado');
     
+    // Inicializa WebSocket antes de iniciar o servidor HTTP
+    await inicializarSocket(server);
+    console.log(' WebSocket inicializado para notificações em tempo real');
+    
+    // Inicia cron jobs (agora pode usar WebSocket também)
     iniciarCronJobs();
     
-    const server = app.listen(PORT, () => {
-      console.log(`\n🚀 Servidor online na porta ${PORT}`);
-      console.log('🔒 Rate limiting: APENAS em /api/auth (login/register)');
+    server.listen(PORT, () => {
+      console.log(`\n Servidor online na porta ${PORT}`);
+      console.log(' WebSocket ativo em /socket.io/');
+      console.log(' Rate limiting: APENAS em /api/auth (login/register)');
+      console.log(' Notificações em tempo real: ATIVAS');
     });
 
     // Graceful shutdown
     const shutdown = (signal) => {
-      console.log(`\n⚠️ ${signal} recebido. Encerrando...`);
-      server.close(async () => {
-        await prisma.$disconnect();
-        process.exit(0);
+      console.log(`\n ${signal} recebido. Encerrando graciosamente...`);
+      
+      // Fecha conexões WebSocket primeiro
+      const io = require('./src/websocket/socketConfig').getIO();
+      io.close(() => {
+        console.log(' Conexões WebSocket fechadas');
+        
+        server.close(async () => {
+          await prisma.$disconnect();
+          console.log(' Servidor encerrado com sucesso');
+          process.exit(0);
+        });
       });
+      
+      // Força encerramento após 10s se travar
+      setTimeout(() => {
+        console.error(' Forçando encerramento após timeout');
+        process.exit(1);
+      }, 10000);
     };
 
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
 
   } catch (error) {
-    console.error('❌ Erro crítico:', error);
+    console.error(' Erro crítico na inicialização:', error);
     process.exit(1);
   }
 };
 
 startServer();
-module.exports = app;
+
+module.exports = { app, server };

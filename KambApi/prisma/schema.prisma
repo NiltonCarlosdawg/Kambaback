@@ -43,6 +43,7 @@ model User {
   dispositivos      DispositivoPush[]
   notificacoes      NotificacaoPush[]
   preferencias      PreferenciasUsuario?
+   notificacoesSistema Notificacao[] 
 
   @@index([email])
   @@index([telefone])
@@ -231,6 +232,25 @@ model NotificacaoPush {
   tipo         String    @db.VarChar(50)
   criadoEm     DateTime  @default(now())
   usuario      User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+}
+
+// Modelo para notificações internas do sistema (WebSocket)
+model Notificacao {
+  id          String   @id @default(cuid())
+  usuarioId   String
+  tipo        String   @db.VarChar(50)
+  titulo      String   @db.VarChar(200)
+  mensagem    String   @db.Text
+  dados       Json?    
+  lido        Boolean  @default(false)
+  enviadoEm   DateTime @default(now())
+  lidoEm      DateTime?
+  
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  
+  @@index([usuarioId, lido])
+  @@index([enviadoEm])
+  @@map("notificacoes")
 }
 
 model PreferenciasUsuario {
