@@ -60,7 +60,7 @@ const criarObjetivo = async (req, res, next) => {
         valorAlvo: parseFloat(valorAlvo),
         dataPrevista: new Date(dataPrevista),
         categoria: categoria || 'Geral',
-        prioridade: prioridade || 'media',
+        prioridade: prioridade || 'MEDIA',
         icone: icone || 'target',
         cor: cor || '#10b981',
         porcentagemDistribuicao: parseFloat(porcentagemDistribuicao || 0),

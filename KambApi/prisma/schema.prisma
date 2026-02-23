@@ -61,8 +61,9 @@ model Cartao {
   diaVencimento           Int?
   cor                     String   @default("#6366f1") @db.VarChar(7)
   icone                   String   @default("credit-card") @db.VarChar(50)
-  
-  // NOVO: Campos para controle de saldo disponível e reservado
+  isFundoEmergencia  Boolean  @default(false)
+fundoAtivo         Boolean  @default(false)
+  // Campos para controle de saldo disponível e reservado
   saldoDisponivel         Decimal  @default(0) @db.Decimal(12, 2)
   saldoReservado          Decimal  @default(0) @db.Decimal(12, 2)
   

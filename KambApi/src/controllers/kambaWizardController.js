@@ -54,10 +54,10 @@ const FLUXOS = {
             titulo: dados.nome.trim(),
             valorAlvo,
             valorAtual: 0,
-            dataFinal: dataPrazo,
-            contribuicaoMensal: mensal,
+            dataPrevista: dataPrazo,
+            descricao: `Meta: poupar ${valorAlvo.toLocaleString('pt-AO')} Kz em ${prazoMeses} meses (${mensal.toLocaleString('pt-AO')} Kz/mês)`,
             categoria: 'PESSOAL',
-            prioridade: 'media',
+            prioridade: 'MEDIA',
             cor: '#10b981',
             icone: 'target',
             excluido: false,
@@ -144,7 +144,7 @@ Vamos chegar lá juntos! 💪`;
               data: {
                 usuarioId,
                 nome: nomeCategoria,
-                tipo: 'despesa',
+                tipo: 'FLEXIVEL',
                 cor: '#FF6B6B',
                 icone: 'category',
                 padrao: false,
@@ -184,7 +184,7 @@ Vamos chegar lá juntos! 💪`;
               descricao: dados.descricao && dados.descricao.toLowerCase() !== 'pular' 
                 ? dados.descricao.trim() 
                 : `Gasto em ${nomeCategoria}`,
-              tipo: 'despesa',
+              tipo: 'DESPESA',
               data: new Date(),
               excluido: false,
               local: null,
@@ -198,7 +198,7 @@ Vamos chegar lá juntos! 💪`;
             where: { id: cartao.id },
             data: { 
               saldoAtual: novoSaldo,
-              disponivel: novoSaldo
+              saldoDisponivel: novoSaldo
             }
           });
 
@@ -246,7 +246,7 @@ Saldo restante: ${(cartao.saldoAtual - valor).toLocaleString('pt-AO')} Kz`;
             usuarioId,
             data: { gte: inicioMes, lte: fimMes },
             excluido: false,
-            tipo: 'despesa'
+            tipo: 'DESPESA'
           },
           include: { categoria: true },
           orderBy: { valor: 'desc' }

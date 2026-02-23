@@ -143,73 +143,6 @@ const getResumoObjetivos = async (usuarioId) => {
     return [];
   }
 };
-
-/**
- * Verifica o status do fundo de emergência.
- * OTIMIZADO: Queries paralelas + cache
- * CORRIGIDO: Usa enum 'POUPANCA' ao invés de 'investimento'
- */
-const getFundoEmergenciaStatus = async (usuarioId) => {
-  try {
-    const cacheKey = `fundo:${usuarioId}`;
-    const cached = await getCache(cacheKey);
-    if (cached) return cached;
-
-    const mesesParaMedia = 6;
-    const mesesRecomendados = 6;
-    const hoje = new Date();
-    const seisMesesAtras = new Date(hoje.getFullYear(), hoje.getMonth() - mesesParaMedia, 1);
-
-    // Queries paralelas - muito mais rápido!
-    const [despesasTotal, cartoesReserva] = await Promise.all([
-      prisma.gasto.aggregate({
-        _sum: { valor: true },
-        where: {
-          usuarioId,
-          tipo: 'DESPESA',  // CORRIGIDO: maiúsculo
-          excluido: false,
-          data: { gte: seisMesesAtras }
-        }
-      }),
-      prisma.cartao.aggregate({
-        _sum: { saldoAtual: true },
-        where: { 
-          usuarioId, 
-          ativo: true,
-          excluido: false,
-          OR: [
-            { tipo: 'POUPANCA' },  // CORRIGIDO: 'investimento' → 'POUPANCA'
-            { nome: { contains: 'Reserva', mode: 'insensitive' } },
-            { nome: { contains: 'Emergência', mode: 'insensitive' } }
-          ]
-        }
-      })
-    ]);
-
-    const valorTotalDespesas = Number(despesasTotal._sum.valor) || 0;
-    const despesaMediaMensal = valorTotalDespesas / mesesParaMedia;
-    const saldoAtualReserva = Number(cartoesReserva._sum.saldoAtual) || 0;
-    const alvoEmergencia = despesaMediaMensal * mesesRecomendados;
-    
-    const resultado = {
-      despesaMediaMensal,
-      saldoAtualReserva,
-      alvoEmergencia,
-      mesesCobertos: despesaMediaMensal > 0 ? saldoAtualReserva / despesaMediaMensal : 0,
-      percentualAtingido: alvoEmergencia > 0 ? Math.round((saldoAtualReserva / alvoEmergencia) * 100) : 0
-    };
-
-    // Cache por 10 minutos
-    await setCache(cacheKey, resultado, 600);
-
-    return resultado;
-
-  } catch (error) {
-    console.error("Erro no cálculo de emergência:", error.message);
-    return { erro: "Cálculo de emergência indisponível" };
-  }
-};
-
 /**
  * ==========================================
  * ENDPOINTS DO DASHBOARD
@@ -235,10 +168,9 @@ const resumoDashboard = async (req, res, next) => {
 
     // OTIMIZADO: Todas as queries em paralelo!
     // CORRIGIDO: usa campos corretos do schema Cartao
-    const [fluxo, objetivosStatus, fundoStatus, cartoesAgg, user] = await Promise.all([
+    const [fluxo, objetivosStatus, cartoesAgg, user] = await Promise.all([
       getFluxoCaixaMensal(usuarioId, hoje.getFullYear(), hoje.getMonth()),
       getResumoObjetivos(usuarioId),
-      getFundoEmergenciaStatus(usuarioId),
       prisma.cartao.aggregate({
         _sum: { 
           saldoAtual: true, 
@@ -273,14 +205,6 @@ const resumoDashboard = async (req, res, next) => {
       });
     }
 
-    if (fundoStatus.mesesCobertos < 3) {
-      alertas.push({
-        tipo: 'aviso',
-        titulo: 'Fundo de Emergência Baixo',
-        mensagem: `Tens apenas ${fundoStatus.mesesCobertos.toFixed(1)} meses de reserva. Recomendamos 6 meses.`
-      });
-    }
-
     if (fluxo.poupancaLiquida < 0) {
       alertas.push({
         tipo: 'perigo',
@@ -300,7 +224,6 @@ const resumoDashboard = async (req, res, next) => {
       },
       esteMes: fluxo,
       objetivos: objetivosStatus.slice(0, 5), // Apenas top 5 para o dashboard
-      fundoEmergencia: fundoStatus,
       alertas,
       timestamp: new Date().toISOString()
     };
@@ -468,6 +391,5 @@ module.exports = {
   topCategorias,
   getFluxoCaixaMensal,
   getResumoObjetivos,
-  getFundoEmergenciaStatus,
   invalidarCacheUsuario
 };
