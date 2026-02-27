@@ -35,7 +35,9 @@ const insightsRoutes = require('./src/routes/insights');
 const kambaRoutes = require('./src/routes/kamba');
 const noticiasRoutes = require('./src/routes/noticias');
 const aiRoutes = require('./src/routes/ai');
-const notificacoesRoutes = require('./src/routes/notificacoes'); // NOVO: WebSocket + Notificações
+const notificacoesRoutes = require('./src/routes/notificacoes');
+const fundoEmergenciaRoutes = require('./src/routes/fundo-emergencia');
+
 
 // ==========================================
 // 4. IMPORTA ERROR HANDLERS
@@ -145,7 +147,8 @@ app.use('/api/categorias', categoriasRoutes);
 app.use('/api/insights', insightsRoutes);             
 app.use('/api/noticias', noticiasRoutes);             
 app.use('/api/ai', aiRoutes);                      
-app.use('/api/notificacoes', notificacoesRoutes);     
+app.use('/api/notificacoes', notificacoesRoutes);    
+app.use('/api/fundo-emergencia', fundoEmergenciaRoutes);
 
 // ==========================================
 // 9. TRATAMENTO DE ERROS
