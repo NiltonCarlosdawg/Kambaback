@@ -1,0 +1,7 @@
+{
+  "name": "Kwanza Pro Web",
+  "description": "Interface web completa para o ecossistema financeiro Kwanza Pro. Inclui dashboard, gestão de gastos, carteira digital e assistente IA Kamba integrado via API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
