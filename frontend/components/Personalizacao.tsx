@@ -288,7 +288,7 @@ const Personalizacao: React.FC = () => {
       {/* ── Page header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-black flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
+          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
             <div
               className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: 'var(--accent-10)', border: '1px solid var(--accent-20)' }}

@@ -77,7 +77,7 @@ const inicializarSocket = async (httpServer) => {
     // Evento de leitura
     socket.on('notificacao_lida', async (data) => {
       try {
-        const { marcarLembreteLido } = require('../services/kambaProatividadeService');
+        const { marcarLembreteLido } = require('../modules/kamba/services/kambaProatividadeService');
         await marcarLembreteLido(data.notificacaoId);
         
         socket.emit('notificacao_atualizada', {

@@ -1,22 +1,13 @@
 // src/components/Layout.tsx
 import React, { useCallback, useEffect, useState, useRef } from 'react';
-import {
-  UserCircle, BarChart2, Sliders, LogOut,
-  Bell, Search, X, Menu, ChevronDown, ChevronRight,
-  TrendingUp, TrendingDown, Wallet,
-  Wifi, WifiOff, LayoutDashboard, ArrowRightLeft,
-  CreditCard, Tag, Target, Newspaper, MessageCircle,
-  Loader2,
-} from 'lucide-react';
+import { ArrowLeftRight, BarChart2, Bell, ChevronDown, ChevronRight, LayoutDashboard, LogOut, Menu, MessageCircle, Newspaper, Palette, Search, Tag, TrendingDown, TrendingUp, Trophy, User, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 import useSocket from '../hooks/useSocket';
 import useNotificacoes, { NotificacaoTempoReal } from '../hooks/useNotificacoes';
 import NotificacoesDrawer from './NotificacoesDrawer';
 
-// ─────────────────────────────────────────
-// Types
-// ─────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface LayoutProps {
   children: React.ReactNode;
   activePage: string;
@@ -25,121 +16,85 @@ interface LayoutProps {
 }
 
 interface HeaderStats {
-  saldoTotal: number;
-  receitasMes: number;
-  despesasMes: number;
-  taxaPoupanca: number;
+  saldoTotal: number; receitasMes: number; despesasMes: number; taxaPoupanca: number;
 }
 
-interface SearchResult {
-  id: string;
-  label: string;
-  sub: string;
-  page: string;
-}
+interface SearchResult { id: string; label: string; sub: string; page: string; }
 
-// ─────────────────────────────────────────
-// Menu config
-// ─────────────────────────────────────────
+// ─── Menu config ──────────────────────────────────────────────────────────────
 const MENU_ITEMS = [
-  { id: 'dashboard',    label: 'Dashboard',       description: 'Visão geral das finanças',  Icon: LayoutDashboard              },
-  { id: 'transactions', label: 'Transações',       description: 'Receitas e despesas',       Icon: ArrowRightLeft                },
-  { id: 'cards',        label: 'Carteira',         description: 'Contas e cartões',          Icon: CreditCard                    },
-  { id: 'categorias',   label: 'Categorias',       description: 'Gerir tipos de gastos',     Icon: Tag                           },
-  { id: 'goals',        label: 'Objetivos',        description: 'Metas financeiras',         Icon: Target                        },
-  { id: 'news',         label: 'Notícias',         description: 'Atualizações financeiras',  Icon: Newspaper                     },
-  { id: 'kamba',        label: 'Falar com Kamba',  description: 'Assistente IA',             Icon: MessageCircle, highlight: true },
+  { id: 'dashboard',    label: 'Dashboard',      description: 'Visão geral',          Icon: LayoutDashboard                              },
+  { id: 'transactions', label: 'Transações',      description: 'Receitas e despesas',  Icon: ArrowLeftRight                    },
+  { id: 'cards',        label: 'Carteira',        description: 'Contas e cartões',     Icon: Wallet                            },
+  { id: 'categorias',   label: 'Categorias',      description: 'Tipos de gastos',      Icon: Tag                          },
+  { id: 'goals',        label: 'Objetivos',       description: 'Metas financeiras',    Icon: Trophy                            },
+  { id: 'news',         label: 'Notícias',        description: 'Atualizações',         Icon: Newspaper                         },
+  { id: 'kamba',        label: 'Kamba AI',        description: 'Assistente IA',        Icon: MessageCircle, highlight: true },
 ];
 
 const AVATAR_PAGES = [
-  { id: 'perfil',          label: 'Perfil',          Icon: UserCircle },
-  { id: 'relatorio',       label: 'Relatório',       Icon: BarChart2  },
-  { id: 'personalizacao',  label: 'Personalização',  Icon: Sliders    },
+  { id: 'perfil',         label: 'Perfil',         Icon: User       },
+  { id: 'relatorio',      label: 'Relatório',      Icon: BarChart2     },
+  { id: 'personalizacao', label: 'Personalização', Icon: Palette },
 ];
 
 const ALL_SEARCHABLE: SearchResult[] = [
-  ...MENU_ITEMS.map(m  => ({ id: m.id,  label: m.label,  sub: m.description,      page: m.id })),
-  ...AVATAR_PAGES.map(p => ({ id: p.id, label: p.label,  sub: 'Menu utilizador',  page: p.id })),
+  ...MENU_ITEMS.map(m  => ({ id: m.id,  label: m.label, sub: m.description,     page: m.id })),
+  ...AVATAR_PAGES.map(p => ({ id: p.id, label: p.label, sub: 'Menu utilizador', page: p.id })),
 ];
 
-// ─────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────
-const fmtShort = (v: number) => {
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000)     return `${(v / 1_000).toFixed(0)}K`;
-  return v.toFixed(0);
-};
-
-const getGreeting = () => {
-  const h = new Date().getHours();
-  if (h < 12) return 'Bom dia';
-  if (h < 18) return 'Boa tarde';
-  return 'Boa noite';
-};
-
-const getPageLabel = (id: string) =>
-  [...MENU_ITEMS, ...AVATAR_PAGES].find(m => m.id === id)?.label || 'Overview';
-
-const getPageDesc = (id: string) =>
-  MENU_ITEMS.find(m => m.id === id)?.description || '';
-
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const fmtShort = (v: number) => v >= 1_000_000 ? `${(v/1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v/1_000).toFixed(0)}K` : v.toFixed(0);
+const getGreeting = () => { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; };
+const getPageLabel = (id: string) => [...MENU_ITEMS, ...AVATAR_PAGES].find(m => m.id === id)?.label || 'Overview';
+const getPageDesc  = (id: string) => MENU_ITEMS.find(m => m.id === id)?.description || '';
 const STATS_PAGES = ['dashboard', 'transactions', 'cards'];
 
-// ─────────────────────────────────────────
-// Component
-// ─────────────────────────────────────────
+// ─── Shared card / section header ─────────────────────────────────────────────
+const SectionHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
+  <div className="px-5 pt-5 pb-3 border-b" style={{ borderColor: 'var(--border)' }}>
+    <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>{subtitle}</p>
+    <h3 className="text-sm font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+  </div>
+);
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user }) => {
   const { prefs, maskValue, formatMoney } = useTheme();
 
-  const [mobileMenuOpen,     setMobileMenuOpen]     = useState(false);
-  const [drawerOpen,          setDrawerOpen]         = useState(false);
-  const [avatarDropdownOpen,  setAvatarDropdownOpen] = useState(false);
-  const [searchOpen,          setSearchOpen]         = useState(false);
-  const [searchQuery,         setSearchQuery]        = useState('');
-  const [socketOnline,        setSocketOnline]       = useState(false);
-  const [headerStats,         setHeaderStats]        = useState<HeaderStats | null>(null);
-  const [statsLoading,        setStatsLoading]       = useState(true);
+  const [mobileMenuOpen,    setMobileMenuOpen]    = useState(false);
+  const [drawerOpen,         setDrawerOpen]        = useState(false);
+  const [avatarDropdownOpen, setAvatarDropdownOpen]= useState(false);
+  const [searchOpen,         setSearchOpen]        = useState(false);
+  const [searchQuery,        setSearchQuery]       = useState('');
+  const [socketOnline,       setSocketOnline]      = useState(false);
+  const [headerStats,        setHeaderStats]       = useState<HeaderStats | null>(null);
+  const [statsLoading,       setStatsLoading]      = useState(true);
 
   const avatarRef      = useRef<HTMLDivElement>(null);
   const searchRef      = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // Notifications
-  const {
-    notificacoes, totalNaoLidas, loading: loadingNotif,
-    marcarComoLida, marcarTodasLidas, adicionarTempoReal,
-  } = useNotificacoes();
-
-  const handleNotificacaoTempoReal = useCallback(
-    (dados: unknown) => adicionarTempoReal(dados as NotificacaoTempoReal),
-    [adicionarTempoReal],
-  );
+  const { notificacoes, totalNaoLidas, loading: loadingNotif, marcarComoLida, marcarTodasLidas, adicionarTempoReal } = useNotificacoes();
+  const handleNotificacaoTempoReal = useCallback((dados: unknown) => adicionarTempoReal(dados as NotificacaoTempoReal), [adicionarTempoReal]);
 
   useSocket({
-    onNotificacao:        handleNotificacaoTempoReal,
-    onLembrete:           handleNotificacaoTempoReal,
-    onAlertaGasto:        handleNotificacaoTempoReal,
-    onProgressoObjetivo:  handleNotificacaoTempoReal,
-    onAtualizacaoSaldo:   handleNotificacaoTempoReal,
-    onNotificacaoSistema: handleNotificacaoTempoReal,
-    onConectado:    () => setSocketOnline(true),
-    onDesconectado: () => setSocketOnline(false),
+    onNotificacao: handleNotificacaoTempoReal, onLembrete: handleNotificacaoTempoReal,
+    onAlertaGasto: handleNotificacaoTempoReal, onProgressoObjetivo: handleNotificacaoTempoReal,
+    onAtualizacaoSaldo: handleNotificacaoTempoReal, onNotificacaoSistema: handleNotificacaoTempoReal,
+    onConectado: () => setSocketOnline(true), onDesconectado: () => setSocketOnline(false),
   });
 
-  // Fetch dashboard stats
   const fetchStats = useCallback(async () => {
     try {
       setStatsLoading(true);
       const { data } = await api.get('/dashboard/resumo');
-      if (data.success) {
-        setHeaderStats({
-          saldoTotal:   data.saldos?.total          ?? 0,
-          receitasMes:  data.esteMes?.receitas       ?? 0,
-          despesasMes:  data.esteMes?.despesas       ?? 0,
-          taxaPoupanca: data.esteMes?.taxaPoupanca   ?? 0,
-        });
-      }
+      if (data.success) setHeaderStats({
+        saldoTotal:   data.saldos?.total        ?? 0,
+        receitasMes:  data.esteMes?.receitas     ?? 0,
+        despesasMes:  data.esteMes?.despesas     ?? 0,
+        taxaPoupanca: data.esteMes?.taxaPoupanca ?? 0,
+      });
     } catch { /* supplementary */ }
     finally { setStatsLoading(false); }
   }, []);
@@ -147,17 +102,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
   useEffect(() => { fetchStats(); }, [fetchStats]);
   useEffect(() => { if (STATS_PAGES.includes(activePage)) fetchStats(); }, [activePage, fetchStats]);
 
-  // Close on outside click
   useEffect(() => {
     const h = (e: MouseEvent) => {
-      if (avatarRef.current  && !avatarRef.current.contains(e.target as Node))  setAvatarDropdownOpen(false);
-      if (searchRef.current  && !searchRef.current.contains(e.target as Node)) { setSearchOpen(false); setSearchQuery(''); }
+      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) setAvatarDropdownOpen(false);
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) { setSearchOpen(false); setSearchQuery(''); }
     };
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50); }
@@ -167,73 +120,49 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
     return () => document.removeEventListener('keydown', h);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    window.location.reload();
-  };
-
-  const handleNavigate = (page: string) => {
-    onNavigate(page);
-    setMobileMenuOpen(false);
-    setAvatarDropdownOpen(false);
-    setSearchOpen(false);
-    setSearchQuery('');
-  };
+  const handleLogout = () => { localStorage.removeItem('accessToken'); localStorage.removeItem('refreshToken'); window.location.reload(); };
+  const handleNavigate = (page: string) => { onNavigate(page); setMobileMenuOpen(false); setAvatarDropdownOpen(false); setSearchOpen(false); setSearchQuery(''); };
 
   const searchResults = searchQuery.trim().length > 0
-    ? ALL_SEARCHABLE.filter(r =>
-        r.label.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.sub.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? ALL_SEARCHABLE.filter(r => r.label.toLowerCase().includes(searchQuery.toLowerCase()) || r.sub.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   const initials  = (user?.nome || 'K').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase();
   const firstName = user?.nome?.split(' ')[0] || 'Kamba';
+  const compact   = prefs.sidebarCompacta;
 
-  // ─────────────────────────────────────────
-  // Compact sidebar: show only icons
-  // ─────────────────────────────────────────
-  const compact = prefs.sidebarCompacta;
-
-  // ─────────────────────────────────────────
-  // NavContent — adapts to compact mode
-  // ─────────────────────────────────────────
+  // ─── NavContent ─────────────────────────────────────────────────────────────
   const NavContent = ({ forceExpanded = false }: { forceExpanded?: boolean }) => {
     const expanded = forceExpanded || !compact;
     return (
       <>
         {/* Logo */}
-        <div
-          className="flex items-center gap-3 mb-8 mt-7 flex-shrink-0"
-          style={{ padding: expanded ? '0 16px' : '0 12px', justifyContent: expanded ? 'flex-start' : 'center' }}
-        >
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: 'var(--accent)', boxShadow: '0 0 12px var(--accent-20)' }}
-          >
-            <svg fill="currentColor" viewBox="0 0 48 48" className="w-5 h-5" style={{ color: 'var(--accent-text)' }}>
-              <path d="M6 6H42L36 24L42 42H6L12 24L6 6Z" />
-            </svg>
+        <div className="flex items-center gap-3 flex-shrink-0 mb-6"
+          style={{ padding: expanded ? '24px 16px 0' : '24px 12px 0', justifyContent: expanded ? 'flex-start' : 'center' }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: 'var(--accent)' }}>
+            <svg fill="black" viewBox="0 0 48 48" className="w-4 h-4"><path d="M6 6H42L36 24L42 42H6L12 24L6 6Z" /></svg>
           </div>
           {expanded && (
-            <h1 className="text-xl font-black tracking-tighter uppercase" style={{ color: 'var(--text-primary)' }}>
-              Kamba<span style={{ color: 'var(--accent)' }}>Pro</span>
-            </h1>
-          )}
-          {expanded && (
-            <div
-              className="ml-auto w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: socketOnline ? '#22c55e' : 'rgba(255,255,255,0.15)' }}
-              title={socketOnline ? 'Tempo real ativo' : 'Offline'}
-            />
+            <div className="flex items-center gap-2 flex-1">
+              <h1 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                Kamba<span style={{ color: 'var(--accent)' }}>Pro</span>
+              </h1>
+              <div className="ml-auto">
+                <div className={`w-1.5 h-1.5 rounded-full ${socketOnline ? 'bg-emerald-500 animate-ping' : 'bg-zinc-600'}`} />
+              </div>
+            </div>
           )}
         </div>
 
+        {/* Section label */}
+        {expanded && (
+          <p className="text-[10px] font-bold uppercase tracking-widest px-4 mb-2"
+            style={{ color: 'var(--text-faint)', opacity: 0.5 }}>Menu</p>
+        )}
+
         {/* Nav */}
-        <nav
-          className="flex-1 overflow-y-auto space-y-0.5"
-          style={{ padding: expanded ? '0 12px' : '0 8px' }}
-        >
+        <nav className="flex-1 overflow-y-auto space-y-0.5" style={{ padding: expanded ? '0 8px' : '0 6px' }}>
           {MENU_ITEMS.map(({ id, label, description, Icon, highlight }) => {
             const active = activePage === id;
             return (
@@ -243,34 +172,27 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                 title={compact ? label : undefined}
                 className="w-full flex items-center rounded-xl transition-all"
                 style={{
-                  gap:              expanded ? '14px' : '0',
-                  padding:          expanded ? '10px 14px' : '10px',
-                  justifyContent:   expanded ? 'flex-start' : 'center',
-                  backgroundColor:  active ? 'var(--accent)' : 'transparent',
-                  color:            active ? 'var(--accent-text)' : highlight ? 'var(--accent)' : 'var(--text-muted)',
-                  boxShadow:        active ? '0 0 12px var(--accent-20)' : 'none',
-                  transition:       'all var(--transition-speed, 200ms)',
+                  gap: expanded ? 12 : 0,
+                  padding: expanded ? '9px 12px' : '10px',
+                  justifyContent: expanded ? 'flex-start' : 'center',
+                  backgroundColor: active ? 'var(--accent)' : 'transparent',
+                  color: active ? 'var(--accent-text)' : highlight ? 'var(--accent)' : 'var(--text-muted)',
+                  transition: 'all 150ms',
                 }}
-                onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
+                onMouseEnter={e => { if (!active) (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                onMouseLeave={e => { if (!active) (e.currentTarget).style.backgroundColor = 'transparent'; }}
               >
-                <Icon className="w-5 h-5 flex-shrink-0" />
+                <Icon size={18} className="flex-shrink-0" />
                 {expanded && (
                   <>
                     <div className="text-left flex-1 min-w-0">
                       <span className="font-semibold block text-sm truncate">{label}</span>
-                      <span
-                        className="text-[11px] truncate block"
-                        style={{ color: active ? 'var(--accent-text)' : 'var(--text-faint)', opacity: 0.7 }}
-                      >
-                        {description}
-                      </span>
+                      <span className="text-[11px] truncate block" style={{
+                        color: active ? 'var(--accent-text)' : 'var(--text-faint)', opacity: 0.7
+                      }}>{description}</span>
                     </div>
                     {highlight && !active && (
-                      <span
-                        className="w-2 h-2 rounded-full animate-pulse flex-shrink-0"
-                        style={{ backgroundColor: 'var(--accent)' }}
-                      />
+                      <span className="w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0" style={{ backgroundColor: 'var(--accent)' }} />
                     )}
                   </>
                 )}
@@ -279,53 +201,47 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
           })}
         </nav>
 
+        {/* Divider + section label */}
+        {expanded && (
+          <p className="text-[10px] font-bold uppercase tracking-widest px-4 mt-5 mb-2"
+            style={{ color: 'var(--text-faint)', opacity: 0.5, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            Conta
+          </p>
+        )}
+        {!expanded && <div className="my-3 mx-2 h-px" style={{ backgroundColor: 'var(--border)' }} />}
+
         {/* Logout footer */}
-        <div
-          className="pt-5 mt-4 flex-shrink-0"
-          style={{
-            padding:     expanded ? '20px 12px 28px' : '16px 8px 24px',
-            borderTop:   '1px solid var(--border)',
-          }}
-        >
+        <div style={{ padding: expanded ? '0 8px 24px' : '0 6px 24px' }}>
           <button
             onClick={handleLogout}
             title={compact ? 'Sair' : undefined}
             className="w-full flex items-center rounded-xl transition-all"
             style={{
-              gap:            expanded ? '14px' : '0',
-              padding:        expanded ? '10px 14px' : '10px',
+              gap: expanded ? 12 : 0, padding: expanded ? '9px 12px' : '10px',
               justifyContent: expanded ? 'flex-start' : 'center',
-              color:          'var(--text-faint)',
-              transition:     'color var(--transition-speed,200ms)',
+              color: 'var(--text-faint)',
             }}
-            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#f87171'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-faint)'; }}
+            onMouseEnter={e => { (e.currentTarget).style.color = '#f87171'; (e.currentTarget).style.backgroundColor = 'rgba(239,68,68,0.06)'; }}
+            onMouseLeave={e => { (e.currentTarget).style.color = 'var(--text-faint)'; (e.currentTarget).style.backgroundColor = 'transparent'; }}
           >
-            <LogOut className="w-5 h-5 flex-shrink-0" />
-            {expanded && <span className="font-semibold text-sm">Sair da Conta</span>}
+            <LogOut size={18} className="flex-shrink-0" />
+            {expanded && <span className="text-sm font-medium">Sair da conta</span>}
           </button>
         </div>
       </>
     );
   };
 
-  // ─────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────
   return (
-    <div
-      className="flex h-screen overflow-hidden"
-      style={{ backgroundColor: 'var(--bg-base)', transition: 'background-color var(--transition-speed,200ms)' }}
-    >
+    <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-base)' }}>
+
       {/* Desktop sidebar */}
       <aside
         className="hidden md:flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width:           compact ? '64px' : '256px',
-          minWidth:        compact ? '64px' : '256px',
-          backgroundColor: 'var(--bg-base)',
-          borderRight:     '1px solid var(--border)',
-          transition:      'width var(--transition-speed,200ms), min-width var(--transition-speed,200ms)',
+          width: compact ? '60px' : '240px', minWidth: compact ? '60px' : '240px',
+          backgroundColor: 'var(--bg-base)', borderRight: '1px solid var(--border)',
+          transition: 'width 200ms, min-width 200ms',
         }}
       >
         <NavContent />
@@ -334,27 +250,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
       {/* Mobile drawer */}
       {mobileMenuOpen && (
         <div className="fixed inset-0 z-50 md:hidden">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-          <div
-            className="absolute left-0 top-0 h-full w-72 shadow-2xl flex flex-col"
-            style={{
-              backgroundColor: 'var(--bg-base)',
-              borderRight: '1px solid var(--border)',
-              animation: 'slideInLeft 0.2s ease-out',
-            }}
-          >
-            <div className="flex justify-end p-4">
-              <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="p-2 rounded-xl transition-colors"
-                style={{ color: 'var(--text-faint)' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-faint)'; }}
-              >
-                <X className="w-5 h-5" />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
+          <div className="absolute left-0 top-0 h-full w-64 shadow-2xl flex flex-col"
+            style={{ backgroundColor: 'var(--bg-base)', borderRight: '1px solid var(--border)', animation: 'slideInLeft 0.2s ease-out' }}>
+            <div className="flex justify-end p-3">
+              <button onClick={() => setMobileMenuOpen(false)} className="p-2 rounded-lg transition-colors"
+                style={{ color: 'var(--text-faint)' }}>
+                <X size={20} />
               </button>
             </div>
             <NavContent forceExpanded />
@@ -365,118 +267,79 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden">
 
-        {/* ══════════════════
-            HEADER
-        ══════════════════ */}
-        <header
-          className="flex-shrink-0 sticky top-0 z-20 backdrop-blur-xl"
-          style={{
-            backgroundColor: 'color-mix(in srgb, var(--bg-base) 88%, transparent)',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
+        {/* Header */}
+        <header className="flex-shrink-0 sticky top-0 z-20 backdrop-blur-xl"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--bg-base) 90%, transparent)', borderBottom: '1px solid var(--border)' }}>
+
           {/* Top bar */}
-          <div className="flex items-center gap-3 px-4 md:px-6 h-16">
+          <div className="flex items-center gap-3 px-4 md:px-5 h-14">
 
             {/* Mobile hamburger */}
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="md:hidden p-2 rounded-xl transition-colors flex-shrink-0"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              <Menu className="w-5 h-5" />
+            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-1.5 rounded-lg flex-shrink-0"
+              style={{ color: 'var(--text-muted)' }}>
+              <Menu size={20} />
             </button>
 
-            {/* Page title */}
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium hidden md:block leading-none mb-0.5" style={{ color: 'var(--text-faint)' }}>
-                {getGreeting()},{' '}
-                <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>{firstName}</span>
-                {getPageDesc(activePage) && (
-                  <>
-                    <span className="mx-1.5" style={{ color: 'var(--border-strong)' }}>·</span>
-                    {getPageDesc(activePage)}
-                  </>
-                )}
-              </p>
-              <h2
-                className="text-base md:text-lg font-black tracking-tight truncate leading-tight"
-                style={{ color: 'var(--text-primary)' }}
-              >
-                {getPageLabel(activePage)}
-              </h2>
+            {/* Page breadcrumb + title */}
+            <div className="flex-1 min-w-0 hidden md:flex items-center gap-1.5">
+              <span className="text-sm font-medium" style={{ color: 'var(--text-faint)' }}>{getGreeting()}, <strong style={{ color: 'var(--text-muted)' }}>{firstName}</strong></span>
+              <ChevronRight size={12} style={{ color: 'var(--border-strong)' }} />
+              <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{getPageLabel(activePage)}</span>
             </div>
+
+            {/* Mobile title */}
+            <h2 className="md:hidden text-base font-bold tracking-tight flex-1" style={{ color: 'var(--text-primary)' }}>
+              {getPageLabel(activePage)}
+            </h2>
 
             {/* Search */}
             <div className="relative hidden lg:block" ref={searchRef}>
               <div
-                className="flex items-center gap-2 h-9 rounded-xl border cursor-pointer"
+                className="flex items-center gap-2 h-8 rounded-xl border cursor-pointer"
                 style={{
-                  backgroundColor: searchOpen ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.04)',
-                  borderColor:     searchOpen ? 'var(--accent)' : 'var(--border-strong)',
-                  width:           searchOpen ? '256px' : '160px',
-                  transition:      'width var(--transition-speed,200ms), border-color var(--transition-speed,200ms)',
+                  backgroundColor: 'var(--bg-surface)', borderColor: searchOpen ? 'var(--accent)' : 'var(--border)',
+                  width: searchOpen ? '240px' : '150px', transition: 'width 200ms, border-color 150ms',
+                  boxShadow: searchOpen ? '0 0 0 3px var(--accent-10)' : 'none',
                 }}
                 onClick={() => { if (!searchOpen) { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50); } }}
               >
-                <Search className="w-3.5 h-3.5 ml-3 flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
-                {searchOpen ? (
-                  <input
-                    ref={searchInputRef}
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Pesquisar secção..."
-                    className="flex-1 bg-transparent text-sm outline-none"
-                    style={{ color: 'var(--text-primary)' }}
-                  />
-                ) : (
-                  <span className="flex-1 text-sm select-none" style={{ color: 'var(--text-faint)' }}>Pesquisar</span>
-                )}
-                <kbd
-                  className="text-[9px] font-mono mr-2 flex-shrink-0 hidden xl:block px-1.5 py-0.5 rounded"
-                  style={{ color: 'var(--text-faint)', backgroundColor: 'rgba(255,255,255,0.05)' }}
-                >⌘K</kbd>
+                <Search size={14} className="ml-3 flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
+                {searchOpen
+                  ? <input ref={searchInputRef} value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                      placeholder="Pesquisar…" className="flex-1 bg-transparent text-sm outline-none" style={{ color: 'var(--text-primary)' }} />
+                  : <span className="flex-1 text-sm select-none" style={{ color: 'var(--text-faint)' }}>Pesquisar</span>
+                }
+                <kbd className="text-[9px] font-mono mr-2 flex-shrink-0 hidden xl:block px-1.5 py-0.5 rounded"
+                  style={{ color: 'var(--text-faint)', backgroundColor: 'var(--bg-elevated)' }}>⌘K</kbd>
               </div>
 
               {searchOpen && searchQuery.trim().length > 0 && (
-                <div
-                  className="absolute top-[calc(100%+8px)] left-0 w-72 rounded-2xl shadow-2xl overflow-hidden z-50"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--border-strong)',
-                    animation: 'fadeScaleIn 0.12s ease-out',
-                  }}
-                >
+                <div className="absolute top-[calc(100%+6px)] left-0 w-64 rounded-2xl shadow-2xl overflow-hidden z-50 border"
+                  style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)', animation: 'fadeScaleIn 0.12s ease-out' }}>
                   {searchResults.length > 0 ? (
                     <div className="p-1.5">
                       {searchResults.map(r => {
                         const found = [...MENU_ITEMS, ...AVATAR_PAGES].find(m => m.id === r.id);
                         const Icon = found?.Icon;
                         return (
-                          <button
-                            key={r.id}
-                            onClick={() => handleNavigate(r.page)}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left group"
-                            style={{ transition: 'background-color var(--transition-speed,200ms)' }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
-                          >
-                            {Icon && (
-                              <Icon className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
-                            )}
+                          <button key={r.id} onClick={() => handleNavigate(r.page)}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left group transition-all"
+                            onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                            onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
+                            {Icon && <Icon size={16} style={{ color: 'var(--text-faint)' }} />}
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>{r.label}</p>
-                              <p className="text-xs truncate" style={{ color: 'var(--text-faint)' }}>{r.sub}</p>
+                              <p className="text-[11px] truncate" style={{ color: 'var(--text-faint)' }}>{r.sub}</p>
                             </div>
-                            <ChevronRight className="w-3.5 h-3.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: 'var(--text-faint)' }} />
+                            <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
                           </button>
                         );
                       })}
                     </div>
                   ) : (
                     <div className="flex flex-col items-center py-8 gap-2">
-                      <Search className="w-6 h-6" style={{ color: 'var(--text-faint)' }} />
-                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados para "{searchQuery}"</p>
+                      <Search size={24} style={{ color: 'var(--text-faint)' }} />
+                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
                     </div>
                   )}
                 </div>
@@ -484,146 +347,91 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
             </div>
 
             {/* Socket pill */}
-            <div
-              className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border text-xs font-bold flex-shrink-0"
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold flex-shrink-0"
               style={{
-                backgroundColor: socketOnline ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
-                borderColor:     socketOnline ? 'rgba(34,197,94,0.2)'  : 'var(--border)',
-                color:           socketOnline ? '#4ade80'              : 'var(--text-faint)',
-                transition:      'all var(--transition-speed,200ms)',
-              }}
-            >
-              {socketOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                backgroundColor: socketOnline ? 'rgba(16,185,129,0.08)' : 'var(--bg-surface)',
+                borderColor: socketOnline ? 'rgba(16,185,129,0.2)' : 'var(--border)',
+                color: socketOnline ? '#10b981' : 'var(--text-faint)',
+              }}>
+              {socketOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
               <span className="hidden xl:inline">{socketOnline ? 'Ao vivo' : 'Offline'}</span>
             </div>
 
             {/* Bell */}
             <button
               onClick={() => setDrawerOpen(true)}
-              className="relative w-9 h-9 flex items-center justify-center rounded-xl flex-shrink-0 transition-colors"
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.04)',
-                border:          '1px solid var(--border-strong)',
-                color:           'var(--text-muted)',
-              }}
-              aria-label={`${totalNaoLidas} notificações`}
+              className="relative w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0 transition-all"
+              style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+              onMouseEnter={e => { (e.currentTarget).style.borderColor = 'var(--border-strong)'; }}
+              onMouseLeave={e => { (e.currentTarget).style.borderColor = 'var(--border)'; }}
             >
-              <Bell className="w-4 h-4" />
+              <Bell size={17} />
               {totalNaoLidas > 0 && (
-                <span
-                  className="absolute -top-1 -right-1 min-w-[17px] h-[17px] text-[9px] font-black rounded-full flex items-center justify-center px-1"
-                  style={{
-                    backgroundColor: 'var(--accent)',
-                    color:           'var(--accent-text)',
-                    boxShadow:       '0 0 8px var(--accent-20)',
-                  }}
-                >
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px] font-black rounded-full flex items-center justify-center px-1"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
                   {totalNaoLidas > 99 ? '99+' : totalNaoLidas}
                 </span>
               )}
             </button>
 
-            {/* Avatar dropdown */}
+            {/* Avatar */}
             <div className="relative flex-shrink-0" ref={avatarRef}>
-              <button
-                onClick={() => setAvatarDropdownOpen(p => !p)}
-                className="flex items-center gap-1.5 group"
-              >
-                <div
-                  className="w-9 h-9 rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0 overflow-hidden"
+              <button onClick={() => setAvatarDropdownOpen(p => !p)} className="flex items-center gap-1.5">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0"
                   style={{
-                    border:     '2px solid var(--accent)',
-                    background: `linear-gradient(135deg, var(--accent), var(--accent-dark))`,
-                    color:      'var(--accent-text)',
-                    boxShadow:  avatarDropdownOpen ? '0 0 12px var(--accent-30)' : 'none',
-                    transition: 'box-shadow var(--transition-speed,200ms)',
-                  }}
-                >
+                    background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))',
+                    color: 'var(--accent-text)',
+                    border: `2px solid ${avatarDropdownOpen ? 'var(--accent)' : 'transparent'}`,
+                  }}>
                   {initials}
                 </div>
-                <ChevronDown
-                  className="w-3.5 h-3.5 hidden md:block transition-transform duration-200"
-                  style={{
-                    color:     'var(--text-faint)',
-                    transform: avatarDropdownOpen ? 'rotate(180deg)' : 'rotate(0)',
-                  }}
-                />
+                <ChevronDown size={13} className="hidden md:block transition-transform duration-200"
+                  style={{ color: 'var(--text-faint)', transform: avatarDropdownOpen ? 'rotate(180deg)' : 'rotate(0)' }} />
               </button>
 
               {avatarDropdownOpen && (
-                <div
-                  className="absolute right-0 top-[calc(100%+10px)] rounded-2xl shadow-2xl overflow-hidden z-50"
-                  style={{
-                    backgroundColor: 'var(--bg-elevated)',
-                    border:          '1px solid var(--border-strong)',
-                    minWidth:        '210px',
-                    animation:       'fadeScaleIn 0.12s ease-out',
-                  }}
-                >
-                  {/* User card */}
-                  <div
-                    className="px-4 py-3 flex items-center gap-3"
-                    style={{ borderBottom: '1px solid var(--border)' }}
-                  >
-                    <div
-                      className="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs flex-shrink-0"
-                      style={{
-                        background: `linear-gradient(135deg, var(--accent), var(--accent-dark))`,
-                        color:      'var(--accent-text)',
-                      }}
-                    >
+                <div className="absolute right-0 top-[calc(100%+8px)] rounded-2xl shadow-2xl overflow-hidden z-50 border"
+                  style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)', minWidth: 200, animation: 'fadeScaleIn 0.12s ease-out' }}>
+
+                  <div className="px-4 py-3 flex items-center gap-3 border-b" style={{ borderColor: 'var(--border)' }}>
+                    <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
+                      style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}>
                       {initials}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-black text-sm truncate" style={{ color: 'var(--text-primary)' }}>
-                        {user?.nome || 'Utilizador'}
-                      </p>
+                      <p className="font-bold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{user?.nome || 'Utilizador'}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <div
-                          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: socketOnline ? '#22c55e' : 'var(--text-faint)' }}
-                        />
-                        <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
-                          {socketOnline ? 'Online' : 'Offline'}
-                        </p>
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: socketOnline ? '#10b981' : 'var(--text-faint)' }} />
+                        <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>{socketOnline ? 'Online' : 'Offline'}</p>
                       </div>
                     </div>
                   </div>
 
-                  <div className="p-1.5 space-y-0.5">
+                  <div className="p-1.5">
                     {AVATAR_PAGES.map(({ id, label, Icon }) => {
                       const active = activePage === id;
                       return (
-                        <button
-                          key={id}
-                          onClick={() => handleNavigate(id)}
-                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold text-left transition-all"
-                          style={{
-                            backgroundColor: active ? 'var(--accent)' : 'transparent',
-                            color:           active ? 'var(--accent-text)' : 'var(--text-muted)',
-                            transition:      'all var(--transition-speed,200ms)',
-                          }}
-                          onMouseEnter={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.06)'; }}
-                          onMouseLeave={e => { if (!active) (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
-                        >
-                          <Icon className="w-4 h-4 flex-shrink-0" />
+                        <button key={id} onClick={() => handleNavigate(id)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-left transition-all"
+                          style={{ backgroundColor: active ? 'var(--accent)' : 'transparent', color: active ? 'var(--accent-text)' : 'var(--text-muted)' }}
+                          onMouseEnter={e => { if (!active) (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                          onMouseLeave={e => { if (!active) (e.currentTarget).style.backgroundColor = 'transparent'; }}>
+                          <Icon size={16} className="flex-shrink-0" />
                           {label}
-                          {active && <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
+                          {active && <ChevronRight size={13} className="ml-auto" />}
                         </button>
                       );
                     })}
                   </div>
 
-                  <div className="p-1.5" style={{ borderTop: '1px solid var(--border)' }}>
-                    <button
-                      onClick={() => { handleLogout(); setAvatarDropdownOpen(false); }}
-                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all"
+                  <div className="p-1.5 border-t" style={{ borderColor: 'var(--border)' }}>
+                    <button onClick={() => { handleLogout(); setAvatarDropdownOpen(false); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all"
                       style={{ color: '#f87171' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(239,68,68,0.08)'; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}
-                    >
-                      <LogOut className="w-4 h-4 flex-shrink-0" />
-                      Sair da Conta
+                      onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'rgba(239,68,68,0.06)'; }}
+                      onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
+                      <LogOut size={16} className="flex-shrink-0" />
+                      Sair da conta
                     </button>
                   </div>
                 </div>
@@ -631,100 +439,83 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
             </div>
           </div>
 
-          {/* ── Stats bar ── */}
+          {/* Stats bar */}
           {STATS_PAGES.includes(activePage) && (
-            <div className="px-4 md:px-6 pb-3" style={{ borderTop: '1px solid var(--border)' }}>
+            <div className="px-4 md:px-5 pb-3 border-t" style={{ borderColor: 'var(--border)' }}>
               {statsLoading ? (
                 <div className="flex items-center gap-2 pt-3">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" style={{ color: 'var(--text-faint)' }} />
-                  <span className="text-xs" style={{ color: 'var(--text-faint)' }}>A carregar dados financeiros…</span>
+                  <div className="w-3 h-3 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+                  <span className="text-[11px]" style={{ color: 'var(--text-faint)' }}>A carregar dados…</span>
                 </div>
               ) : headerStats ? (
-                <div className="flex items-center gap-1.5 pt-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                <div className="flex items-center gap-2 pt-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
 
                   {/* Saldo */}
-                  <button
-                    onClick={() => handleNavigate('cards')}
-                    className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl flex-shrink-0 transition-all"
-                    style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-strong)' }}
-                  >
-                    <div
-                      className="w-6 h-6 rounded-lg flex items-center justify-center"
-                      style={{ backgroundColor: 'var(--accent-10)', border: '1px solid var(--accent-20)' }}
-                    >
-                      <Wallet className="w-3.5 h-3.5" style={{ color: 'var(--accent)' }} />
-                    </div>
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl flex-shrink-0 border"
+                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+                    <Wallet size={14} style={{ color: 'var(--accent)' }} />
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-widest leading-none" style={{ color: 'var(--text-faint)' }}>Saldo</p>
-                      <p className="text-sm font-black leading-snug mt-0.5" style={{ color: 'var(--text-primary)' }}>
-                        {maskValue(fmtShort(headerStats.saldoTotal))}
-                        <span className="text-[10px] font-normal ml-0.5" style={{ color: 'var(--text-faint)' }}>Kz</span>
+                      <p className="text-sm font-bold leading-snug mt-0.5" style={{ color: 'var(--text-primary)' }}>
+                        {maskValue(fmtShort(headerStats.saldoTotal))} <span className="text-[10px] font-normal" style={{ color: 'var(--text-faint)' }}>Kz</span>
                       </p>
                     </div>
-                  </button>
+                  </div>
 
-                  <div className="w-px h-7 flex-shrink-0" style={{ backgroundColor: 'var(--border)' }} />
+                  <div className="w-px h-6 flex-shrink-0" style={{ backgroundColor: 'var(--border)' }} />
 
-                  {/* Receitas */}
-                  <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl flex-shrink-0" style={{ backgroundColor: 'rgba(34,197,94,0.06)', border: '1px solid rgba(34,197,94,0.12)' }}>
-                    <TrendingUp className="w-3.5 h-3.5 flex-shrink-0 text-green-400" />
+                  {/* Entradas */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl flex-shrink-0 border"
+                    style={{ backgroundColor: 'rgba(16,185,129,0.06)', borderColor: 'rgba(16,185,129,0.15)' }}>
+                    <TrendingUp size={14} className="text-emerald-400" />
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-widest leading-none" style={{ color: 'var(--text-faint)' }}>Entradas</p>
-                      <p className="text-sm font-black text-green-400 leading-snug mt-0.5">
-                        {maskValue(`+${fmtShort(headerStats.receitasMes)}`)}
-                        <span className="text-[10px] font-normal ml-0.5 opacity-50">Kz</span>
+                      <p className="text-sm font-bold text-emerald-400 leading-snug mt-0.5">
+                        +{maskValue(fmtShort(headerStats.receitasMes))} <span className="text-[10px] font-normal opacity-50">Kz</span>
                       </p>
                     </div>
                   </div>
 
-                  {/* Despesas */}
-                  <div className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl flex-shrink-0" style={{ backgroundColor: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)' }}>
-                    <TrendingDown className="w-3.5 h-3.5 flex-shrink-0 text-red-400" />
+                  {/* Saídas */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl flex-shrink-0 border"
+                    style={{ backgroundColor: 'rgba(239,68,68,0.06)', borderColor: 'rgba(239,68,68,0.15)' }}>
+                    <TrendingDown size={14} className="text-red-400" />
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-widest leading-none" style={{ color: 'var(--text-faint)' }}>Saídas</p>
-                      <p className="text-sm font-black text-red-400 leading-snug mt-0.5">
-                        {maskValue(`-${fmtShort(headerStats.despesasMes)}`)}
-                        <span className="text-[10px] font-normal ml-0.5 opacity-50">Kz</span>
+                      <p className="text-sm font-bold text-red-400 leading-snug mt-0.5">
+                        -{maskValue(fmtShort(headerStats.despesasMes))} <span className="text-[10px] font-normal opacity-50">Kz</span>
                       </p>
                     </div>
                   </div>
 
-                  <div className="w-px h-7 flex-shrink-0" style={{ backgroundColor: 'var(--border)' }} />
+                  <div className="w-px h-6 flex-shrink-0" style={{ backgroundColor: 'var(--border)' }} />
 
-                  {/* Taxa poupança — mini donut muda com accent */}
-                  <div
-                    className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl flex-shrink-0"
+                  {/* Poupança */}
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl flex-shrink-0 border"
                     style={{
-                      backgroundColor: headerStats.taxaPoupanca >= 20 ? 'var(--accent-10)' : 'rgba(255,255,255,0.04)',
-                      border:          headerStats.taxaPoupanca >= 20 ? '1px solid var(--accent-20)' : '1px solid var(--border-strong)',
-                    }}
-                  >
-                    <div className="relative w-7 h-7 flex-shrink-0">
-                      <svg className="w-7 h-7 -rotate-90" viewBox="0 0 28 28">
-                        <circle cx="14" cy="14" r="10" fill="none" stroke="var(--border-strong)" strokeWidth="3" />
-                        <circle
-                          cx="14" cy="14" r="10" fill="none"
-                          stroke={headerStats.taxaPoupanca >= 20 ? 'var(--accent)' : headerStats.taxaPoupanca >= 0 ? '#3b82f6' : '#f43f5e'}
-                          strokeWidth="3"
-                          strokeDasharray={`${Math.min(Math.max(headerStats.taxaPoupanca, 0), 100) / 100 * 62.8} 62.8`}
-                          strokeLinecap="round"
-                          style={{ transition: 'stroke-dasharray var(--transition-speed,200ms), stroke var(--transition-speed,200ms)' }}
-                        />
+                      backgroundColor: headerStats.taxaPoupanca >= 20 ? 'var(--accent-10)' : 'var(--bg-surface)',
+                      borderColor: headerStats.taxaPoupanca >= 20 ? 'var(--accent-20)' : 'var(--border)',
+                    }}>
+                    <div className="relative w-5 h-5 flex-shrink-0">
+                      <svg className="w-5 h-5 -rotate-90" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="7" fill="none" stroke="var(--border-strong)" strokeWidth="2.5" />
+                        <circle cx="10" cy="10" r="7" fill="none"
+                          stroke={headerStats.taxaPoupanca >= 20 ? 'var(--accent)' : '#3b82f6'}
+                          strokeWidth="2.5"
+                          strokeDasharray={`${Math.min(Math.max(headerStats.taxaPoupanca, 0), 100) / 100 * 43.98} 43.98`}
+                          strokeLinecap="round" />
                       </svg>
                     </div>
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-widest leading-none" style={{ color: 'var(--text-faint)' }}>Poupança</p>
-                      <p
-                        className="text-sm font-black leading-snug mt-0.5"
-                        style={{ color: headerStats.taxaPoupanca >= 20 ? 'var(--accent)' : headerStats.taxaPoupanca >= 0 ? '#60a5fa' : '#f87171' }}
-                      >
+                      <p className="text-sm font-bold leading-snug mt-0.5"
+                        style={{ color: headerStats.taxaPoupanca >= 20 ? 'var(--accent)' : '#60a5fa' }}>
                         {maskValue(`${headerStats.taxaPoupanca.toFixed(0)}%`)}
                       </p>
                     </div>
                   </div>
 
-                  {/* Month */}
-                  <p className="ml-auto text-xs font-medium flex-shrink-0 hidden xl:block capitalize" style={{ color: 'var(--text-faint)' }}>
+                  <p className="ml-auto text-[11px] font-medium flex-shrink-0 hidden xl:block capitalize" style={{ color: 'var(--text-faint)' }}>
                     {new Date().toLocaleDateString('pt-AO', { month: 'long', year: 'numeric' })}
                   </p>
                 </div>
@@ -734,22 +525,16 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
         </header>
 
         {/* Page content */}
-        <div
-          className="flex-1 overflow-y-auto p-4 md:p-6"
-          style={{ backgroundColor: 'var(--bg-base)' }}
-        >
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
+          style={{ backgroundColor: 'var(--bg-base)' }}>
           {children}
         </div>
       </main>
 
       <NotificacoesDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        notificacoes={notificacoes}
-        totalNaoLidas={totalNaoLidas}
-        loading={loadingNotif}
-        onMarcarLida={marcarComoLida}
-        onMarcarTodasLidas={marcarTodasLidas}
+        open={drawerOpen} onClose={() => setDrawerOpen(false)}
+        notificacoes={notificacoes} totalNaoLidas={totalNaoLidas}
+        loading={loadingNotif} onMarcarLida={marcarComoLida} onMarcarTodasLidas={marcarTodasLidas}
       />
 
       <style>{`
@@ -761,7 +546,6 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
           from { transform: translateX(-100%); }
           to   { transform: translateX(0);     }
         }
-        .no-animations * { transition: none !important; animation: none !important; }
       `}</style>
     </div>
   );

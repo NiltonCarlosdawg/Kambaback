@@ -1,50 +1,35 @@
 // src/components/Dashboard.tsx
 import React, { useEffect, useState } from 'react';
+import { AlertCircle, ArrowDown, ArrowLeftRight, ArrowUp, CheckCircle, Info, LayoutDashboard, Lock, Plus, RefreshCw, TrendingDown, TrendingUp, Trophy, Wallet } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 
-interface Objetivo {
-  id: string;
-  titulo: string;
-  valorAtual: number | string;
-  valorAlvo: number | string;
-  cor?: string;
-  porcentagemDistribuicao?: number;
-  dataPrevista?: string;
-}
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface Objetivo { id: string; titulo: string; valorAtual: number | string; valorAlvo: number | string; cor?: string; porcentagemDistribuicao?: number; dataPrevista?: string; }
+interface Gasto { id: string; tipo: 'DESPESA' | 'RECEITA'; valor: number | string; descricao: string; data: string; excluido: boolean; distribuicaoAutomatica?: boolean; categoria?: { nome: string }; cartao?: { nome: string }; objetivo?: { titulo: string }; }
+interface Alerta { tipo: 'perigo' | 'aviso' | 'info'; titulo: string; mensagem: string; valor?: number; }
+interface DashboardData { success?: boolean; saldos?: { total: number; disponivel: number; reservado: number }; esteMes: { receitas: number; despesas: number; poupancaLiquida: number; taxaPoupanca?: number }; resumo?: { totalAlvo?: number; totalAtual?: number; progressoGeral?: number }; objetivos?: Objetivo[]; fundoEmergencia?: { mesesCobertos: number; percentualAtingido: number }; alertas: Alerta[]; cached?: boolean; }
 
-interface Gasto {
-  id: string;
-  tipo: 'DESPESA' | 'RECEITA';
-  valor: number | string;
-  descricao: string;
-  data: string;
-  excluido: boolean;
-  distribuicaoAutomatica?: boolean;
-  categoria?: { nome: string };
-  cartao?: { nome: string };
-  objetivo?: { titulo: string };
-}
+// ─── Shared inline components ─────────────────────────────────────────────────
+const Card: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style }) => (
+  <div className={`rounded-2xl border shadow-sm ${className}`}
+    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', ...style }}>
+    {children}
+  </div>
+);
 
-interface Alerta {
-  tipo: 'perigo' | 'aviso' | 'info';
-  titulo: string;
-  mensagem: string;
-  valor?: number;
-}
+const SectionHeader: React.FC<{ title: string; subtitle?: string; right?: React.ReactNode }> = ({ title, subtitle, right }) => (
+  <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+    <div>
+      {subtitle && <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>{subtitle}</p>}
+      <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+    </div>
+    {right}
+  </div>
+);
 
-interface DashboardData {
-  success?: boolean;
-  saldos?: { total: number; disponivel: number; reservado: number };
-  esteMes: { receitas: number; despesas: number; poupancaLiquida: number; taxaPoupanca?: number };
-  resumo?: { totalAlvo?: number; totalAtual?: number; progressoGeral?: number };
-  objetivos?: Objetivo[];
-  fundoEmergencia?: { mesesCobertos: number; percentualAtingido: number };
-  alertas: Alerta[];
-  cached?: boolean;
-}
-
+// ─── Component ────────────────────────────────────────────────────────────────
 const Dashboard: React.FC = () => {
   const { formatMoney, maskValue, formatDate, prefs } = useTheme();
 
@@ -54,15 +39,11 @@ const Dashboard: React.FC = () => {
   const [loading,            setLoading]            = useState(true);
   const [refreshing,         setRefreshing]         = useState(false);
   const [error,              setError]              = useState('');
-  const [valoresCalculados,  setValoresCalculados]  = useState({
-    patrimonioTotal: 0, saldoDisponivel: 0, saldoReservado: 0, emObjetivos: 0, emCartoes: 0,
-  });
+  const [valoresCalculados,  setValoresCalculados]  = useState({ patrimonioTotal: 0, saldoDisponivel: 0, saldoReservado: 0, emObjetivos: 0, emCartoes: 0 });
 
-  // ── fetch ──────────────────────────────────────────────────
   const fetchData = async (showLoading = true) => {
     if (showLoading) setLoading(true);
-    setRefreshing(true);
-    setError('');
+    setRefreshing(true); setError('');
     try {
       const [dashRes, objRes, transRes] = await Promise.all([
         api.get('/insights/resumo').catch(() => ({ data: null })),
@@ -74,92 +55,65 @@ const Dashboard: React.FC = () => {
       setUltimasTransacoes((transRes.data?.gastos || transRes.data?.transacoes || []).slice(0, 5));
       const dadosDashboard = dashRes.data?.success ? dashRes.data : dashRes.data;
       if (!dadosDashboard) { await fetchFallbackData(objetivosData); return; }
-      setData(dadosDashboard);
-      calcularValores(dadosDashboard, objetivosData);
-    } catch {
-      setError('Falha ao carregar dados.');
-      try { await fetchFallbackData(); } catch { /* silent */ }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      setData(dadosDashboard); calcularValores(dadosDashboard, objetivosData);
+    } catch { setError('Falha ao carregar dados.'); try { await fetchFallbackData(); } catch { /* silent */ } }
+    finally { setLoading(false); setRefreshing(false); }
   };
 
   const calcularValores = (dashData: DashboardData, objs: Objetivo[]) => {
     const emCartoes = dashData.saldos?.total || 0;
     const emObjetivos = objs.reduce((a, o) => a + Number(o.valorAtual || 0), 0);
-    setValoresCalculados({
-      patrimonioTotal: emCartoes + emObjetivos,
-      saldoDisponivel: dashData.saldos?.disponivel || 0,
-      saldoReservado:  dashData.saldos?.reservado  || 0,
-      emObjetivos,
-      emCartoes,
-    });
+    setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel: dashData.saldos?.disponivel || 0, saldoReservado: dashData.saldos?.reservado || 0, emObjetivos, emCartoes });
   };
 
   const fetchFallbackData = async (objsData?: Objetivo[]) => {
-    const [cartoesRes, gastosRes, objRes] = await Promise.all([
-      api.get('/cartoes'),
-      api.get('/gastos'),
-      !objsData ? api.get('/objetivos') : Promise.resolve({ data: { objetivos: objsData } }),
-    ]);
-    const cartoes = cartoesRes.data?.cartoes || [];
-    const gastos  = gastosRes.data?.gastos  || [];
-    const objs    = objRes.data?.objetivos  || objRes.data || [];
+    const [cartoesRes, gastosRes, objRes] = await Promise.all([api.get('/cartoes'), api.get('/gastos'), !objsData ? api.get('/objetivos') : Promise.resolve({ data: { objetivos: objsData } })]);
+    const cartoes = cartoesRes.data?.cartoes || [], gastos = gastosRes.data?.gastos || [], objs = objRes.data?.objetivos || objRes.data || [];
     const emCartoes = cartoes.reduce((a: number, c: any) => a + Number(c.saldoAtual || 0), 0);
     const saldoDisponivel = cartoes.reduce((a: number, c: any) => a + Number(c.saldoDisponivel || c.saldoAtual || 0), 0);
     const saldoReservado  = cartoes.reduce((a: number, c: any) => a + Number(c.saldoReservado || 0), 0);
     const emObjetivos = objs.reduce((a: number, o: any) => a + Number(o.valorAtual || 0), 0);
     const hoje = new Date(), primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const gastosDoMes = gastos.filter((g: Gasto) => !g.excluido && new Date(g.data) >= primeiroDia);
-    const receitas  = gastosDoMes.filter((g: Gasto) => g.tipo === 'RECEITA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
-    const despesas  = gastosDoMes.filter((g: Gasto) => g.tipo === 'DESPESA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
+    const receitas = gastosDoMes.filter((g: Gasto) => g.tipo === 'RECEITA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
+    const despesas = gastosDoMes.filter((g: Gasto) => g.tipo === 'DESPESA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
     const poupancaLiquida = receitas - despesas;
-    setData({
-      saldos: { total: emCartoes, disponivel: saldoDisponivel, reservado: saldoReservado },
-      esteMes: { receitas, despesas, poupancaLiquida, taxaPoupanca: receitas > 0 ? (poupancaLiquida / receitas) * 100 : 0 },
-      resumo: { totalAlvo: objs.reduce((a: number, o: any) => a + Number(o.valorAlvo || 0), 0), totalAtual: emObjetivos },
-      objetivos: objs,
-      alertas: despesas > receitas * 0.8 ? [{ tipo: 'perigo', titulo: 'Gastos Elevados', mensagem: 'Já gastaste mais de 80% das tuas receitas!' }] : [],
-    });
+    setData({ saldos: { total: emCartoes, disponivel: saldoDisponivel, reservado: saldoReservado }, esteMes: { receitas, despesas, poupancaLiquida, taxaPoupanca: receitas > 0 ? (poupancaLiquida / receitas) * 100 : 0 }, resumo: { totalAlvo: objs.reduce((a: number, o: any) => a + Number(o.valorAlvo || 0), 0), totalAtual: emObjetivos }, objetivos: objs, alertas: despesas > receitas * 0.8 ? [{ tipo: 'perigo', titulo: 'Gastos Elevados', mensagem: 'Já gastaste mais de 80% das tuas receitas!' }] : [] });
     setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel, saldoReservado, emObjetivos, emCartoes });
-    setObjetivos(objs.slice(0, 3));
-    setUltimasTransacoes(gastos.slice(0, 5));
+    setObjetivos(objs.slice(0, 3)); setUltimasTransacoes(gastos.slice(0, 5));
   };
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(() => { if (document.visibilityState === 'visible') fetchData(false); }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  useEffect(() => { fetchData(); const i = setInterval(() => { if (document.visibilityState === 'visible') fetchData(false); }, 30000); return () => clearInterval(i); }, []);
 
   const getDiasRestantes = (d?: string) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
 
   const getAlertStyle = (tipo: string): React.CSSProperties => {
-    if (tipo === 'perigo') return { background: 'rgba(239,68,68,0.1)',  border: '1px solid rgba(239,68,68,0.25)',  color: '#f87171' };
-    if (tipo === 'aviso')  return { background: 'rgba(234,179,8,0.1)',  border: '1px solid rgba(234,179,8,0.25)',  color: '#facc15' };
-    return                        { background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.25)', color: '#60a5fa' };
+    if (tipo === 'perigo') return { backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' };
+    if (tipo === 'aviso')  return { backgroundColor: 'rgba(234,179,8,0.08)', borderColor: 'rgba(234,179,8,0.2)',  color: '#facc15' };
+    return                        { backgroundColor: 'rgba(59,130,246,0.08)', borderColor: 'rgba(59,130,246,0.2)', color: '#60a5fa' };
   };
 
-  // ── Loading ────────────────────────────────────────────────
+  const getAlertIcon = (tipo: string) => {
+    if (tipo === 'perigo') return <AlertCircle size={18} className="flex-shrink-0" />;
+    if (tipo === 'aviso')  return <AlertCircle size={18} className="flex-shrink-0" />;
+    return <Info size={18} className="flex-shrink-0" />;
+  };
+
   if (loading) return (
     <div className="flex h-full items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-full border-4 border-t-transparent animate-spin"
-          style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
-        <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>A carregar os teus dados financeiros…</p>
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>A carregar os teus dados…</p>
       </div>
     </div>
   );
 
   if (error && !data) return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8">
-      <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-      <p className="text-red-400 text-center">{error}</p>
+      <AlertCircle size={40} style={{ color: '#f87171' }} />
+      <p className="text-sm text-center" style={{ color: 'var(--text-muted)' }}>{error}</p>
       <button onClick={() => fetchData()}
-        className="px-6 py-2 rounded-full flex items-center gap-2 font-bold transition-all"
+        className="px-5 py-2.5 rounded-xl font-medium text-sm transition-all hover:scale-[1.02]"
         style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
         Tentar Novamente
       </button>
@@ -172,38 +126,30 @@ const Dashboard: React.FC = () => {
   const taxaPoupanca = data.esteMes.taxaPoupanca ?? (data.esteMes.receitas > 0 ? (data.esteMes.poupancaLiquida / data.esteMes.receitas) * 100 : 0);
   const temInvestimentos = emObjetivos > 1000;
   const chartData = [
-    { name: 'Receitas', value: Math.abs(data.esteMes.receitas), color: 'var(--accent)' },
-    { name: 'Despesas', value: Math.abs(data.esteMes.despesas), color: '#ef4444' },
+    { name: 'Receitas', value: Math.abs(data.esteMes.receitas),  color: prefs.accentColor },
+    { name: 'Despesas', value: Math.abs(data.esteMes.despesas),  color: '#ef4444'         },
   ].filter(i => i.value > 0);
 
-  // ── Card base style ────────────────────────────────────────
-  const card: React.CSSProperties = {
-    background:   'var(--bg-surface)',
-    border:       '1px solid var(--border)',
-    borderRadius: '16px',
-    padding:      '24px',
-  };
-
   return (
-    <div className="space-y-8">
-      {/* Top bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+      {/* Page header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Resumo completo do teu patrimônio</p>
-          {data.cached && (
-            <span className="text-xs px-2 py-1 rounded mt-1 inline-block" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-faint)' }}>
-              Dados em cache
-            </span>
-          )}
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Visão Geral</p>
+          <h2 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>Dashboard</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-faint)' }}>
+            Resumo do teu patrimônio
+            {data.cached && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ring-1 ring-inset"
+              style={{ color: 'var(--text-faint)', backgroundColor: 'var(--bg-elevated)', ringColor: 'var(--border)' }}>cache</span>}
+          </p>
         </div>
         <button onClick={() => fetchData(false)} disabled={refreshing}
-          className="flex items-center gap-2 text-sm font-medium disabled:opacity-50 transition-colors"
-          style={{ color: 'var(--text-muted)' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--accent)'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'; }}>
-          <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium disabled:opacity-50 transition-all border"
+          style={{ color: 'var(--text-muted)', borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}
+          onMouseEnter={e => { (e.currentTarget).style.color = 'var(--accent)'; (e.currentTarget).style.borderColor = 'var(--accent-20)'; }}
+          onMouseLeave={e => { (e.currentTarget).style.color = 'var(--text-muted)'; (e.currentTarget).style.borderColor = 'var(--border)'; }}>
+          <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
           {refreshing ? 'A atualizar…' : 'Atualizar'}
         </button>
       </div>
@@ -212,217 +158,195 @@ const Dashboard: React.FC = () => {
       {data.alertas?.length > 0 && (
         <div className="space-y-2">
           {data.alertas.map((a, i) => (
-            <div key={i} className="p-4 rounded-xl flex items-center gap-3" style={getAlertStyle(a.tipo)}>
-              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+            <div key={i} className="flex items-center gap-3 p-3.5 rounded-xl border text-sm" style={getAlertStyle(a.tipo)}>
+              {getAlertIcon(a.tipo)}
               <div className="flex-1">
-                <h4 className="font-bold">{a.titulo}</h4>
-                <p className="text-sm opacity-90">{a.mensagem}</p>
+                <span className="font-bold">{a.titulo}</span>
+                <span className="opacity-80 ml-1.5">{a.mensagem}</span>
               </div>
-              {a.valor && <span className="text-2xl font-bold opacity-50">{a.valor}%</span>}
+              {a.valor && <span className="text-xl font-bold opacity-40">{a.valor}%</span>}
             </div>
           ))}
         </div>
       )}
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 
         {/* Patrimônio Total */}
-        <div className="md:col-span-2 relative overflow-hidden group" style={{ ...card }}>
-          <div className="absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
-          <div className="relative flex items-center gap-4">
-            <div className="p-3 rounded-xl flex-shrink-0" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
-              <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-              </svg>
+        <Card className="md:col-span-2" style={{ padding: '20px 24px' }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Patrimônio Total</p>
+          <div className="flex items-center gap-3 mt-2">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
+              <LayoutDashboard size={20} />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Patrimônio Total</p>
-              <h3 className="text-3xl font-black tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
+            <div>
+              <h3 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
                 {maskValue(formatMoney(patrimonioTotal))}
               </h3>
-              <div className="flex flex-wrap gap-2">
-                <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: 'var(--text-muted)' }}>
-                  {maskValue(formatMoney(emCartoes))} em cartões
+              <div className="flex flex-wrap gap-2 mt-1.5">
+                <span className="rounded-full px-2.5 py-1 text-[10px] font-semibold ring-1 ring-inset"
+                  style={{ color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)', ringColor: 'var(--border)' }}>
+                  {maskValue(formatMoney(emCartoes))} cartões
                 </span>
                 {temInvestimentos && (
-                  <span className="text-xs px-2 py-1 rounded-full" style={{ backgroundColor: 'var(--accent-10)', color: 'var(--accent)' }}>
-                    +{maskValue(formatMoney(emObjetivos))} em objetivos
+                  <span className="rounded-full px-2.5 py-1 text-[10px] font-semibold ring-1 ring-inset"
+                    style={{ color: 'var(--accent)', backgroundColor: 'var(--accent-10)', ringColor: 'var(--accent-20)' }}>
+                    +{maskValue(formatMoney(emObjetivos))} objetivos
                   </span>
                 )}
               </div>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Disponível */}
-        <div className="relative overflow-hidden group" style={card}>
-          <div className="absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
-          <div className="relative flex items-center gap-4">
-            <div className="p-3 rounded-xl flex-shrink-0 bg-emerald-500/20 text-emerald-400">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-              </svg>
+        <Card style={{ padding: '20px 24px' }}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ring-inset"
+              style={{ backgroundColor: 'rgba(16,185,129,0.08)', color: '#10b981', ringColor: 'rgba(16,185,129,0.2)' }}>
+              <Wallet size={18} />
             </div>
             <div className="min-w-0">
-              <p className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>Disponível</p>
-              <h3 className="text-xl font-bold text-emerald-400 truncate">{maskValue(formatMoney(saldoDisponivel))}</h3>
-              <p className="text-xs text-emerald-500/60 mt-1">{emCartoes > 0 ? ((saldoDisponivel / emCartoes) * 100).toFixed(0) : 0}% dos cartões</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Disponível</p>
+              <h3 className="text-xl font-bold truncate text-emerald-400 mt-0.5">{maskValue(formatMoney(saldoDisponivel))}</h3>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                {emCartoes > 0 ? ((saldoDisponivel / emCartoes) * 100).toFixed(0) : 0}% dos cartões
+              </p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Comprometido */}
-        <div className="relative overflow-hidden group" style={card}>
-          <div className="absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br from-orange-500 to-red-600 rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
-          <div className="relative flex items-center gap-4">
-            <div className="p-3 rounded-xl flex-shrink-0 bg-orange-500/20 text-orange-400">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-              </svg>
+        <Card style={{ padding: '20px 24px' }}>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ring-inset"
+              style={{ backgroundColor: 'rgba(245,158,11,0.08)', color: '#f59e0b', ringColor: 'rgba(245,158,11,0.2)' }}>
+              <Lock size={18} />
             </div>
             <div className="min-w-0">
-              <p className="text-sm mb-1" style={{ color: 'var(--text-muted)' }}>Comprometido</p>
-              <h3 className="text-xl font-bold text-orange-400 truncate">{maskValue(formatMoney(saldoReservado + emObjetivos))}</h3>
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Comprometido</p>
+              <h3 className="text-xl font-bold truncate text-amber-400 mt-0.5">{maskValue(formatMoney(saldoReservado + emObjetivos))}</h3>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>reservado + objetivos</p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Receitas */}
-        <div className="relative overflow-hidden group" style={card}>
-          <div className="absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br from-emerald-500 to-green-600 rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
-          <div className="relative">
-            <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Receitas (Mês)</p>
-            <h3 className="text-3xl font-black tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
-              {maskValue(formatMoney(data.esteMes.receitas))}
-            </h3>
-            <div className="flex items-center gap-1 text-xs font-bold" style={{ color: 'var(--accent)' }}>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
-              </svg>
-              Entradas
-            </div>
+        <Card style={{ padding: '20px 24px' }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Receitas (Mês)</p>
+          <h3 className="text-2xl font-bold tracking-tight mt-1.5 mb-1.5" style={{ color: 'var(--text-primary)' }}>
+            {maskValue(formatMoney(data.esteMes.receitas))}
+          </h3>
+          <div className="flex items-center gap-1 text-[11px] font-bold" style={{ color: 'var(--accent)' }}>
+            <TrendingUp size={14} /> Entradas do mês
           </div>
-        </div>
+        </Card>
 
         {/* Despesas */}
-        <div className="relative overflow-hidden group" style={card}>
-          <div className="absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br from-red-500 to-pink-600 rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity" />
-          <div className="relative">
-            <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Despesas (Mês)</p>
-            <h3 className="text-3xl font-black tracking-tight mb-2" style={{ color: 'var(--text-primary)' }}>
-              {maskValue(formatMoney(data.esteMes.despesas))}
-            </h3>
-            <div className="flex items-center gap-1 text-red-400 text-xs font-bold">
-              <svg className="w-4 h-4 rotate-180" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
-              </svg>
-              Saídas
-            </div>
+        <Card style={{ padding: '20px 24px' }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Despesas (Mês)</p>
+          <h3 className="text-2xl font-bold tracking-tight mt-1.5 mb-1.5" style={{ color: 'var(--text-primary)' }}>
+            {maskValue(formatMoney(data.esteMes.despesas))}
+          </h3>
+          <div className="flex items-center gap-1 text-[11px] font-bold text-red-400">
+            <TrendingDown size={14} /> Saídas do mês
           </div>
-        </div>
+        </Card>
 
         {/* Resultado */}
-        <div className="relative overflow-hidden group" style={card}>
-          <div className={`absolute -right-10 -top-10 w-32 h-32 bg-gradient-to-br ${data.esteMes.poupancaLiquida >= 0 ? 'from-emerald-500 to-green-600' : 'from-red-500 to-pink-600'} rounded-full blur-3xl opacity-20 group-hover:opacity-35 transition-opacity`} />
-          <div className="relative">
-            <p className="text-sm font-medium mb-1" style={{ color: 'var(--text-muted)' }}>Resultado do Mês</p>
-            <h3 className={`text-3xl font-black tracking-tight mb-2 ${data.esteMes.poupancaLiquida >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {maskValue(formatMoney(data.esteMes.poupancaLiquida))}
-            </h3>
-            <p className="text-xs" style={{ color: 'var(--text-faint)' }}>Taxa: {Math.abs(taxaPoupanca).toFixed(1)}%</p>
+        <Card style={{ padding: '20px 24px' }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Resultado</p>
+          <h3 className={`text-2xl font-bold tracking-tight mt-1.5 mb-1.5 ${data.esteMes.poupancaLiquida >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {maskValue(formatMoney(data.esteMes.poupancaLiquida))}
+          </h3>
+          <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>Taxa: {Math.abs(taxaPoupanca).toFixed(1)}%</p>
+        </Card>
+
+        {/* Taxa Poupança */}
+        <Card style={{ padding: '20px 24px' }}>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>Poupança</p>
+          <div className="flex items-end gap-3 mt-1.5">
+            <div className="relative w-12 h-12 flex-shrink-0">
+              <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+                <circle cx="24" cy="24" r="18" fill="none" stroke="var(--border)" strokeWidth="4" />
+                <circle cx="24" cy="24" r="18" fill="none"
+                  stroke={taxaPoupanca >= 20 ? 'var(--accent)' : taxaPoupanca >= 0 ? '#3b82f6' : '#f43f5e'}
+                  strokeWidth="4"
+                  strokeDasharray={`${Math.min(Math.max(taxaPoupanca, 0), 100) / 100 * 113} 113`}
+                  strokeLinecap="round"
+                  style={{ transition: 'stroke-dasharray 600ms' }}
+                />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold" style={{ color: 'var(--text-primary)' }}>
+                {maskValue(`${Math.abs(taxaPoupanca).toFixed(0)}%`)}
+              </span>
+            </div>
+            <div>
+              <p className="text-sm font-bold" style={{ color: taxaPoupanca >= 20 ? 'var(--accent)' : taxaPoupanca >= 0 ? '#60a5fa' : '#f87171' }}>
+                {taxaPoupanca >= 20 ? '✅ Excelente' : taxaPoupanca >= 10 ? '⚠️ Razoável' : '❌ Baixa'}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>meta: 20%+</p>
+            </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Quick Actions */}
       <div>
-        <h4 className="text-lg font-bold mb-4 flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20" style={{ color: 'var(--accent)' }}>
-            <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-          </svg>
-          Quick Actions
-        </h4>
-        <div className="flex flex-wrap gap-4">
+        <p className="text-[10px] font-bold uppercase tracking-widest mb-4" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Ações Rápidas</p>
+        <div className="flex flex-wrap gap-3">
           {[
-            { icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', label: 'Send' },
-            { icon: 'M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4', label: 'Receive' },
-            { icon: 'M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4', label: 'Swap' },
-            { icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', label: 'Goals' },
-            { icon: 'M12 4v16m8-8H4', label: 'More' },
-          ].map((action, idx) => (
-            <button key={idx} className="flex flex-col items-center gap-2 group">
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center transition-all"
-                style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.backgroundColor = 'var(--accent)';
-                  el.style.color = 'var(--accent-text)';
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.backgroundColor = 'var(--bg-elevated)';
-                  el.style.color = 'var(--text-muted)';
-                }}
-              >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={action.icon} />
-                </svg>
+            { Icon: ArrowUp,         label: 'Receita'   },
+            { Icon: ArrowDown,        label: 'Despesa'   },
+            { Icon: ArrowLeftRight,   label: 'Swap'      },
+            { Icon: Trophy,           label: 'Objetivos' },
+            { Icon: Plus,              label: 'Mais'      },
+          ].map(({ Icon, label }, idx) => (
+            <button key={idx} className="flex flex-col items-center gap-1.5 group">
+              <div className="w-14 h-14 rounded-xl flex items-center justify-center transition-all border"
+                style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--accent)'; (e.currentTarget).style.color = 'var(--accent-text)'; (e.currentTarget).style.borderColor = 'transparent'; (e.currentTarget).style.transform = 'scale(1.05)'; }}
+                onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-surface)'; (e.currentTarget).style.color = 'var(--text-muted)'; (e.currentTarget).style.borderColor = 'var(--border)'; (e.currentTarget).style.transform = 'scale(1)'; }}>
+                <Icon size={20} />
               </div>
-              <span className="text-xs font-bold uppercase tracking-wider transition-colors" style={{ color: 'var(--text-faint)' }}>
-                {action.label}
-              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-faint)' }}>{label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Charts + Objetivos + Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 space-y-8">
-          {/* Revenue Flow */}
-          <div style={card}>
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h4 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Revenue Flow</h4>
-                <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Comparativo do mês atual</p>
-              </div>
-            </div>
-            <div className="h-64">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+
+          {/* Revenue chart */}
+          <Card>
+            <SectionHeader title="Revenue Flow" subtitle="Comparativo mensal" />
+            <div className="p-5 h-56">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData}>
-                  <XAxis dataKey="name" tick={{ fill: 'var(--text-faint)', fontSize: 12 }} />
+                  <XAxis dataKey="name" tick={{ fill: 'var(--text-faint)', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis hide />
                   <Tooltip
                     formatter={(v: number) => maskValue(formatMoney(v))}
                     cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                    contentStyle={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)' }}
+                    contentStyle={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text-primary)', fontSize: 12 }}
                   />
-                  <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={60}>
-                    {chartData.map((entry, i) => (
-                      <Cell key={i} fill={i === 0 ? prefs.accentColor : '#ef4444'} />
-                    ))}
+                  <Bar dataKey="value" radius={[6,6,0,0]} barSize={50}>
+                    {chartData.map((entry, i) => <Cell key={i} fill={i === 0 ? prefs.accentColor : '#ef4444'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </div>
+          </Card>
 
           {/* Objetivos */}
           {objetivos.length > 0 && (
-            <div style={card}>
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-bold flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent)' }}>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Progresso dos Objetivos
-                </h3>
-              </div>
-              <div className="space-y-6">
+            <Card>
+              <SectionHeader title="Progresso dos Objetivos" subtitle="Metas activas" />
+              <div className="p-5 space-y-5">
                 {objetivos.map(obj => {
                   const valorAtual = Number(obj.valorAtual), valorAlvo = Number(obj.valorAlvo);
                   const progresso = Math.min((valorAtual / valorAlvo) * 100, 100);
@@ -431,23 +355,25 @@ const Dashboard: React.FC = () => {
                     <div key={obj.id}>
                       <div className="flex justify-between mb-2 items-start">
                         <div className="flex-1 min-w-0 flex flex-wrap items-center gap-2">
-                          <span className="font-medium truncate" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</span>
+                          <span className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</span>
                           {progresso >= 100 && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Concluído</span>
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset"
+                              style={{ color: '#10b981', backgroundColor: 'rgba(16,185,129,0.08)', ringColor: 'rgba(16,185,129,0.2)' }}>Concluído</span>
                           )}
                           {diasRestantes !== null && diasRestantes > 0 && diasRestantes <= 30 && (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400">{diasRestantes}d</span>
+                            <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset"
+                              style={{ color: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.08)', ringColor: 'rgba(245,158,11,0.2)' }}>{diasRestantes}d</span>
                           )}
                         </div>
                         <div className="text-right flex-shrink-0 ml-4">
-                          <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{maskValue(formatMoney(valorAtual))}</div>
-                          <div className="text-xs" style={{ color: 'var(--text-faint)' }}>de {maskValue(formatMoney(valorAlvo))}</div>
+                          <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{maskValue(formatMoney(valorAtual))}</div>
+                          <div className="text-[11px]" style={{ color: 'var(--text-faint)' }}>de {maskValue(formatMoney(valorAlvo))}</div>
                         </div>
                       </div>
-                      <div className="h-3 rounded-full overflow-hidden" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>
-                        <div className="h-full rounded-full transition-all duration-1000" style={{ width: `${progresso}%`, backgroundColor: obj.cor || 'var(--accent)' }} />
+                      <div className="h-2 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${progresso}%`, backgroundColor: obj.cor || 'var(--accent)' }} />
                       </div>
-                      <div className="flex justify-between mt-1 text-xs" style={{ color: 'var(--text-faint)' }}>
+                      <div className="flex justify-between mt-1 text-[11px]" style={{ color: 'var(--text-faint)' }}>
                         <span>{progresso.toFixed(0)}%</span>
                         <span>Faltam {maskValue(formatMoney(Math.max(0, valorAlvo - valorAtual)))}</span>
                       </div>
@@ -455,54 +381,50 @@ const Dashboard: React.FC = () => {
                   );
                 })}
               </div>
-            </div>
+            </Card>
           )}
         </div>
 
         {/* Recent Activity */}
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between px-1">
-            <h4 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Últimas Movimentações</h4>
-            <span className="text-xs font-bold uppercase cursor-pointer" style={{ color: 'var(--accent)' }}>Ver todas</span>
-          </div>
-          <div className="space-y-3">
+        <div>
+          <Card>
+            <SectionHeader title="Últimas Movimentações" subtitle="Actividade recente" />
             {ultimasTransacoes.length === 0 ? (
-              <div className="p-8 text-center rounded-2xl" style={{ ...card }}>
-                <p style={{ color: 'var(--text-faint)' }}>Sem movimentações recentes</p>
+              <div className="p-10 text-center">
+                <ArrowLeftRight size={30} className="mx-auto mb-2" style={{ color: 'var(--text-faint)' }} />
+                <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Sem movimentações</p>
               </div>
-            ) : ultimasTransacoes.map(t => {
-              const isReceita = t.tipo === 'RECEITA', valor = Number(t.valor);
-              return (
-                <div key={t.id}
-                  className="p-4 rounded-2xl flex items-center justify-between group cursor-pointer transition-all"
-                  style={{ backgroundColor: 'var(--bg-elevated)', border: '1px solid var(--border)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border-strong)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = 'var(--border)'; }}
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: isReceita ? 'var(--accent-10)' : 'rgba(239,68,68,0.1)', color: isReceita ? 'var(--accent)' : '#f87171' }}>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        {isReceita
-                          ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
-                          : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 13l5 5m0 0l5-5m-5 5V6" />
-                        }
-                      </svg>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{t.descricao || (isReceita ? 'Receita' : 'Despesa')}</p>
-                      <p className="text-xs truncate" style={{ color: 'var(--text-faint)' }}>
-                        {t.categoria?.nome || 'Geral'} · {formatDate(t.data)}
+            ) : (
+              <div>
+                {ultimasTransacoes.map(t => {
+                  const isReceita = t.tipo === 'RECEITA', valor = Number(t.valor);
+                  return (
+                    <div key={t.id}
+                      className="flex items-center gap-3 px-4 py-3.5 group cursor-pointer transition-all"
+                      style={{ borderBottom: '1px solid var(--border)' }}
+                      onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                      onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
+                      <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ring-inset"
+                        style={{
+                          backgroundColor: isReceita ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                          color: isReceita ? '#10b981' : '#f87171',
+                          ringColor: isReceita ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                        }}>
+                        {isReceita ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>{t.descricao || (isReceita ? 'Receita' : 'Despesa')}</p>
+                        <p className="text-[11px] truncate" style={{ color: 'var(--text-faint)' }}>{t.categoria?.nome || 'Geral'} · {formatDate(t.data)}</p>
+                      </div>
+                      <p className="text-sm font-bold flex-shrink-0" style={{ color: isReceita ? '#10b981' : 'var(--text-primary)' }}>
+                        {isReceita ? '+' : '-'}{maskValue(formatMoney(valor, true))}
                       </p>
                     </div>
-                  </div>
-                  <p className="font-black text-sm flex-shrink-0 ml-3" style={{ color: isReceita ? 'var(--accent)' : 'var(--text-primary)' }}>
-                    {isReceita ? '+' : '-'}{maskValue(formatMoney(valor, true))}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
         </div>
       </div>
     </div>

@@ -7,13 +7,15 @@ import {
 import {
   BarChart2, TrendingUp, TrendingDown, PiggyBank, Target,
   RefreshCw, Calendar, Layers, AlertCircle, Loader2,
-  ArrowUpRight, ArrowDownRight, Award, Flame, Download
+  ArrowUpRight, ArrowDownRight, Award, Flame
 } from 'lucide-react';
 import api from '../services/api';
 
 // ==========================================
 // Types
 // ==========================================
+type Periodo = '7dias' | '31dias' | 'trimestre' | 'semestre' | 'anual';
+
 interface PeriodoItem {
   periodo: string;
   receitas: number;
@@ -39,6 +41,32 @@ interface DashboardData {
   };
   saldos?: { total: number; disponivel: number; reservado: number };
 }
+
+interface HistoricoResponse {
+  success: boolean;
+  periodo: Periodo;
+  dataInicio: string;
+  dataFim: string;
+  resumo: {
+    totalReceitas: number;
+    totalDespesas: number;
+    totalPoupanca: number;
+    taxaPoupancaMedia: number;
+    totalMeses: number;
+  };
+  historico: PeriodoItem[];
+}
+
+// ==========================================
+// Configuração dos Períodos
+// ==========================================
+const PERIODOS_CONFIG: { valor: Periodo; label: string; descricao: string }[] = [
+  { valor: '7dias', label: '7D', descricao: 'Últimos 7 dias' },
+  { valor: '31dias', label: '31D', descricao: 'Últimos 31 dias' },
+  { valor: 'trimestre', label: '3M', descricao: 'Último trimestre' },
+  { valor: 'semestre', label: '6M', descricao: 'Último semestre' },
+  { valor: 'anual', label: '1A', descricao: 'Último ano' },
+];
 
 // ==========================================
 // Helpers
@@ -91,7 +119,7 @@ const KpiCard: React.FC<{
     </div>
     <div>
       <div className="flex items-end gap-1.5">
-        <p className={`text-xl font-black ${colorClass}`}>{value}</p>
+        <p className={`text-sm font-bold ${colorClass}`}>{value}</p>
         {positive !== null && positive !== undefined && (
           positive
             ? <ArrowUpRight className="w-4 h-4 text-green-400 mb-0.5" />
@@ -114,7 +142,8 @@ const Relatorio: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
-  const [meses, setMeses] = useState<6 | 12 | 24>(6);
+  const [periodo, setPeriodo] = useState<Periodo>('semestre');
+  const [resumoPeriodo, setResumoPeriodo] = useState<HistoricoResponse['resumo'] | null>(null);
 
   const fetchTudo = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -122,12 +151,15 @@ const Relatorio: React.FC = () => {
     setError('');
     try {
       const [resHistorico, resTop, resDash] = await Promise.all([
-        api.get(`/dashboard/historico?meses=${meses}`),
+        api.get<HistoricoResponse>(`/dashboard/historico?periodo=${periodo}`),
         api.get('/dashboard/top-categorias'),
         api.get('/dashboard/resumo'),
       ]);
 
-      if (resHistorico.data.success) setHistorico(resHistorico.data.historico || []);
+      if (resHistorico.data.success) {
+        setHistorico(resHistorico.data.historico || []);
+        setResumoPeriodo(resHistorico.data.resumo);
+      }
       if (resTop.data.success) setTopCategorias(resTop.data.top || []);
       if (resDash.data.success) setDashData(resDash.data);
     } catch (e: any) {
@@ -136,7 +168,7 @@ const Relatorio: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [meses]);
+  }, [periodo]);
 
   useEffect(() => { fetchTudo(); }, [fetchTudo]);
 
@@ -144,6 +176,9 @@ const Relatorio: React.FC = () => {
   const totalGastoCategorias = topCategorias.reduce((a, c) => a + c.valor, 0);
   const melhorMes = historico.length > 0 ? historico.reduce((a, b) => a.poupancaLiquida > b.poupancaLiquida ? a : b) : null;
   const piorMes = historico.length > 0 ? historico.reduce((a, b) => a.poupancaLiquida < b.poupancaLiquida ? a : b) : null;
+
+  // Label do período atual para exibição
+  const periodoAtual = PERIODOS_CONFIG.find(p => p.valor === periodo);
 
   if (loading) {
     return (
@@ -174,45 +209,102 @@ const Relatorio: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-2xl font-black text-white flex items-center gap-3">
+          <h2 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
             <div className="w-10 h-10 bg-[#cbfb46]/10 border border-[#cbfb46]/20 rounded-xl flex items-center justify-center">
               <BarChart2 className="w-5 h-5 text-[#cbfb46]" />
             </div>
             Relatório Financeiro
           </h2>
-          <p className="text-white/40 text-sm mt-1 ml-[52px]">Visão detalhada das tuas finanças</p>
+          <p className="text-white/40 text-sm mt-1 ml-[52px]">
+            {periodoAtual?.descricao || 'Visão detalhada das tuas finanças'}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Period selector */}
+          {/* Period selector - 5 opções */}
           <div className="flex gap-1 p-1.5 bg-white/[0.03] rounded-2xl border border-white/10">
-            {([6, 12, 24] as const).map(m => (
-              <button key={m} onClick={() => setMeses(m)}
-                className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${meses === m ? 'bg-[#cbfb46] text-black' : 'text-white/50 hover:text-white'}`}>
-                {m === 6 ? '6M' : m === 12 ? '1A' : '2A'}
+            {PERIODOS_CONFIG.map((p) => (
+              <button 
+                key={p.valor} 
+                onClick={() => setPeriodo(p.valor)}
+                title={p.descricao}
+                className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all ${
+                  periodo === p.valor 
+                    ? 'bg-[#cbfb46] text-black' 
+                    : 'text-white/50 hover:text-white'
+                }`}
+              >
+                {p.label}
               </button>
             ))}
           </div>
-          <button onClick={() => fetchTudo(true)} disabled={refreshing}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/10 text-white/50 hover:text-white hover:bg-white/10 transition-all">
+          <button 
+            onClick={() => fetchTudo(true)} 
+            disabled={refreshing}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/[0.05] border border-white/10 text-white/50 hover:text-white hover:bg-white/10 transition-all"
+          >
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      {esteMes && (
+      {/* KPIs do Período Selecionado */}
+      {resumoPeriodo && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Receitas este mês" value={fmt(esteMes.receitas)} icon={TrendingUp}
-            positive={true} colorClass="text-green-400" bgClass="bg-green-500/5" borderClass="border-green-500/15" />
-          <KpiCard label="Despesas este mês" value={fmt(esteMes.despesas)} icon={TrendingDown}
-            positive={false} colorClass="text-red-400" bgClass="bg-red-500/5" borderClass="border-red-500/15" />
-          <KpiCard label="Poupança líquida" value={fmt(esteMes.poupancaLiquida)}
-            icon={PiggyBank} positive={esteMes.poupancaLiquida >= 0} colorClass="text-[#cbfb46]"
-            bgClass="bg-[#cbfb46]/5" borderClass="border-[#cbfb46]/15" />
-          <KpiCard label="Taxa de poupança" value={`${esteMes.taxaPoupanca?.toFixed(1) || 0}%`}
-            sub={esteMes.taxaPoupanca >= 20 ? 'Meta de 20% atingida!' : `Objetivo: 20%`}
-            icon={Target} colorClass="text-blue-400" bgClass="bg-blue-500/5" borderClass="border-blue-500/15" />
+          <KpiCard 
+            label={`Receitas (${periodoAtual?.label})`} 
+            value={fmt(resumoPeriodo.totalReceitas)} 
+            icon={TrendingUp}
+            positive={true} 
+            colorClass="text-green-400" 
+            bgClass="bg-green-500/5" 
+            borderClass="border-green-500/15" 
+          />
+          <KpiCard 
+            label={`Despesas (${periodoAtual?.label})`} 
+            value={fmt(resumoPeriodo.totalDespesas)} 
+            icon={TrendingDown}
+            positive={false} 
+            colorClass="text-red-400" 
+            bgClass="bg-red-500/5" 
+            borderClass="border-red-500/15" 
+          />
+          <KpiCard 
+            label="Poupança líquida" 
+            value={fmt(resumoPeriodo.totalPoupanca)}
+            icon={PiggyBank} 
+            positive={resumoPeriodo.totalPoupanca >= 0} 
+            colorClass="text-[#cbfb46]"
+            bgClass="bg-[#cbfb46]/5" 
+            borderClass="border-[#cbfb46]/15" 
+          />
+          <KpiCard 
+            label="Taxa de poupança" 
+            value={`${resumoPeriodo.taxaPoupancaMedia?.toFixed(1) || 0}%`}
+            sub={resumoPeriodo.taxaPoupancaMedia >= 20 ? 'Meta de 20% atingida!' : `Objetivo: 20%`}
+            icon={Target} 
+            colorClass="text-blue-400" 
+            bgClass="bg-blue-500/5" 
+            borderClass="border-blue-500/15" 
+          />
+        </div>
+      )}
+
+      {/* KPIs do Mês Atual (sempre visíveis) */}
+      {esteMes && (
+        <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4">
+          <p className="text-white/30 text-xs font-bold uppercase tracking-wider mb-3">Este Mês</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KpiCard label="Receitas" value={fmt(esteMes.receitas)} icon={TrendingUp}
+              positive={true} colorClass="text-green-400" bgClass="bg-transparent" borderClass="border-white/5" />
+            <KpiCard label="Despesas" value={fmt(esteMes.despesas)} icon={TrendingDown}
+              positive={false} colorClass="text-red-400" bgClass="bg-transparent" borderClass="border-white/5" />
+            <KpiCard label="Poupança" value={fmt(esteMes.poupancaLiquida)}
+              icon={PiggyBank} positive={esteMes.poupancaLiquida >= 0} colorClass="text-[#cbfb46]"
+              bgClass="bg-transparent" borderClass="border-white/5" />
+            <KpiCard label="Taxa" value={`${esteMes.taxaPoupanca?.toFixed(1) || 0}%`}
+              icon={Target} colorClass="text-blue-400" bgClass="bg-transparent" borderClass="border-white/5" />
+          </div>
         </div>
       )}
 
@@ -227,7 +319,7 @@ const Relatorio: React.FC = () => {
               <div>
                 <p className="text-white/40 text-xs font-bold uppercase tracking-wider">Melhor Mês</p>
                 <p className="text-white font-black mt-1">{melhorMes.periodo}</p>
-                <p className="text-green-400 font-black text-lg">{fmtFull(melhorMes.poupancaLiquida)}</p>
+                <p className="text-green-400 font-bold text-sm">{fmtFull(melhorMes.poupancaLiquida)}</p>
                 <p className="text-white/30 text-xs">Taxa: {melhorMes.taxaPoupanca?.toFixed(0)}%</p>
               </div>
             </div>
@@ -240,7 +332,7 @@ const Relatorio: React.FC = () => {
               <div>
                 <p className="text-white/40 text-xs font-bold uppercase tracking-wider">Mês Mais Desafiante</p>
                 <p className="text-white font-black mt-1">{piorMes.periodo}</p>
-                <p className={`font-black text-lg ${piorMes.poupancaLiquida < 0 ? 'text-red-400' : 'text-yellow-400'}`}>{fmtFull(piorMes.poupancaLiquida)}</p>
+                <p className={`font-bold text-sm ${piorMes.poupancaLiquida < 0 ? 'text-red-400' : 'text-yellow-400'}`}>{fmtFull(piorMes.poupancaLiquida)}</p>
                 <p className="text-white/30 text-xs">Taxa: {piorMes.taxaPoupanca?.toFixed(0)}%</p>
               </div>
             </div>
@@ -254,7 +346,7 @@ const Relatorio: React.FC = () => {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-white font-black text-base flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-[#cbfb46]" />
-              Evolução Mensal
+              Evolução {periodoAtual?.descricao}
             </h3>
             <span className="text-white/30 text-xs">{historico.length} meses</span>
           </div>
@@ -361,6 +453,7 @@ const Relatorio: React.FC = () => {
             <h3 className="text-white font-black text-base flex items-center gap-2">
               <Calendar className="w-4 h-4 text-[#cbfb46]" /> Histórico Detalhado
             </h3>
+            <span className="text-white/30 text-xs">{periodoAtual?.descricao}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">

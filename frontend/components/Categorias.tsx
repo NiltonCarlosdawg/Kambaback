@@ -103,15 +103,15 @@ const Categorias: React.FC = () => {
 
   const categoriasFiltradas = categorias.filter(c => c.tipo === tipoFiltro);
 
-  const inp: React.CSSProperties = { width: '100%', height: 48, backgroundColor: 'var(--bg-base)', border: 'none', borderRadius: 12, padding: '0 16px', color: 'var(--text-primary)', outline: 'none', transition: 'box-shadow 200ms' };
+  const inp: React.CSSProperties = { width: '100%', height: 48, backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 12, padding: '0 16px', color: 'var(--text-primary)', outline: 'none', transition: 'box-shadow 200ms' };
   const sel: React.CSSProperties = { ...inp, appearance: 'none' as any, cursor: 'pointer', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23888' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: 'right 1rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' };
   const fa = (e: React.FocusEvent<any>) => { e.target.style.boxShadow = '0 0 0 1px var(--accent)'; };
   const fb = (e: React.FocusEvent<any>) => { e.target.style.boxShadow = 'none'; };
 
   if (loading) return (
     <div className="flex h-full items-center justify-center p-8">
-      <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
         <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>Carregando categorias…</p>
       </div>
     </div>
@@ -125,13 +125,13 @@ const Categorias: React.FC = () => {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Organiza as tuas finanças por categorias</p>
         <button onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-6 py-3 rounded-full font-bold transition-all hover:scale-[1.02]"
-          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.99]"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', }}>
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Nova Categoria
         </button>
@@ -143,7 +143,7 @@ const Categorias: React.FC = () => {
           const isActive = tipoFiltro === tipo;
           return (
             <button key={tipo} onClick={() => handleTipoChange(tipo)}
-              className="px-6 py-3 rounded-full font-bold transition-all"
+              className="px-4 py-2.5 rounded-xl text-sm font-bold transition-all"
               style={{
                 backgroundColor: isActive ? 'var(--accent)' : 'var(--bg-surface)',
                 color:           isActive ? 'var(--accent-text)' : 'var(--text-muted)',
@@ -167,7 +167,7 @@ const Categorias: React.FC = () => {
             {renderIcon(TIPO_CONFIG[tipoFiltro].iconePadrao)}
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{TIPO_CONFIG[tipoFiltro].labelPlural}</h3>
+            <h3 className="text-sm font-bold mb-1" style={{ color: 'var(--text-primary)' }}>{TIPO_CONFIG[tipoFiltro].labelPlural}</h3>
             <p className="text-sm mb-3" style={{ color: 'var(--text-muted)' }}>{TIPO_CONFIG[tipoFiltro].descricao}</p>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs" style={{ color: 'var(--text-faint)' }}>Exemplos:</span>
@@ -296,7 +296,7 @@ const Categorias: React.FC = () => {
                 {/* Botões */}
                 <div className="flex gap-3 pt-4">
                   <button type="button" onClick={() => setShowModal(false)} className="flex-1 h-12 rounded-xl font-medium transition-colors" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}>Cancelar</button>
-                  <button type="submit" className="flex-1 h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>{editMode ? 'Guardar' : 'Criar'}</button>
+                  <button type="submit" className="flex-1 h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>{editMode ? 'Guardar' : 'Criar'}</button>
                 </div>
               </form>
             </div>

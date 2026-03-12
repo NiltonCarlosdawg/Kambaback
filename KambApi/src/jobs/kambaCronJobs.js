@@ -1,7 +1,7 @@
 process.env.TZ = 'UTC'; 
 
 const cron = require('node-cron');
-const Proatividade = require('../services/kambaProatividadeService');
+const Proatividade = require('../modules/kamba/services/kambaProatividadeService');
 const prisma = require('../lib/prisma');
 
 /**

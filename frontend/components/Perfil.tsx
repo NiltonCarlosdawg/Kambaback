@@ -151,7 +151,7 @@ const Perfil: React.FC = () => {
           {/* Info */}
           <div className="flex-1 text-center sm:text-left">
             <div className="flex items-center justify-center sm:justify-start gap-2">
-              <h1 className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>{perfil.nome || 'Utilizador'}</h1>
+              <h1 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>{perfil.nome || 'Utilizador'}</h1>
               {perfil.verificado && <BadgeCheck className="w-5 h-5" style={{ color: 'var(--accent)' }} />}
             </div>
             <p className="text-sm mt-1 flex items-center justify-center sm:justify-start gap-1.5" style={{ color: 'var(--text-muted)' }}>
@@ -274,7 +274,7 @@ const Perfil: React.FC = () => {
 
           <button type="submit" disabled={saving}
             className="w-full flex items-center justify-center gap-2.5 font-black py-4 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>
             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
             {saving ? 'A guardar…' : 'Guardar Alterações'}
           </button>
@@ -355,7 +355,7 @@ const Perfil: React.FC = () => {
 
           <button type="submit" disabled={savingPwd || !senhaAtual || !novaSenha || novaSenha !== confirmSenha}
             className="w-full flex items-center justify-center gap-2.5 font-black py-4 rounded-2xl transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>
             {savingPwd ? <Loader2 className="w-5 h-5 animate-spin" /> : <KeyRound className="w-5 h-5" />}
             {savingPwd ? 'A alterar…' : 'Alterar Senha'}
           </button>

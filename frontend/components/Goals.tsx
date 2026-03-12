@@ -79,7 +79,7 @@ const Goals: React.FC = () => {
     BAIXA:   { bg: 'rgba(107,114,128,0.2)', text: '#9ca3af', border: 'rgba(107,114,128,0.3)' },
   };
 
-  const inp: React.CSSProperties = { width: '100%', height: 48, backgroundColor: 'var(--bg-base)', border: 'none', borderRadius: 12, padding: '0 16px', color: 'var(--text-primary)', outline: 'none', transition: 'box-shadow 200ms' };
+  const inp: React.CSSProperties = { width: '100%', height: 48, backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)', borderRadius: 12, padding: '0 16px', color: 'var(--text-primary)', outline: 'none', transition: 'box-shadow 200ms' };
   const sel: React.CSSProperties = { ...inp, appearance: 'none' as any, cursor: 'pointer', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23888' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: 'right 1rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' };
   const fa = (e: React.FocusEvent<any>) => { e.target.style.boxShadow = '0 0 0 1px var(--accent)'; };
   const fb = (e: React.FocusEvent<any>) => { e.target.style.boxShadow = 'none'; };
@@ -87,14 +87,14 @@ const Goals: React.FC = () => {
   if (loading) return (
     <div className="flex h-full items-center justify-center p-8">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-16 h-16 rounded-full border-4 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
+        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }} />
         <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>Carregando objetivos…</p>
       </div>
     </div>
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Resumo KPIs */}
       {resumo && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -122,16 +122,16 @@ const Goals: React.FC = () => {
           <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Planeia e alcança as tuas metas</p>
         </div>
         <button onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-6 py-3 rounded-full font-bold transition-all hover:scale-[1.02]"
-          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+          className="flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.99]"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Novo Objetivo
         </button>
       </div>
 
       {/* Em Progresso */}
-      <div className="space-y-6">
-        <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Em Progresso</h2>
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Em Progresso</h2>
         {objetivos.length === 0 ? (
           <div className="p-12 text-center rounded-2xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
             <div className="flex flex-col items-center gap-4">
@@ -165,7 +165,7 @@ const Goals: React.FC = () => {
                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--accent)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       </div>
                       <div>
-                        <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</h3>
+                        <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</h3>
                         {obj.categoria && <span className="text-xs" style={{ color: 'var(--text-faint)' }}>{obj.categoria}</span>}
                       </div>
                     </div>
@@ -212,8 +212,8 @@ const Goals: React.FC = () => {
 
       {/* Concluídos */}
       {concluidos.length > 0 && (
-        <div className="space-y-6">
-          <h2 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>Concluídos 🏆</h2>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h2 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Concluídos 🏆</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {concluidos.map(obj => (
               <div key={obj.id} className="p-6 rounded-2xl relative overflow-hidden" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid rgba(16,185,129,0.3)' }}>
@@ -224,7 +224,7 @@ const Goals: React.FC = () => {
                   </div>
                   <span className="px-3 py-1 bg-emerald-500 text-white text-xs rounded-full font-bold">Concluído</span>
                 </div>
-                <h3 className="text-lg font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</h3>
+                <h3 className="text-sm font-bold mb-2" style={{ color: 'var(--text-primary)' }}>{obj.titulo}</h3>
                 <p className="text-emerald-400 font-black text-xl">{maskValue(formatMoney(Number(obj.valorAlvo)))}</p>
               </div>
             ))}
@@ -266,7 +266,7 @@ const Goals: React.FC = () => {
                   <input type="number" min="0" max="100" step="0.01" placeholder="0" value={formData.porcentagemDistribuicao} onChange={e => setFormData({ ...formData, porcentagemDistribuicao: e.target.value })} style={{ ...inp, border: '1px solid rgba(59,130,246,0.3)' }} onFocus={e => { e.target.style.boxShadow = '0 0 0 1px #3b82f6'; }} onBlur={fb} />
                   <p className="text-xs text-blue-400/80 mt-2">Percentagem das receitas direcionadas automaticamente para este objetivo.</p>
                 </div>
-                <button type="submit" className="w-full h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+                <button type="submit" className="w-full h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>
                   {editMode ? 'Guardar Alterações' : 'Criar Objetivo'}
                 </button>
               </form>
@@ -296,7 +296,7 @@ const Goals: React.FC = () => {
                 <div className="p-3 rounded-lg text-xs text-yellow-400" style={{ backgroundColor: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)' }}>
                   Nota: Isto criará uma despesa na conta selecionada e adicionará o valor ao objetivo.
                 </div>
-                <button type="submit" className="w-full h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+                <button type="submit" className="w-full h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>
                   Confirmar Depósito
                 </button>
               </form>

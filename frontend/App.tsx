@@ -18,10 +18,10 @@ import News from './components/News';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser]           = useState<any>(null);
-  const [activePage, setActivePage] = useState('dashboard');
-  const [loading, setLoading]     = useState(true);
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [user, setUser]                       = useState<any>(null);
+  const [activePage, setActivePage]           = useState('dashboard');
+  const [loading, setLoading]                 = useState(true);
+  const [isRegistering, setIsRegistering]     = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -48,31 +48,49 @@ const App: React.FC = () => {
     setIsRegistering(false);
   };
 
-  // ── Loading splash — uses CSS vars already injected by ThemeProvider
+  // ── Loading splash ──────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div
-        className="h-screen w-screen flex flex-col items-center justify-center gap-4"
+        className="h-screen w-screen flex flex-col items-center justify-center gap-3 animate-in fade-in duration-300"
         style={{ backgroundColor: 'var(--bg-base, #0B0E11)' }}
       >
+        {/* Logo mark */}
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
+          className="w-10 h-10 rounded-xl flex items-center justify-center"
           style={{ backgroundColor: 'var(--accent, #cbfb46)' }}
         >
-          <svg fill="currentColor" viewBox="0 0 48 48" className="w-6 h-6 text-black">
+          <svg fill="black" viewBox="0 0 48 48" className="w-5 h-5">
             <path d="M6 6H42L36 24L42 42H6L12 24L6 6Z" />
           </svg>
         </div>
+
+        {/* Wordmark */}
+        <p className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary, #fff)' }}>
+          Kamba<span style={{ color: 'var(--accent, #cbfb46)' }}>Pro</span>
+        </p>
+
+        {/* Spinner */}
+        <div
+          className="w-5 h-5 rounded-full border-2 border-t-transparent animate-spin mt-1"
+          style={{
+            borderColor:    'var(--accent, #cbfb46)',
+            borderTopColor: 'transparent',
+          }}
+        />
+
+        {/* Label */}
         <p
-          className="text-sm font-bold animate-pulse"
-          style={{ color: 'var(--accent, #cbfb46)' }}
+          className="text-[11px] font-medium"
+          style={{ color: 'var(--text-faint, #555)', marginTop: -4 }}
         >
-          A carregar KambaPro…
+          A carregar…
         </p>
       </div>
     );
   }
 
+  // ── Auth gates ──────────────────────────────────────────────────────────────
   if (!isAuthenticated) {
     if (isRegistering) {
       return (
@@ -90,19 +108,20 @@ const App: React.FC = () => {
     );
   }
 
+  // ── Page router ─────────────────────────────────────────────────────────────
   const renderPage = () => {
     switch (activePage) {
-      case 'dashboard':     return <Dashboard />;
-      case 'transactions':  return <Transactions />;
-      case 'cards':         return <Wallet />;
-      case 'goals':         return <Goals />;
-      case 'kamba':         return <KambaChat />;
-      case 'categorias':    return <Categorias />;
-      case 'news':          return <News />;
-      case 'perfil':        return <Perfil />;
-      case 'personalizacao':return <Personalizacao />;
-      case 'relatorio':     return <Relatorio />;
-      default:              return <Dashboard />;
+      case 'dashboard':      return <Dashboard />;
+      case 'transactions':   return <Transactions />;
+      case 'cards':          return <Wallet />;
+      case 'goals':          return <Goals />;
+      case 'kamba':          return <KambaChat />;
+      case 'categorias':     return <Categorias />;
+      case 'news':           return <News />;
+      case 'perfil':         return <Perfil />;
+      case 'personalizacao': return <Personalizacao />;
+      case 'relatorio':      return <Relatorio />;
+      default:               return <Dashboard />;
     }
   };
 

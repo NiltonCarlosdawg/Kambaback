@@ -1,22 +1,74 @@
 // src/components/Transactions.tsx
 import React, { useEffect, useState, useMemo } from 'react';
-import { Plus, ArrowUpCircle, ArrowDownCircle, AlertTriangle, Target } from 'lucide-react';
+import { AlertCircle, ArrowDown, ArrowUp, Plus, Trophy, X } from 'lucide-react';
 import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { Gasto, Cartao, Categoria, Objetivo } from '../types';
 
+// ─── Shared inline components ─────────────────────────────────────────────────
+const Card: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style }) => (
+  <div className={`rounded-2xl border shadow-sm ${className}`}
+    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', ...style }}>
+    {children}
+  </div>
+);
+
+const SectionHeader: React.FC<{ title: string; subtitle?: string; right?: React.ReactNode }> = ({ title, subtitle, right }) => (
+  <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+    <div>
+      {subtitle && <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>{subtitle}</p>}
+      <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
+    </div>
+    {right}
+  </div>
+);
+
+const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div>
+    <label className="block text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-faint)' }}>{label}</label>
+    {children}
+  </div>
+);
+
+const inputSt: React.CSSProperties = {
+  width: '100%', height: 44, borderRadius: 10, padding: '0 12px', fontSize: 14,
+  color: 'var(--text-primary)', outline: 'none', transition: 'border-color 150ms, box-shadow 150ms, background-color 150ms',
+  backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)',
+};
+
+const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => {
+  const [f, setF] = useState(false);
+  return <input {...props}
+    onFocus={e => { setF(true); props.onFocus?.(e); }} onBlur={e => { setF(false); props.onBlur?.(e); }}
+    style={{ ...inputSt, ...(props.style || {}), border: `1px solid ${f ? 'var(--accent)' : 'var(--border)'}`, backgroundColor: f ? 'var(--bg-elevated)' : 'var(--bg-base)', boxShadow: f ? '0 0 0 3px var(--accent-10)' : 'none' }} />;
+};
+
+const Sel: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = (props) => {
+  const [f, setF] = useState(false);
+  return <select {...props}
+    onFocus={e => { setF(true); props.onFocus?.(e); }} onBlur={e => { setF(false); props.onBlur?.(e); }}
+    style={{ ...inputSt, ...(props.style || {}), appearance: 'none' as any, cursor: 'pointer', border: `1px solid ${f ? 'var(--accent)' : 'var(--border)'}`, backgroundColor: f ? 'var(--bg-elevated)' : 'var(--bg-base)', boxShadow: f ? '0 0 0 3px var(--accent-10)' : 'none', backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%23888' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3E%3C/svg%3E")`, backgroundPosition: 'right 12px center', backgroundRepeat: 'no-repeat', backgroundSize: '1.5em 1.5em' }} />;
+};
+
+// ─── Status pill ──────────────────────────────────────────────────────────────
+const Pill: React.FC<{ label: string; color: string; bg: string; ring: string }> = ({ label, color, bg, ring }) => (
+  <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold ring-1 ring-inset"
+    style={{ color, backgroundColor: bg, ringColor: ring }}>{label}</span>
+);
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const Transactions: React.FC = () => {
   const { formatMoney, maskValue, formatDate, prefs } = useTheme();
 
-  const [transacoes,  setTransacoes]  = useState<Gasto[]>([]);
-  const [cartoes,     setCartoes]     = useState<Cartao[]>([]);
-  const [categorias,  setCategorias]  = useState<Categoria[]>([]);
-  const [objetivos,   setObjetivos]   = useState<Objetivo[]>([]);
-  const [loading,     setLoading]     = useState(true);
-  const [showModal,   setShowModal]   = useState(false);
-  const [error,       setError]       = useState('');
-  const [filter,      setFilter]      = useState<'todos' | 'RECEITA' | 'DESPESA'>('todos');
-  const [formData,    setFormData]    = useState({
+  const [transacoes, setTransacoes] = useState<Gasto[]>([]);
+  const [cartoes,    setCartoes]    = useState<Cartao[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [objetivos,  setObjetivos]  = useState<Objetivo[]>([]);
+  const [loading,    setLoading]    = useState(true);
+  const [showModal,  setShowModal]  = useState(false);
+  const [error,      setError]      = useState('');
+  const [filter,     setFilter]     = useState<'todos' | 'RECEITA' | 'DESPESA'>('todos');
+  const [formData,   setFormData]   = useState({
     descricao: '', valor: '', tipo: 'DESPESA' as 'DESPESA' | 'RECEITA',
     cartaoId: '', categoriaId: '', objetivoId: '',
     data: new Date().toISOString().split('T')[0], local: '',
@@ -39,9 +91,7 @@ const Transactions: React.FC = () => {
   };
 
   const categoriasFiltradas = useMemo(() => categorias.filter(c =>
-    formData.tipo === 'DESPESA'
-      ? ['ESSENCIAL', 'FLEXIVEL', 'POUPANCA'].includes(c.tipo)
-      : c.tipo === 'RENDIMENTO'
+    formData.tipo === 'DESPESA' ? ['ESSENCIAL', 'FLEXIVEL', 'POUPANCA'].includes(c.tipo) : c.tipo === 'RENDIMENTO'
   ), [categorias, formData.tipo]);
 
   const categoriasAgrupadas = useMemo(() => {
@@ -52,15 +102,11 @@ const Transactions: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
-    if (!formData.cartaoId)   { setError('Seleciona uma conta/cartão'); return; }
-    if (!formData.categoriaId){ setError('Seleciona uma categoria'); return; }
+    if (!formData.cartaoId)    { setError('Seleciona uma conta/cartão'); return; }
+    if (!formData.categoriaId) { setError('Seleciona uma categoria'); return; }
     try {
-      await api.post('/gastos', {
-        ...formData, valor: parseFloat(formData.valor), data: new Date(formData.data).toISOString(),
-        objetivoId: formData.tipo === 'DESPESA' && formData.objetivoId ? formData.objetivoId : undefined,
-      });
-      setShowModal(false);
-      fetchData();
+      await api.post('/gastos', { ...formData, valor: parseFloat(formData.valor), data: new Date(formData.data).toISOString(), objetivoId: formData.tipo === 'DESPESA' && formData.objetivoId ? formData.objetivoId : undefined });
+      setShowModal(false); fetchData();
       setFormData({ descricao: '', valor: '', tipo: 'DESPESA', cartaoId: '', categoriaId: '', objetivoId: '', data: new Date().toISOString().split('T')[0], local: '' });
     } catch (err: any) { setError(err.response?.data?.message || 'Erro ao guardar transação'); }
   };
@@ -69,246 +115,249 @@ const Transactions: React.FC = () => {
   const totalRec  = transacoes.filter(t => t.tipo === 'RECEITA').reduce((a, t) => a + Number(t.valor), 0);
   const totalDesp = transacoes.filter(t => t.tipo === 'DESPESA').reduce((a, t) => a + Number(t.valor), 0);
   const saldo     = transacoes.reduce((a, t) => a + (t.tipo === 'RECEITA' ? Number(t.valor) : -Number(t.valor)), 0);
-
   const tipoNomes: Record<string, string> = { ESSENCIAL: 'Essenciais', FLEXIVEL: 'Flexíveis', POUPANCA: 'Poupança', RENDIMENTO: 'Rendimentos' };
 
-  const card: React.CSSProperties = { background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 24 };
-  const inputStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-strong)', borderRadius: 12, padding: '12px', color: 'var(--text-primary)', width: '100%', outline: 'none', transition: 'border-color var(--transition-speed,200ms)' };
-
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+
+      {/* Page header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h2 className="text-2xl font-black" style={{ color: 'var(--text-primary)' }}>Transações</h2>
-          <p className="font-medium" style={{ color: 'var(--text-muted)' }}>Gere as tuas receitas e despesas</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Finanças</p>
+          <h2 className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>Transações</h2>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-faint)' }}>Gere as tuas receitas e despesas</p>
         </div>
         <button onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-6 py-3 rounded-2xl font-bold transition-all hover:scale-[1.02] active:scale-[0.98]"
-          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
-          <Plus size={20} />
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.99]"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
+          <Plus size={18} />
           Nova Transação
         </button>
       </div>
 
       {error && (
-        <div className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)' }}>
-          <AlertTriangle className="text-red-400" size={20} />
-          <p className="text-red-300 text-sm font-medium">{error}</p>
+        <div className="flex items-center gap-3 p-3.5 rounded-xl border text-sm"
+          style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+          <AlertCircle size={18} className="flex-shrink-0" />
+          <p className="font-medium">{error}</p>
         </div>
       )}
 
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: 'Total Receitas',    val: totalRec,  color: 'var(--accent)',                                  bg: 'var(--accent-10)',           ring: 'var(--accent-20)'           },
+          { label: 'Total Despesas',    val: totalDesp, color: '#f87171',                                        bg: 'rgba(239,68,68,0.08)',        ring: 'rgba(239,68,68,0.2)'        },
+          { label: 'Saldo do Período',  val: saldo,     color: saldo >= 0 ? 'var(--accent)' : '#f87171',        bg: saldo >= 0 ? 'var(--accent-10)' : 'rgba(239,68,68,0.08)', ring: saldo >= 0 ? 'var(--accent-20)' : 'rgba(239,68,68,0.2)' },
+        ].map(({ label, val, color, bg, ring }) => (
+          <Card key={label} style={{ padding: '20px 24px' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest mb-1.5" style={{ color: 'var(--text-faint)', opacity: 0.7 }}>{label}</p>
+            <p className="text-2xl font-bold tracking-tight" style={{ color }}>{maskValue(formatMoney(val))}</p>
+          </Card>
+        ))}
+      </div>
+
       {/* Filter tabs */}
-      <div className="flex gap-2 p-2 rounded-2xl w-fit" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)' }}>
+      <Card style={{ padding: 6, display: 'inline-flex', gap: 4 }}>
         {(['todos', 'RECEITA', 'DESPESA'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
-            className="px-5 py-2.5 rounded-xl text-sm font-bold transition-all"
+            className="px-4 py-2 rounded-xl text-xs font-bold transition-all"
             style={{
               backgroundColor: filter === f ? 'var(--accent)' : 'transparent',
-              color:           filter === f ? 'var(--accent-text)' : 'var(--text-muted)',
-              boxShadow:       filter === f ? '0 0 15px var(--accent-20)' : 'none',
+              color: filter === f ? 'var(--accent-text)' : 'var(--text-muted)',
             }}>
             {f === 'todos' ? 'Todos' : f === 'RECEITA' ? 'Receitas' : 'Despesas'}
           </button>
         ))}
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {[
-          { label: 'Total Receitas', val: totalRec,  color: 'var(--accent)'  },
-          { label: 'Total Despesas', val: totalDesp, color: '#f87171'         },
-          { label: 'Saldo do Período', val: saldo,   color: saldo >= 0 ? 'var(--accent)' : '#f87171' },
-        ].map(({ label, val, color }) => (
-          <div key={label} style={card}>
-            <p className="text-sm font-medium" style={{ color: 'var(--text-muted)' }}>{label}</p>
-            <p className="text-2xl font-black mt-2" style={{ color }}>{maskValue(formatMoney(val))}</p>
-          </div>
-        ))}
-      </div>
+      </Card>
 
       {/* List */}
-      <div className="overflow-hidden" style={{ ...card, padding: 0 }}>
+      <Card style={{ overflow: 'hidden' }}>
+        <SectionHeader title="Movimentos" subtitle={`${filtered.length} registos`} />
         {loading ? (
-          <p className="p-8 text-center font-medium" style={{ color: 'var(--text-muted)' }}>A carregar…</p>
+          <p className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>A carregar…</p>
         ) : filtered.length === 0 ? (
-          <p className="p-12 text-center" style={{ color: 'var(--text-faint)' }}>Sem transações registadas.</p>
+          <div className="p-16 text-center">
+            <ArrowDown size={32} className="mx-auto mb-3" style={{ color: 'var(--text-faint)' }} />
+            <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Sem transações registadas.</p>
+          </div>
         ) : (
-          <div style={{ borderTop: 'none' }}>
+          <div>
             {filtered.map(t => {
               const isReceita = t.tipo === 'RECEITA', valor = Number(t.valor);
               return (
                 <div key={t.id}
-                  className="p-5 flex items-center justify-between group transition-colors"
+                  className="px-5 py-4 flex items-center justify-between group transition-all"
                   style={{ borderBottom: '1px solid var(--border)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'rgba(255,255,255,0.02)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.backgroundColor = 'transparent'; }}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="p-3 rounded-full transition-all"
-                      style={{ backgroundColor: isReceita ? 'var(--accent-10)' : 'rgba(239,68,68,0.1)', color: isReceita ? 'var(--accent)' : '#f87171' }}>
-                      {isReceita ? <ArrowUpCircle size={20} /> : <ArrowDownCircle size={20} />}
+                  onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                  onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
+                  <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                    {/* Icon */}
+                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ring-1 ring-inset"
+                      style={{
+                        backgroundColor: isReceita ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)',
+                        ringColor: isReceita ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                        color: isReceita ? '#10b981' : '#f87171',
+                      }}>
+                      {isReceita ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
                     </div>
-                    <div>
+
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="font-bold" style={{ color: 'var(--text-primary)' }}>{t.descricao || 'Sem descrição'}</p>
+                        <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{t.descricao || 'Sem descrição'}</p>
                         {t.distribuicaoAutomatica && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium border border-blue-500/30 bg-blue-500/20 text-blue-300">Auto-distribuído</span>
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset"
+                            style={{ color: '#60a5fa', backgroundColor: 'rgba(59,130,246,0.08)', ringColor: 'rgba(59,130,246,0.2)' }}>
+                            Auto
+                          </span>
                         )}
                         {(t as any).objetivo && (
-                          <span className="px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 border border-purple-500/30 bg-purple-500/20 text-purple-300">
-                            <Target size={10} /> {(t as any).objetivo.titulo}
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset flex items-center gap-1"
+                            style={{ color: '#a78bfa', backgroundColor: 'rgba(139,92,246,0.08)', ringColor: 'rgba(139,92,246,0.2)' }}>
+                            <Trophy size={10} /> {(t as any).objetivo.titulo}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 text-sm mt-1 flex-wrap" style={{ color: 'var(--text-faint)' }}>
+                      <div className="flex items-center gap-2 text-[11px] mt-0.5 flex-wrap" style={{ color: 'var(--text-faint)' }}>
                         <span>{formatDate(t.data)}</span>
-                        <span>•</span>
+                        <span>·</span>
                         <span>{(t as any).cartao?.nome || 'Conta removida'}</span>
-                        <span>•</span>
-                        <span className="px-2 py-0.5 rounded-lg text-xs font-medium" style={{ backgroundColor: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)' }}>
+                        <span>·</span>
+                        <span className="rounded-full px-2 py-0.5 ring-1 ring-inset text-[10px] font-semibold"
+                          style={{ backgroundColor: 'var(--bg-elevated)', ringColor: 'var(--border)', color: 'var(--text-faint)' }}>
                           {t.categoria?.nome || 'Geral'}
                         </span>
                       </div>
                     </div>
                   </div>
-                  <span className="font-black text-lg" style={{ color: isReceita ? 'var(--accent)' : 'var(--text-primary)' }}>
-                    {isReceita ? '+' : '-'} {maskValue(formatMoney(valor))}
+                  <span className="text-sm font-bold flex-shrink-0 ml-4" style={{ color: isReceita ? '#10b981' : 'var(--text-primary)' }}>
+                    {isReceita ? '+' : '-'}{maskValue(formatMoney(valor))}
                   </span>
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)' }}>
-          <div className="w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto"
-            style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-strong)' }}>
-            <h3 className="text-xl font-black mb-6" style={{ color: 'var(--text-primary)' }}>Registar Movimento</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl shadow-2xl border max-h-[90vh] overflow-y-auto"
+            style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)' }}>
 
-            {error && (
-              <div className="mb-4 p-3 rounded-xl text-sm font-medium border border-red-500/20 bg-red-500/10 text-red-300">{error}</div>
-            )}
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center ring-1 ring-inset"
+                  style={{ backgroundColor: 'var(--accent-10)', ringColor: 'var(--accent-20)' }}>
+                  <Plus size={18} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Registar Movimento</h3>
+                  <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>Preenche os dados do movimento</p>
+                </div>
+              </div>
+              <button onClick={() => setShowModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg transition-all"
+                style={{ color: 'var(--text-faint)' }}
+                onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget).style.color = 'var(--text-primary)'; }}
+                onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; (e.currentTarget).style.color = 'var(--text-faint)'; }}>
+                <X size={20} />
+              </button>
+            </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+              {error && (
+                <div className="px-4 py-3 rounded-xl border text-[11px] font-medium"
+                  style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+                  {error}
+                </div>
+              )}
+
               {/* Tipo */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 {(['DESPESA', 'RECEITA'] as const).map(tipo => {
-                  const active = formData.tipo === tipo;
-                  const isRec = tipo === 'RECEITA';
+                  const active = formData.tipo === tipo, isRec = tipo === 'RECEITA';
                   return (
                     <button key={tipo} type="button"
                       onClick={() => setFormData({ ...formData, tipo, objetivoId: '', categoriaId: '' })}
-                      className="p-4 rounded-xl text-center transition-all"
+                      className="p-3.5 rounded-xl text-center transition-all border ring-1 ring-inset"
                       style={{
-                        border:          active ? `1px solid ${isRec ? 'var(--accent)' : 'rgba(239,68,68,0.5)'}` : '1px solid var(--border)',
-                        backgroundColor: active ? (isRec ? 'var(--accent-10)' : 'rgba(239,68,68,0.15)') : 'transparent',
-                        color:           active ? (isRec ? 'var(--accent)' : '#f87171') : 'var(--text-faint)',
-                        fontWeight:      active ? 700 : 400,
-                        boxShadow:       active ? `0 0 15px ${isRec ? 'var(--accent-20)' : 'rgba(239,68,68,0.15)'}` : 'none',
+                        borderColor: active ? (isRec ? 'var(--accent)' : 'rgba(239,68,68,0.4)') : 'var(--border)',
+                        backgroundColor: active ? (isRec ? 'var(--accent-10)' : 'rgba(239,68,68,0.08)') : 'var(--bg-base)',
+                        color: active ? (isRec ? 'var(--accent)' : '#f87171') : 'var(--text-faint)',
+                        ringColor: active ? (isRec ? 'var(--accent-20)' : 'rgba(239,68,68,0.2)') : 'transparent',
+                        fontWeight: active ? 700 : 400,
                       }}>
-                      {isRec ? <ArrowUpCircle className="mx-auto mb-2" size={24} /> : <ArrowDownCircle className="mx-auto mb-2" size={24} />}
-                      <span className="text-sm">{isRec ? 'Receita' : 'Despesa'}</span>
+                      <div className="flex justify-center mb-1.5">
+                        {isRec ? <ArrowUp size={20} /> : <ArrowDown size={20} />}
+                      </div>
+                      <span className="text-xs">{isRec ? 'Receita' : 'Despesa'}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* Valor */}
-              <div>
-                <label className="text-sm font-bold block mb-2" style={{ color: 'var(--text-muted)' }}>Valor (Kz) *</label>
-                <input type="number" required min="0.01" step="0.01" placeholder="0.00"
-                  value={formData.valor} onChange={e => setFormData({ ...formData, valor: e.target.value })}
-                  style={inputStyle}
-                  onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--accent)'; }}
-                  onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = 'var(--border-strong)'; }}
-                />
-              </div>
+              <Field label="Valor (Kz) *">
+                <Input type="number" required min="0.01" step="0.01" placeholder="0.00"
+                  value={formData.valor} onChange={e => setFormData({ ...formData, valor: e.target.value })} />
+              </Field>
 
-              {/* Descrição */}
-              <div>
-                <label className="text-sm font-bold block mb-2" style={{ color: 'var(--text-muted)' }}>Descrição *</label>
-                <input type="text" required placeholder="Ex: Compra de supermercado"
-                  value={formData.descricao} onChange={e => setFormData({ ...formData, descricao: e.target.value })}
-                  style={inputStyle}
-                  onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--accent)'; }}
-                  onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = 'var(--border-strong)'; }}
-                />
-              </div>
+              <Field label="Descrição *">
+                <Input type="text" required placeholder="Ex: Compra de supermercado"
+                  value={formData.descricao} onChange={e => setFormData({ ...formData, descricao: e.target.value })} />
+              </Field>
 
-              {/* Categoria + Data */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-bold block mb-2" style={{ color: 'var(--text-muted)' }}>Categoria *</label>
-                  <select required value={formData.categoriaId}
-                    onChange={e => setFormData({ ...formData, categoriaId: e.target.value })}
-                    style={{ ...inputStyle, background: 'var(--bg-elevated)' }}>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Categoria *">
+                  <Sel required value={formData.categoriaId} onChange={e => setFormData({ ...formData, categoriaId: e.target.value })}>
                     <option value="">Selecionar…</option>
                     {Object.keys(categoriasAgrupadas).map(tipo => (
                       <optgroup key={tipo} label={tipoNomes[tipo]}>
-                        {categoriasAgrupadas[tipo].map(c => (
-                          <option key={c.id} value={c.id}>{c.nome}</option>
-                        ))}
+                        {categoriasAgrupadas[tipo].map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
                       </optgroup>
                     ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-bold block mb-2" style={{ color: 'var(--text-muted)' }}>Data *</label>
-                  <input type="date" required value={formData.data}
-                    onChange={e => setFormData({ ...formData, data: e.target.value })}
-                    style={{ ...inputStyle, background: 'var(--bg-elevated)' }}
-                    onFocus={e => { (e.target as HTMLInputElement).style.borderColor = 'var(--accent)'; }}
-                    onBlur={e  => { (e.target as HTMLInputElement).style.borderColor = 'var(--border-strong)'; }}
-                  />
-                </div>
+                  </Sel>
+                </Field>
+                <Field label="Data *">
+                  <Input type="date" required value={formData.data}
+                    onChange={e => setFormData({ ...formData, data: e.target.value })} />
+                </Field>
               </div>
 
-              {/* Objetivo (despesa) */}
               {formData.tipo === 'DESPESA' && (
-                <div className="p-4 rounded-xl border border-purple-500/30 bg-purple-500/10">
-                  <label className="text-sm font-bold flex items-center gap-2 mb-2 text-purple-300">
-                    <Target size={16} /> Guardar neste Objetivo (Opcional)
+                <div className="p-4 rounded-xl border ring-1 ring-inset space-y-2.5"
+                  style={{ backgroundColor: 'rgba(139,92,246,0.06)', borderColor: 'rgba(139,92,246,0.2)', ringColor: 'rgba(139,92,246,0.1)' }}>
+                  <label className="text-xs font-bold flex items-center gap-1.5" style={{ color: '#a78bfa' }}>
+                    <Trophy size={14} /> Guardar neste Objetivo (Opcional)
                   </label>
-                  <select value={formData.objetivoId}
-                    onChange={e => setFormData({ ...formData, objetivoId: e.target.value })}
-                    style={{ ...inputStyle, background: 'var(--bg-elevated)', borderColor: 'rgba(168,85,247,0.3)' }}>
+                  <Sel value={formData.objetivoId} onChange={e => setFormData({ ...formData, objetivoId: e.target.value })}>
                     <option value="">Nenhum (despesa normal)</option>
-                    {objetivos.map(o => (
-                      <option key={o.id} value={o.id}>{o.titulo}</option>
-                    ))}
-                  </select>
+                    {objetivos.map(o => <option key={o.id} value={o.id}>{o.titulo}</option>)}
+                  </Sel>
                 </div>
               )}
 
-              {/* Cartão */}
-              <div>
-                <label className="text-sm font-bold block mb-2" style={{ color: 'var(--text-muted)' }}>Conta / Cartão *</label>
-                <select required value={formData.cartaoId}
-                  onChange={e => setFormData({ ...formData, cartaoId: e.target.value })}
-                  style={{ ...inputStyle, background: 'var(--bg-elevated)' }}>
+              <Field label="Conta / Cartão *">
+                <Sel required value={formData.cartaoId} onChange={e => setFormData({ ...formData, cartaoId: e.target.value })}>
                   <option value="">Selecionar…</option>
-                  {cartoes.map(c => (
-                    <option key={c.id} value={c.id}>{c.nome} (Disp: {formatMoney(Number((c as any).saldoDisponivel || c.saldoAtual))})</option>
-                  ))}
-                </select>
-              </div>
+                  {cartoes.map(c => <option key={c.id} value={c.id}>{c.nome} (Disp: {formatMoney(Number((c as any).saldoDisponivel || c.saldoAtual))})</option>)}
+                </Sel>
+              </Field>
 
-              {/* Actions */}
-              <div className="flex gap-3 pt-4">
+              {/* Footer */}
+              <div className="flex gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
                 <button type="button" onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 rounded-xl font-bold transition-all"
-                  style={{ border: '1px solid var(--border-strong)', color: 'var(--text-muted)' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.04)'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}>
+                  className="flex-1 h-11 rounded-xl text-sm font-medium transition-all border"
+                  style={{ color: 'var(--text-muted)', borderColor: 'var(--border)', backgroundColor: 'transparent' }}
+                  onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
+                  onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
                   Cancelar
                 </button>
                 <button type="submit"
-                  className="flex-1 py-3 rounded-xl font-black transition-all hover:scale-[1.02] active:scale-[0.98]"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: '0 0 20px var(--accent-20)' }}>
+                  className="flex-1 h-11 rounded-xl text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.99]"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
                   Guardar
                 </button>
               </div>
