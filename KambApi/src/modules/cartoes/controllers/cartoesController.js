@@ -1,4 +1,3 @@
-// src/controllers/cartoesController.js
 const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
@@ -19,7 +18,6 @@ const listarCartoes = async (req, res, next) => {
       orderBy: { criadoEm: 'desc' }
     });
 
-    // Cálculo dos totais usando Decimal corretamente
     let totalSaldo = 0;
     let totalDisponivel = 0;
     let totalReservado = 0;
@@ -51,9 +49,6 @@ const listarCartoes = async (req, res, next) => {
  * ==========================================
  * CRIAR NOVO CARTÃO
  * ==========================================
- * Regras:
- * - DEBITO/POUPANCA: saldoDisponivel = saldoAtual
- * - CREDITO: saldoDisponivel = limiteCredito
  */
 const criarCartao = async (req, res, next) => {
   const {
@@ -70,7 +65,6 @@ const criarCartao = async (req, res, next) => {
     distribuirParaObjetivos = false
   } = req.body;
 
-  // Validação de tipo
   const tiposValidos = ['DEBITO', 'CREDITO', 'POUPANCA'];
   if (!tiposValidos.includes(tipo)) {
     return next(new AppError('Tipo de cartão inválido. Use: DEBITO, CREDITO ou POUPANCA', 400));
@@ -92,21 +86,18 @@ const criarCartao = async (req, res, next) => {
       }
     }
 
-    // 🎯 LÓGICA DE INICIALIZAÇÃO DO SALDO DISPONÍVEL
     let saldoInicialAtual = 0;
     let saldoInicialDisponivel = 0;
     let limiteCredFinal = 0;
 
     if (tipo === 'CREDITO') {
-      // Cartão de crédito: saldoDisponivel = limiteCredito
       limiteCredFinal = parseFloat(limiteCredito) || 0;
       saldoInicialDisponivel = limiteCredFinal;
-      saldoInicialAtual = 0; // Fatura sempre começa em 0
+      saldoInicialAtual = 0; 
     } else {
-      // DEBITO ou POUPANCA: saldoDisponivel = saldoAtual
       saldoInicialAtual = parseFloat(saldoAtual) || 0;
       saldoInicialDisponivel = saldoInicialAtual;
-      limiteCredFinal = 0; // Forçado a 0 conforme regra
+      limiteCredFinal = 0; 
     }
 
     const cartao = await prisma.cartao.create({
@@ -194,7 +185,6 @@ const atualizarCartao = async (req, res, next) => {
       return next(new AppError('Cartão não encontrado', 404));
     }
 
-    // Se atualizar limite de crédito, ajustar saldoDisponivel também
     if (dados.limiteCredito !== undefined && cartaoExistente.tipo === 'CREDITO') {
       const diferencaLimite = dados.limiteCredito - Number(cartaoExistente.limiteCredito);
       dados.saldoDisponivel = Number(cartaoExistente.saldoDisponivel) + diferencaLimite;
@@ -223,10 +213,7 @@ const atualizarCartao = async (req, res, next) => {
 /**
  * ==========================================
  * ATUALIZAR SALDO DO CARTÃO (REFATORADO)
- * ==========================================
- * Regras:
- * - RECEITA: Verifica distribuição automática para objetivos
- * - DESPESA: Valida saldo disponível (DEBITO) ou limite (CREDITO)
+ * =========================================
  */
 const atualizarSaldo = async (req, res, next) => {
   const { id } = req.params;
@@ -243,7 +230,6 @@ const atualizarSaldo = async (req, res, next) => {
 
   try {
     const resultado = await prisma.$transaction(async (tx) => {
-      // Buscar cartão
       const cartao = await tx.cartao.findFirst({
         where: { id, usuarioId: req.user.id, ativo: true, excluido: false }
       });
@@ -266,16 +252,16 @@ const atualizarSaldo = async (req, res, next) => {
       // ==========================================
       if (tipoTransacao === 'RECEITA') {
         if (cartao.tipo === 'CREDITO') {
-          // Crédito: receita reduz a fatura e aumenta disponível
+          
           novoSaldoAtual = Math.max(0, saldoAtual - valorNum);
           novoSaldoDisponivel = saldoDisponivel + valorNum;
         } else {
-          // Débito/Poupança: receita aumenta saldo e disponível
+          
           novoSaldoAtual = saldoAtual + valorNum;
           novoSaldoDisponivel = saldoDisponivel + valorNum;
         }
 
-        // 🎯 DISTRIBUIÇÃO AUTOMÁTICA PARA OBJETIVOS
+       
         if (cartao.distribuirParaObjetivos) {
           const objetivos = await tx.objetivo.findMany({
             where: {
@@ -294,7 +280,7 @@ const atualizarSaldo = async (req, res, next) => {
               const porcentagem = Number(objetivo.porcentagemDistribuicao);
               const valorObjetivo = (valorNum * porcentagem) / 100;
               
-              // Atualizar valorAtual do objetivo
+            
               const objetivoAtualizado = await tx.objetivo.update({
                 where: { id: objetivo.id },
                 data: {
@@ -314,7 +300,7 @@ const atualizarSaldo = async (req, res, next) => {
               });
             }
 
-            // 🔒 MOVER DO DISPONÍVEL PARA RESERVADO
+            
             if (totalDistribuido > 0) {
               novoSaldoDisponivel -= totalDistribuido;
               novoSaldoReservado += totalDistribuido;
@@ -328,7 +314,7 @@ const atualizarSaldo = async (req, res, next) => {
       // ==========================================
       else if (tipoTransacao === 'DESPESA') {
         if (cartao.tipo === 'CREDITO') {
-          // Crédito: despesa aumenta fatura e diminui disponível
+        
           if (saldoDisponivel < valorNum) {
             throw new AppError(
               `Limite de crédito insuficiente no cartão ${cartao.nome}. ` +
@@ -339,7 +325,7 @@ const atualizarSaldo = async (req, res, next) => {
           novoSaldoAtual = saldoAtual + valorNum;
           novoSaldoDisponivel = saldoDisponivel - valorNum;
         } else {
-          // Débito/Poupança: despesa diminui saldo
+          
           if (saldoDisponivel < valorNum) {
             throw new AppError(
               `Saldo disponível insuficiente no cartão ${cartao.nome}. ` +
@@ -352,7 +338,6 @@ const atualizarSaldo = async (req, res, next) => {
         }
       }
 
-      // Atualizar cartão
       const cartaoAtualizado = await tx.cartao.update({
         where: { id },
         data: { 
@@ -376,7 +361,7 @@ const atualizarSaldo = async (req, res, next) => {
       cartao: resultado.cartao
     };
 
-    // Incluir informações de distribuição se houver
+
     if (resultado.distribuicoes && resultado.distribuicoes.length > 0) {
       response.distribuicaoAutomatica = {
         totalDistribuido: resultado.distribuicoes.reduce((acc, d) => acc + d.valor, 0),

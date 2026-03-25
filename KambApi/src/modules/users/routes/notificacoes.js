@@ -1,4 +1,4 @@
-// src/routes/notificacoes.js
+
 const express = require('express');
 const router = express.Router();
 const { protegerRota } = require('../../../middleware/auth');
@@ -9,10 +9,7 @@ const { getEstatisticas, isUsuarioOnline } = require('../../../websocket/socketC
 // ROTAS DE NOTIFICAÇÕES
 // ==========================================
 
-/**
- * GET /notificacoes
- * Lista notificações do usuário (com paginação)
- */
+
 router.get('/', protegerRota, async (req, res, next) => {
   try {
     const { pagina = 1, limite = 20, apenasNaoLidas = false } = req.query;
@@ -36,10 +33,7 @@ router.get('/', protegerRota, async (req, res, next) => {
   }
 });
 
-/**
- * GET /notificacoes/nao-lidas
- * Busca apenas notificações não lidas
- */
+
 router.get('/nao-lidas', protegerRota, async (req, res, next) => {
   try {
     const { limite = 20 } = req.query;
@@ -58,10 +52,7 @@ router.get('/nao-lidas', protegerRota, async (req, res, next) => {
   }
 });
 
-/**
- * PATCH /notificacoes/:id/lida
- * Marca notificação como lida
- */
+
 router.patch('/:id/lida', protegerRota, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -83,10 +74,7 @@ router.patch('/:id/lida', protegerRota, async (req, res, next) => {
   }
 });
 
-/**
- * PATCH /notificacoes/lidas/todas
- * Marca todas as notificações como lidas
- */
+
 router.patch('/lidas/todas', protegerRota, async (req, res, next) => {
   try {
     const prisma = require('../../../lib/prisma');
@@ -110,10 +98,7 @@ router.patch('/lidas/todas', protegerRota, async (req, res, next) => {
   }
 });
 
-/**
- * GET /notificacoes/status
- * Verifica status da conexão WebSocket
- */
+
 router.get('/status', protegerRota, async (req, res) => {
   const online = isUsuarioOnline(req.user.id);
   const stats = getEstatisticas();

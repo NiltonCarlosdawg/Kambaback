@@ -1,7 +1,3 @@
-// src/routes/dashboard.js
-// ALIAS para /api/insights - reutiliza as mesmas rotas e controllers
-// Isso faz com que /api/dashboard/* funcione exatamente igual a /api/insights/*
-
 const insightsRouter = require('../../insights/routes/insights');
 const express = require('express');
 const router = express.Router();
@@ -26,7 +22,7 @@ router.use(protegerRota);
 // Dashboard principal + alertas
 router.get('/resumo', resumoDashboard);
 
-// Histórico financeiro - suporta: ?periodo=7dias|31dias|trimestre|semestre|anual
+
 router.get('/historico', historicoMensal);
 
 // Top 5 categorias do mês

@@ -25,12 +25,12 @@ const kambaRes = (res, texto, extra = {}) => {
 // Fallbacks humanizados
 const fallbackRespostas = {
   erro_generico: [
-    "Desculpa, kamba! Não consegui processar isso agora. 😅",
+    "Desculpa, kamba! Não consegui processar isso agora. ",
     "Bró, deu bug aqui. Tenta reformular a pergunta?",
     "Eish! Me perdi nessa. Podes dizer de outra forma?"
   ],
   nao_entendido: [
-    "Não apanhei bem, mano. Queres saber sobre:\n• 💰 Saldo\n• 📊 Gastos\n• 🎯 Metas\n• 🤖 Fluxos guiados",
+    "Não apanhei bem, mano. Queres saber sobre:\n•  Saldo\n•  Gastos\n•  Metas\n•  Fluxos guiados",
     "Mmm, não percebi. Experimenta:\n• 'Qual é o meu saldo?'\n• 'Criar meta'\n• 'Registar gasto'",
     "Confuso aqui, kamba. Digita 'ajuda' para ver o que posso fazer!",
     "Não entendi bem, kamba. Tenta ser mais direto, yha?"
@@ -41,9 +41,9 @@ const fallbackRespostas = {
     "Preciso de mais info, kamba. Vai na app e adiciona gastos ou metas."
   ],
   api_offline: [
-    "O cérebro tá offline agora. 🔌 Tenta em alguns minutos, yha?",
+    "O cérebro tá offline agora.  Tenta em alguns minutos, yha?",
     "Sistema sobrecarregado, kamba. Aguarda uns 2 minutos e volta.",
-    "Servidor ocupado. Relaxa um pouco e tenta de novo! 🙏"
+    "Servidor ocupado. Relaxa um pouco e tenta de novo! "
   ]
 };
 
@@ -195,7 +195,7 @@ const gerarSystemPrompt = (perfil, idade, contextoFinanceiro = '') => {
   return `Tu és o KAMBA, assistente virtual de gestão financeira pessoal da aplicação KambaPro, focado na realidade de Angola.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 DADOS DO UTILIZADOR
+ DADOS DO UTILIZADOR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Nome: ${perfil.nome || 'Utilizador'}
 - Localização: ${perfil.morada || 'Luanda'}
@@ -205,13 +205,13 @@ const gerarSystemPrompt = (perfil, idade, contextoFinanceiro = '') => {
 - Data de hoje: ${hoje}
 
 ${contextoFinanceiro ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 CONTEXTO FINANCEIRO ATUAL
+ CONTEXTO FINANCEIRO ATUAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${contextoFinanceiro}
 ` : ''}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 QUEM ÉS TU
+ QUEM ÉS TU
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 És o assistente financeiro pessoal do ${perfil.nome || 'utilizador'}.
 - Conheces bem a realidade económica de Angola: inflação, dolarização informal, mercado paralelo, dificuldades com o sistema bancário, custo de vida em Luanda vs. províncias.
@@ -220,7 +220,7 @@ ${contextoFinanceiro}
 - Conheces expressões angolanas e usas-as naturalmente, sem exagero.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎭 PERSONALIDADE E TOM
+ PERSONALIDADE E TOM
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Tom: amigável, direto, motivador, autêntico. NÃO és robótico.
 - Usas expressões angolanas de forma natural: "kamba", "mano", "bró", "yha", "mambo", "eish", "kuá", "malungo".
@@ -230,7 +230,7 @@ ${contextoFinanceiro}
 - Nunca traduzes literalmente expressões inglesas ou portuguesas formais.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🗣️ GLOSSÁRIO ANGOLANO
+ GLOSSÁRIO ANGOLANO
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - "Kamba" / "Malungo": amigo, colega (usa para tratar o utilizador)
 - "Bró": irmão, parceiro (tom mais informal)
@@ -248,7 +248,7 @@ ${contextoFinanceiro}
 - "Dawa": problema, situação difícil
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📏 REGRAS DE RESPOSTA
+ REGRAS DE RESPOSTA
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. **Brevidade**: Máx. 3-4 frases por resposta. Vai direto ao ponto.
 2. **Dados reais**: Sempre usa os dados do utilizador quando disponíveis. Nunca inventes valores.
@@ -265,17 +265,17 @@ ${contextoFinanceiro}
 13. **REGRA CRÍTICA — Perguntar antes**: Quando o utilizador faz uma pergunta geral que PODERIA beneficiar de dados (ex: "como poupar?"), responde com conselho geral E termina com "Quer que eu veja os teus dados reais?" — NUNCA buscas dados sem esta confirmação explícita.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔧 REGRAS DE USO DE FERRAMENTAS (CRÍTICO)
+ REGRAS DE USO DE FERRAMENTAS (CRÍTICO)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Tens acesso a ferramentas para consultar dados financeiros reais do utilizador.
 
-⛔ NUNCA uses uma ferramenta se:
+ NUNCA uses uma ferramenta se:
 - O utilizador não pediu dados financeiros explicitamente
 - A mensagem é uma saudação, pergunta geral, conversa casual ou opinião
 - Já respondeste com dados nesta mesma mensagem
 - A pergunta pode ser respondida sem dados (conselhos gerais, educação financeira)
 
-✅ USA a ferramenta APENAS quando o utilizador pede EXPLICITAMENTE:
+ USA a ferramenta APENAS quando o utilizador pede EXPLICITAMENTE:
 - "Qual o meu saldo?" → getCartoesStatus
 - "Quanto gastei?" / "Gastos do mês?" → getFluxoCaixaMensal
 - "Como vão os meus objetivos?" → getResumoObjetivos
@@ -292,7 +292,7 @@ Ferramentas disponíveis (usar APENAS quando pedido):
 - getCartoesStatus: estado de cartões e contas
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 FLUXOS GUIADOS (wizard)
+ FLUXOS GUIADOS (wizard)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Para estas ações, o sistema usa fluxos guiados passo a passo:
 - Criar meta financeira → "criar meta" ou "nova meta"
@@ -300,13 +300,13 @@ Para estas ações, o sistema usa fluxos guiados passo a passo:
 - Análise do mês → "análise" ou "como vou este mês"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 EXEMPLOS DE RESPOSTAS
+ EXEMPLOS DE RESPOSTAS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⛔ EXEMPLOS DE QUANDO NÃO USAR FERRAMENTAS:
+ EXEMPLOS DE QUANDO NÃO USAR FERRAMENTAS:
 
 User: "Oi"
-Kamba: "Komé, kamba! 👊 Em que posso ajudar hoje?"
+Kamba: "Komé, kamba!  Em que posso ajudar hoje?"
 [SEM tool — é só uma saudação]
 
 User: "não perguntei nada sobre o fundo"
@@ -329,7 +329,7 @@ User: "como assim?"
 Kamba: [Reformula e explica melhor o que disse anteriormente]
 [SEM tool — pedido de clarificação]
 
-✅ EXEMPLOS DE QUANDO USAR FERRAMENTAS:
+ EXEMPLOS DE QUANDO USAR FERRAMENTAS:
 
 User: "Qual o meu saldo?"
 Kamba: [usa getCartoesStatus] "Tens X AOA disponíveis. Precisas de mais alguma coisa?"
@@ -473,17 +473,6 @@ const processarToolCalls = async (toolCalls, usuarioId, messages, firstResponseM
 // CLASSIFICADOR DE INTENT — decide se a IA precisa de tools
 // ==========================================
 
-/**
- * Determina se a chamada à IA deve incluir ferramentas financeiras.
- *
- * Estratégia em 3 camadas:
- * 1. Blacklist imediata: mensagens que NUNCA precisam de tools
- * 2. Whitelist explícita: keywords que SEMPRE indicam pedido de dados
- * 3. Contexto: "sim"/"claro" só ativa tools se a última resposta do assistente
- *    terminou com uma pergunta sobre dados financeiros específicos
- *
- * Princípio: em caso de dúvida → NÃO passar tools.
- */
 const precisaDeTools = (msgLower, historicoRecente = []) => {
 
   // ── 1. BLACKLIST — nunca precisam de tools ─────────────────────────────────
@@ -614,7 +603,7 @@ const conversarComKamba = async (req, res, next) => {
     const rateCheck = verificarRateLimit(usuarioId);
     if (rateCheck.bloqueado) {
       return kambaRes(res,
-        `Calma aí, kamba! Muitas perguntas de uma vez. Aguarda ${rateCheck.tentarEm}s. 😅`,
+        `Calma aí, kamba! Muitas perguntas de uma vez. Aguarda ${rateCheck.tentarEm}s. `,
         { rateLimited: true, tentarEm: rateCheck.tentarEm }
       );
     }
@@ -677,7 +666,7 @@ const conversarComKamba = async (req, res, next) => {
       }).then(u => u?.nome || 'kamba').catch(() => 'kamba');
 
       const variantes = [
-        `Komé, ${nomeUser}! 👊 Em que posso ajudar hoje?`,
+        `Komé, ${nomeUser}!  Em que posso ajudar hoje?`,
         `Boas, ${nomeUser}! Tudo bem por aí? O que precisas?`,
         `Ei, ${nomeUser}! Como posso ajudar-te hoje?`,
         `Olá, ${nomeUser}! Por aqui para te ajudar. O que queres saber?`,
@@ -691,7 +680,7 @@ const conversarComKamba = async (req, res, next) => {
 
     if (isReacaoCasual && !isFollowUp) {
       const respostas = [
-        'Boa! Se precisares de alguma coisa, é só dizer. 👊',
+        'Boa! Se precisares de alguma coisa, é só dizer. ',
         'Fixe! Qualquer coisa estou aqui.',
         'Ok, kamba! Precisas de mais alguma coisa?',
         'Certo! Estou aqui se precisares.',
@@ -703,24 +692,24 @@ const conversarComKamba = async (req, res, next) => {
     }
 
     if (msgLower === 'ajuda' || msgLower === 'help') {
-      const ajuda = `🤖 *Comandos do Kamba:*
+      const ajuda = ` *Comandos do Kamba:*
 
-💰 *Consultas Rápidas:*
+ *Consultas Rápidas:*
 • "Qual o meu saldo?"
 • "Último gasto"
 • "Como vão meus objetivos?"
 • "Análise do mês"
 
-🔄 *Fluxos Guiados:*
+ *Fluxos Guiados:*
 • "Criar meta"
 • "Registar gasto"
 
-🗣️ *Conversa livre:*
+ *Conversa livre:*
 Podes perguntar qualquer coisa sobre finanças! Exemplo: "Devo comprar dólar?" ou "Como poupar mais?"
 
 • Digita *"cancelar"* para sair de qualquer fluxo
 
-Manda aí, kamba! 👊`;
+Manda aí, kamba! `;
 
       await salvarMemoria(usuarioId, 'user', mensagem, 'ajuda');
       await salvarMemoria(usuarioId, 'assistant', ajuda, 'ajuda');

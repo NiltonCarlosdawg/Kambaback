@@ -108,11 +108,6 @@ const obterFundo = async (req, res, next) => {
 // CRIAR FUNDO (sem activar ainda)
 // ==========================================
 
-/**
- * POST /fundo-emergencia
- * Cria o cartão de fundo de emergência como INACTIVO.
- * Só pode existir um por utilizador.
- */
 const criarFundo = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
@@ -150,7 +145,7 @@ const criarFundo = async (req, res, next) => {
     await NotificacaoService.criarNotificacao(
       usuarioId,
       'FUNDO_CRIADO',
-      '🛡️ Fundo de Emergência Criado',
+      ' Fundo de Emergência Criado',
       `O teu fundo foi criado! Deposita pelo menos ${DEPOSITO_MINIMO_ATIVACAO.toLocaleString('pt-AO')} Kz para o activar.`,
       { fundoId: fundo.id }
     );
@@ -175,12 +170,7 @@ const criarFundo = async (req, res, next) => {
 // DEPOSITAR NO FUNDO
 // ==========================================
 
-/**
- * POST /fundo-emergencia/depositar
- * Deposita um valor no fundo.
- * Se o saldo resultante >= 100.000 Kz e o fundo estava inactivo, activa-o automaticamente.
- * Requer: { cartaoOrigemId, valor }
- */
+
 const depositar = async (req, res, next) => {
   const { cartaoOrigemId, valor } = req.body;
   const usuarioId = req.user.id;
@@ -308,8 +298,8 @@ const depositar = async (req, res, next) => {
     res.json({
       success: true,
       message: resultado.acabouDeActivar
-        ? `🎉 Fundo activado! Depositaste ${valorNum.toLocaleString('pt-AO')} Kz.`
-        : `✅ ${valorNum.toLocaleString('pt-AO')} Kz depositados no fundo.`,
+        ? ` Fundo activado! Depositaste ${valorNum.toLocaleString('pt-AO')} Kz.`
+        : ` ${valorNum.toLocaleString('pt-AO')} Kz depositados no fundo.`,
       fundoActivo: resultado.fundo.fundoAtivo,
       acabouDeActivar: resultado.acabouDeActivar,
       saldoAtual: resultado.novoSaldo,
@@ -328,12 +318,6 @@ const depositar = async (req, res, next) => {
 // LEVANTAR DO FUNDO
 // ==========================================
 
-/**
- * POST /fundo-emergencia/levantar
- * Levanta um valor do fundo para um cartão de destino.
- * Se o saldo cair abaixo de 100.000 Kz, o fundo é automaticamente desactivado.
- * Requer: { cartaoDestinoId, valor, motivo? }
- */
 const levantar = async (req, res, next) => {
   const { cartaoDestinoId, valor, motivo } = req.body;
   const usuarioId = req.user.id;
@@ -450,7 +434,7 @@ const levantar = async (req, res, next) => {
       await NotificacaoService.criarNotificacao(
         usuarioId,
         'FUNDO_DESACTIVADO',
-        '⚠️ Fundo de Emergência Desactivado',
+        ' Fundo de Emergência Desactivado',
         `O saldo caiu abaixo de ${DEPOSITO_MINIMO_ATIVACAO.toLocaleString('pt-AO')} Kz. Deposita para o reactivar.`,
         { fundoId: resultado.fundo.id, saldoActual: resultado.novoSaldoFundo }
       );
@@ -461,8 +445,8 @@ const levantar = async (req, res, next) => {
     res.json({
       success: true,
       message: resultado.desactivou
-        ? `⚠️ ${valorNum.toLocaleString('pt-AO')} Kz levantados. Fundo desactivado (saldo abaixo do mínimo).`
-        : `✅ ${valorNum.toLocaleString('pt-AO')} Kz transferidos para "${resultado.cartaoDestino.nome}".`,
+        ? ` ${valorNum.toLocaleString('pt-AO')} Kz levantados. Fundo desactivado (saldo abaixo do mínimo).`
+        : ` ${valorNum.toLocaleString('pt-AO')} Kz transferidos para "${resultado.cartaoDestino.nome}".`,
       fundoActivo: resultado.fundo.fundoAtivo,
       desactivou: resultado.desactivou,
       saldoAtual: resultado.novoSaldoFundo,
@@ -478,11 +462,6 @@ const levantar = async (req, res, next) => {
 // DESACTIVAR MANUALMENTE
 // ==========================================
 
-/**
- * PATCH /fundo-emergencia/desactivar
- * Permite ao utilizador desactivar o fundo manualmente.
- * Não move o saldo — apenas marca como inactivo.
- */
 const desativar = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
@@ -507,7 +486,7 @@ const desativar = async (req, res, next) => {
     await NotificacaoService.criarNotificacao(
       usuarioId,
       'FUNDO_DESACTIVADO_MANUAL',
-      '⏸️ Fundo de Emergência Pausado',
+      ' Fundo de Emergência Pausado',
       `O fundo foi desactivado manualmente. O saldo de ${Number(fundo.saldoAtual).toLocaleString('pt-AO')} Kz mantém-se guardado.`,
       { fundoId: fundo.id }
     );

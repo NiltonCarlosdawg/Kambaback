@@ -1,11 +1,7 @@
 // src/controllers/noticiasController.js
 const axios = require('axios');
 
-/**
- * BUSCAR NOTÍCIAS FINANCEIRAS DE ANGOLA + MUNDO
- * Fonte: GNews (grátis e confiável)
- * Sempre devolve notícias – mesmo offline!
- */
+
 const ultimas = async (req, res, next) => {
   const API_KEY = process.env.GNEWS_API_KEY || 'demo'; // "demo" funciona com limite
   const categoria = req.query.categoria || 'business'; // business, general, technology...

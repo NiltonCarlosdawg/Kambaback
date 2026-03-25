@@ -1,8 +1,5 @@
 require('dotenv').config();
 
-// ==========================================
-// 1. VALIDA AMBIENTE ANTES DE TUDO
-// ==========================================
 const { validateEnvironment } = require('./src/config/envValidator');
 validateEnvironment();
 
@@ -101,7 +98,7 @@ app.get('/health', async (req, res) => {
 
   const healthcheck = {
     success: true,
-    message: 'KambaPro API está online! 🚀',
+    message: 'KambaPro API está online! ',
     database: 'verificando...',
     websocket: 'verificando...',
     timestamp: new Date().toISOString(),
@@ -111,23 +108,23 @@ app.get('/health', async (req, res) => {
 
   try {
     await prisma.$queryRaw`SELECT 1`;
-    healthcheck.database = 'conectado ✅';
+    healthcheck.database = 'conectado ';
 
     try {
       const stats = getEstatisticas();
       healthcheck.websocket = {
-        status: 'ativo ✅',
+        status: 'ativo ',
         conexoesTotais: stats.conexoesTotais,
         salas: stats.salas
       };
     } catch {
-      healthcheck.websocket = 'inativo ⚠️';
+      healthcheck.websocket = 'inativo ';
     }
 
     res.status(200).json(healthcheck);
   } catch (err) {
     healthcheck.success = false;
-    healthcheck.database = 'erro ❌';
+    healthcheck.database = 'erro ';
     res.status(503).json(healthcheck);
   }
 });
@@ -159,39 +156,39 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log('✅ PostgreSQL conectado');
+    console.log('PostgreSQL conectado');
 
     await inicializarSocket(server);
-    console.log('✅ WebSocket inicializado');
+    console.log('WebSocket inicializado');
 
     iniciarCronJobs();
-    console.log('✅ Cron jobs iniciados');
+    console.log('Cron jobs iniciados');
 
     server.listen(PORT, () => {
-      console.log(`\n🚀 Servidor online na porta ${PORT}`);
-      console.log(`🌍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
-      console.log('📡 WebSocket ativo em /socket.io/');
-      console.log('🔒 Rate limiting: APENAS em /api/auth');
-      console.log('🔔 Notificações em tempo real: ATIVAS\n');
+      console.log(`\n Servidor online na porta ${PORT}`);
+      console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log('WebSocket ativo em /socket.io/');
+      console.log('Rate limiting: APENAS em /api/auth');
+      console.log('Notificações em tempo real: ATIVAS\n');
     });
 
     // Graceful shutdown
     const shutdown = async (signal) => {
-      console.log(`\n⚠️  ${signal} recebido. Encerrando graciosamente...`);
+      console.log(`\n ${signal} recebido. Encerrando graciosamente...`);
 
       try {
         const io = require('./src/websocket/socketConfig').getIO();
         await new Promise((resolve) => io.close(resolve));
-        console.log('✅ Conexões WebSocket fechadas');
+        console.log('Conexões WebSocket fechadas');
       } catch (err) {
-        console.warn('⚠️  Erro ao fechar WebSocket:', err.message);
+        console.warn('Erro ao fechar WebSocket:', err.message);
       }
 
       await new Promise((resolve) => server.close(resolve));
-      console.log('✅ Servidor HTTP encerrado');
+      console.log('Servidor HTTP encerrado');
 
       await prisma.$disconnect();
-      console.log('✅ BD desconectada');
+      console.log('BD desconectada');
 
       process.exit(0);
     };
@@ -199,11 +196,11 @@ const startServer = async () => {
     // Força encerramento após 15s se travar
     const forceShutdown = (signal) => {
       shutdown(signal).catch(() => {
-        console.error('❌ Forçando encerramento após timeout');
+        console.error('Forçando encerramento após timeout');
         process.exit(1);
       });
       setTimeout(() => {
-        console.error('❌ Timeout no shutdown. Forçando encerramento.');
+        console.error('Timeout no shutdown. Forçando encerramento.');
         process.exit(1);
       }, 15000);
     };
@@ -213,16 +210,16 @@ const startServer = async () => {
 
     // Captura erros não tratados para evitar crashes silenciosos
     process.on('unhandledRejection', (reason, promise) => {
-      console.error('❌ UnhandledRejection em:', promise, '\nMotivo:', reason);
+      console.error('UnhandledRejection em:', promise, '\nMotivo:', reason);
     });
 
     process.on('uncaughtException', (err) => {
-      console.error('❌ UncaughtException:', err);
+      console.error('UncaughtException:', err);
       forceShutdown('uncaughtException');
     });
 
   } catch (error) {
-    console.error('❌ Erro crítico na inicialização:', error);
+    console.error('Erro crítico na inicialização:', error);
     process.exit(1);
   }
 };

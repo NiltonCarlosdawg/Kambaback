@@ -24,19 +24,19 @@ if (process.env.REDIS_URL) {
     });
 
     redisClient.on('error', (err) => {
-      console.warn('⚠️  Redis error:', err.message);
+      console.warn('Redis error:', err.message);
     });
 
     redisClient.on('connect', () => {
-      console.log('✅ Cache Redis conectado');
+      console.log('Cache Redis conectado');
     });
 
     redisClient.on('ready', () => {
-      console.log('✅ Cache Redis pronto');
+      console.log('Cache Redis pronto');
     });
 
   } catch (err) {
-    console.warn('⚠️  Redis indisponível - usando cache em memória');
+    console.warn('Redis indisponível - usando cache em memória');
     redisClient = null;
   }
 }
@@ -189,7 +189,7 @@ const clearCache = async (prefix = null) => {
       } else {
         await redisClient.flushdb();
       }
-      console.log(`✅ Cache limpo${prefix ? ` (prefix: ${prefix})` : ''}`);
+      console.log(`Cache limpo${prefix ? ` (prefix: ${prefix})` : ''}`);
       return true;
     }
 
@@ -368,7 +368,7 @@ const cleanExpiredMemoryCache = () => {
   }
 
   if (cleaned > 0) {
-    console.log(`🧹 Cache em memória: ${cleaned} entradas expiradas removidas`);
+    console.log(`Cache em memória: ${cleaned} entradas expiradas removidas`);
   }
 };
 
@@ -383,7 +383,7 @@ if (!redisClient) {
 const disconnectCache = async () => {
   if (redisClient) {
     await redisClient.quit();
-    console.log('✅ Cache Redis desconectado');
+    console.log('Cache Redis desconectado');
   }
 };
 

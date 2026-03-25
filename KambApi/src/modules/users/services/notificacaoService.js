@@ -1,4 +1,4 @@
-// src/services/notificacaoService.js
+
 const { 
   emitirNotificacao, 
   emitirLembrete,
@@ -7,7 +7,7 @@ const {
   isUsuarioOnline 
 } = require('../../../websocket/socketConfig');
 
-// Importa prisma localmente para evitar circular dependency
+
 let prisma;
 const getPrisma = () => {
   if (!prisma) {
@@ -20,14 +20,12 @@ const getPrisma = () => {
 // SERVIÇO DE NOTIFICAÇÕES EM TEMPO REAL
 // ==========================================
 
-/**
- * Cria e envia notificação persistente + em tempo real
- */
+
 const criarNotificacao = async (usuarioId, tipo, titulo, mensagem, dadosExtras = {}) => {
   try {
     const p = getPrisma();
     
-    // Salva no banco usando o modelo existente NotificacaoPush
+
     const notificacao = await p.notificacaoPush.create({
       data: {
         usuarioId,
@@ -38,7 +36,7 @@ const criarNotificacao = async (usuarioId, tipo, titulo, mensagem, dadosExtras =
       }
     });
 
-    // Envia em tempo real se usuário estiver online
+   
     const online = isUsuarioOnline(usuarioId);
     
     if (online) {
@@ -57,19 +55,17 @@ const criarNotificacao = async (usuarioId, tipo, titulo, mensagem, dadosExtras =
     };
   } catch (err) {
     console.error('[NOTIFICACAO] Erro ao criar:', err.message);
-    // Não lança erro para não quebrar o fluxo principal
+    
     return null;
   }
 };
 
-/**
- * Notifica sobre novo gasto registrado
- */
+
 const notificarNovoGasto = async (usuarioId, gasto) => {
   return criarNotificacao(
     usuarioId,
     'NOVO_GASTO',
-    '💸 Novo Gasto Registrado',
+    'Novo Gasto Registrado',
     `${gasto.descricao || 'Gasto'} de ${Number(gasto.valor).toLocaleString('pt-AO')} Kz`,
     {
       gastoId: gasto.id,
@@ -87,7 +83,7 @@ const notificarNovaReceita = async (usuarioId, receita) => {
   return criarNotificacao(
     usuarioId,
     'NOVA_RECEITA',
-    '💰 Receita Registrada',
+    'Receita Registrada',
     `${receita.descricao || 'Receita'} de ${Number(receita.valor).toLocaleString('pt-AO')} Kz`,
     {
       receitaId: receita.id,
@@ -97,14 +93,12 @@ const notificarNovaReceita = async (usuarioId, receita) => {
   );
 };
 
-/**
- * Notifica alerta de gasto alto (acima de 80% da renda)
- */
+
 const notificarGastoAlto = async (usuarioId, percentual, totalGasto) => {
   const notificacao = await criarNotificacao(
     usuarioId,
     'ALERTA_GASTO_ALTO',
-    '⚠️ Alerta de Gasto Elevado',
+    'Alerta de Gasto Elevado',
     `Já gastaste ${percentual}% da tua renda este mês (${totalGasto.toLocaleString('pt-AO')} Kz)`,
     {
       percentual,
@@ -117,7 +111,7 @@ const notificarGastoAlto = async (usuarioId, percentual, totalGasto) => {
   emitirAlertaGasto(usuarioId, {
     percentual,
     totalGasto,
-    mensagem: `⚠️ Alerta, kamba! Já gastaste ${percentual}% da tua renda!`
+    mensagem: `Alerta, kamba! Já gastaste ${percentual}% da tua renda!`
   });
 
   return notificacao;
@@ -130,7 +124,7 @@ const notificarMetaProxima = async (usuarioId, objetivo, progresso) => {
   const notificacao = await criarNotificacao(
     usuarioId,
     'META_PROXIMA',
-    '⏰ Meta Próxima do Vencimento',
+    'Meta Próxima do Vencimento',
     `"${objetivo.titulo}" vence em breve e está ${progresso}% completa`,
     {
       objetivoId: objetivo.id,
@@ -155,17 +149,17 @@ const notificarMetaProxima = async (usuarioId, objetivo, progresso) => {
  * Notifica progresso de objetivo atingido
  */
 const notificarProgressoObjetivo = async (usuarioId, objetivo, progressoAnterior, progressoAtual) => {
-  // Só notifica se cruzou uma marca importante (25%, 50%, 75%, 100%)
+
   const marcas = [25, 50, 75, 100];
   const marcaAtingida = marcas.find(m => progressoAnterior < m && progressoAtual >= m);
 
   if (!marcaAtingida) return null;
 
   const mensagens = {
-    25: '🚀 Começaste bem! 25% da meta atingida',
-    50: '⭐ Metade lá! 50% da meta concluída',
-    75: '🔥 Quase lá! 75% da meta atingida',
-    100: '🎉 PARABÉNS! Meta completamente atingida!'
+    25: 'Começaste bem! 25% da meta atingida',
+    50: 'Metade lá! 50% da meta concluída',
+    75: 'Quase lá! 75% da meta atingida',
+    100: 'PARABÉNS! Meta completamente atingida!'
   };
 
   const notificacao = await criarNotificacao(
@@ -220,7 +214,7 @@ const notificarDistribuicaoPoupanca = async (usuarioId, valorTotal, distribuicoe
   return criarNotificacao(
     usuarioId,
     'DISTRIBUICAO_POUPANCA',
-    '💰 Poupança Distribuída Automaticamente',
+    'Poupança Distribuída Automaticamente',
     `${valorTotal.toLocaleString('pt-AO')} Kz distribuídos em ${distribuicoes.length} objetivos`,
     {
       valorTotal,
@@ -250,7 +244,7 @@ const notificarAtualizacaoSaldo = async (usuarioId, cartao, tipoTransacao, valor
   return criarNotificacao(
     usuarioId,
     'ATUALIZACAO_SALDO',
-    tipoTransacao === 'RECEITA' ? '💰 Saldo Atualizado' : '💸 Saldo Atualizado',
+    tipoTransacao === 'RECEITA' ? ' Saldo Atualizado' : ' Saldo Atualizado',
     `${cartao.nome}: ${Number(cartao.saldoAtual).toLocaleString('pt-AO')} Kz`,
     {
       cartaoId: cartao.id,

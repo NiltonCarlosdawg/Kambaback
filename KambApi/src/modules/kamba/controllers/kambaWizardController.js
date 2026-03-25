@@ -1,11 +1,6 @@
-// src/controllers/kambaWizardController.js
 const prisma = require('../../../lib/prisma');
 
-// ==========================================
-// ESTADO DOS FLUXOS
-// NOTA: Em produção migrar para Redis (evita perda de estado em deploy/restart)
-// Ver: services/wizardStateService.js (implementação Redis)
-// ==========================================
+
 const wizardStates = new Map();
 
 // Mutex simples para evitar race conditions em requests simultâneos do mesmo user
@@ -35,13 +30,13 @@ const FLUXOS = {
     passos: [
       {
         id: 'nome',
-        pergunta: '🎯 Fixe! Qual é o nome da tua meta?\nExemplo: "Comprar moto", "Viagem para Benguela", "Trocar de telemóvel"',
+        pergunta: ' Fixe! Qual é o nome da tua meta?\nExemplo: "Comprar moto", "Viagem para Benguela", "Trocar de telemóvel"',
         validacao: (resp) => resp && resp.trim().length >= 3 && resp.trim().length <= 100,
         erroMsg: 'Nome muito curto ou longo, kamba. Entre 3 e 100 caracteres. Exemplo: "Comprar moto"'
       },
       {
         id: 'valor',
-        pergunta: '💰 Quanto precisas juntar em AOA?\nExemplo: 500000 (para 500 mil Kwanzas)',
+        pergunta: ' Quanto precisas juntar em AOA?\nExemplo: 500000 (para 500 mil Kwanzas)',
         validacao: (resp) => {
           const num = parseFloat(resp.replace(/[.,\s]/g, '').replace(',', '.'));
           return !isNaN(num) && num > 0 && num < 1_000_000_000;
@@ -51,7 +46,7 @@ const FLUXOS = {
       },
       {
         id: 'prazo',
-        pergunta: '📅 Em quantos meses queres atingir?\nExemplo: 6 (para 6 meses), 12 (para 1 ano)',
+        pergunta: ' Em quantos meses queres atingir?\nExemplo: 6 (para 6 meses), 12 (para 1 ano)',
         validacao: (resp) => {
           const num = parseInt(resp);
           return !isNaN(num) && num > 0 && num <= 120;
@@ -85,17 +80,17 @@ const FLUXOS = {
           }
         });
 
-        return `🎉 Meta criada com sucesso, kamba!
+        return ` Meta criada com sucesso, kamba!
 
 *${dados.nome}*
-💰 Valor alvo: ${valorAlvo.toLocaleString('pt-AO')} AOA
-📅 Prazo: ${prazoMeses} meses (até ${dataPrazo.toLocaleDateString('pt-AO')})
-💵 Poupar por mês: ${mensal.toLocaleString('pt-AO')} AOA
+ Valor alvo: ${valorAlvo.toLocaleString('pt-AO')} AOA
+ Prazo: ${prazoMeses} meses (até ${dataPrazo.toLocaleDateString('pt-AO')})
+ Poupar por mês: ${mensal.toLocaleString('pt-AO')} AOA
 
-Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento para ver o progresso. 💪`;
+Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento para ver o progresso. `;
       } catch (err) {
         console.error('[WIZARD] Erro ao criar meta:', err);
-        return '❌ Eish, deu erro ao salvar a meta. Tenta novamente ou contacta o suporte.';
+        return ' Eish, deu erro ao salvar a meta. Tenta novamente ou contacta o suporte.';
       }
     }
   },
@@ -106,7 +101,7 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
     passos: [
       {
         id: 'valor',
-        pergunta: '💸 Quanto gastaste (em AOA)?\nExemplo: 5000',
+        pergunta: ' Quanto gastaste (em AOA)?\nExemplo: 5000',
         validacao: (resp) => {
           const num = parseFloat(resp.replace(/[.\s]/g, '').replace(',', '.'));
           return !isNaN(num) && num > 0 && num < 100_000_000;
@@ -116,13 +111,13 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
       },
       {
         id: 'categoria',
-        pergunta: '📂 Em que categoria?\n\n1️⃣ Alimentação\n2️⃣ Transporte\n3️⃣ Saúde\n4️⃣ Lazer\n5️⃣ Educação\n6️⃣ Outro\n\nResponde com o número.',
+        pergunta: ' Em que categoria?\n\n1️⃣ Alimentação\n2️⃣ Transporte\n3️⃣ Saúde\n4️⃣ Lazer\n5️⃣ Educação\n6️⃣ Outro\n\nResponde com o número.',
         validacao: (resp) => ['1', '2', '3', '4', '5', '6'].includes(resp.trim()),
         erroMsg: 'Escolhe um número de 1 a 6, mano!'
       },
       {
         id: 'descricao',
-        pergunta: '📝 Descreve o gasto (ou manda "pular"):\nExemplo: "Almoço no restaurante", "Candongueiro para o trabalho"',
+        pergunta: ' Descreve o gasto (ou manda "pular"):\nExemplo: "Almoço no restaurante", "Candongueiro para o trabalho"',
         validacao: () => true,
         opcional: true
       }
@@ -174,11 +169,11 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
         });
 
         if (!cartao) {
-          return '⚠️ Precisas adicionar um cartão ou conta primeiro, kamba! Vai em "Cartões" na app e adiciona.';
+          return ' Precisas adicionar um cartão ou conta primeiro, kamba! Vai em "Cartões" na app e adiciona.';
         }
 
         if (cartao.saldoAtual < valor) {
-          return `⚠️ Saldo insuficiente na conta *${cartao.nome}*!\nTens apenas ${cartao.saldoAtual.toLocaleString('pt-AO')} AOA disponíveis. Tens outra conta?`;
+          return ` Saldo insuficiente na conta *${cartao.nome}*!\nTens apenas ${cartao.saldoAtual.toLocaleString('pt-AO')} AOA disponíveis. Tens outra conta?`;
         }
 
         // Transação atómica: cria gasto + atualiza saldo
@@ -214,18 +209,18 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
           return { gasto, novoSaldo };
         });
 
-        return `✅ Gasto registado, kamba!
+        return ` Gasto registado, kamba!
 
-💸 Valor: ${valor.toLocaleString('pt-AO')} AOA
-📂 Categoria: ${nomeCategoria}
-💳 Conta: ${cartao.nome}
-📝 Descrição: ${resultado.gasto.descricao}
+ Valor: ${valor.toLocaleString('pt-AO')} AOA
+ Categoria: ${nomeCategoria}
+ Conta: ${cartao.nome}
+ Descrição: ${resultado.gasto.descricao}
 
-💰 Saldo restante: ${resultado.novoSaldo.toLocaleString('pt-AO')} AOA`;
+ Saldo restante: ${resultado.novoSaldo.toLocaleString('pt-AO')} AOA`;
 
       } catch (err) {
         console.error('[WIZARD] Erro ao registar gasto:', err);
-        return '❌ Eish, deu erro ao registar o gasto. Verifica se tens conta ativa e tenta novamente.';
+        return ' Eish, deu erro ao registar o gasto. Verifica se tens conta ativa e tenta novamente.';
       }
     }
   },
@@ -236,7 +231,7 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
     passos: [
       {
         id: 'confirmacao',
-        pergunta: '📊 Queres uma análise completa deste mês?\n\n1️⃣ Sim, bora!\n2️⃣ Não, obrigado',
+        pergunta: ' Queres uma análise completa deste mês?\n\n1️⃣ Sim, bora!\n Não, obrigado',
         validacao: (resp) => ['1', '2', 'sim', 'não', 'nao', 's', 'n'].includes(resp.trim().toLowerCase()),
         erroMsg: 'Responde 1 (sim) ou 2 (não), kamba!'
       }
@@ -245,7 +240,7 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
       try {
         const resposta = dados.confirmacao.toLowerCase().trim();
         if (['2', 'não', 'nao', 'n'].includes(resposta)) {
-          return 'Tranquilo, kamba! Quando quiseres uma análise é só dizer "análise do mês". 👊';
+          return 'Tranquilo, kamba! Quando quiseres uma análise é só dizer "análise do mês". ';
         }
 
         const hoje = new Date();
@@ -272,9 +267,9 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
         const nomeMes = hoje.toLocaleDateString('pt-AO', { month: 'long', year: 'numeric' });
 
         if (gastos.length === 0) {
-          return `📊 *Análise de ${nomeMes}*
+          return ` *Análise de ${nomeMes}*
 
-Nenhum gasto registado este mês, kamba! Tás a poupar muito ou ainda não registaste nada? 😄
+Nenhum gasto registado este mês, kamba! Tás a poupar muito ou ainda não registaste nada? 
 
 Regista os teus gastos para eu te dar uma análise real.`;
         }
@@ -303,25 +298,25 @@ Regista os teus gastos para eu te dar uma análise real.`;
         let avaliacaoRenda = '';
         if (user?.rendaMensalMedia > 0) {
           const percRenda = Math.round((totalGasto / user.rendaMensalMedia) * 100);
-          if (percRenda > 90) avaliacaoRenda = `\n⚠️ Já gastaste ${percRenda}% da tua renda, kamba! Controla o kumbú.`;
-          else if (percRenda > 70) avaliacaoRenda = `\n🟡 ${percRenda}% da renda gasta. Estás a caminhar bem, mas cuidado.`;
-          else avaliacaoRenda = `\n✅ ${percRenda}% da renda gasta. Bom ritmo, kamba!`;
+          if (percRenda > 90) avaliacaoRenda = `\n Já gastaste ${percRenda}% da tua renda, kamba! Controla o kumbú.`;
+          else if (percRenda > 70) avaliacaoRenda = `\n ${percRenda}% da renda gasta. Estás a caminhar bem, mas cuidado.`;
+          else avaliacaoRenda = `\n ${percRenda}% da renda gasta. Bom ritmo, kamba!`;
         }
 
-        return `📊 *Análise de ${nomeMes}*
+        return ` *Análise de ${nomeMes}*
 
-💸 Total gasto: ${totalGasto.toLocaleString('pt-AO')} AOA
-📝 Transações: ${gastos.length}
-📅 Média diária: ${Math.round(mediaDiaria).toLocaleString('pt-AO')} AOA${avaliacaoRenda}
+ Total gasto: ${totalGasto.toLocaleString('pt-AO')} AOA
+ Transações: ${gastos.length}
+ Média diária: ${Math.round(mediaDiaria).toLocaleString('pt-AO')} AOA${avaliacaoRenda}
 
-🔥 Top categorias:
+ Top categorias:
 ${top3}
 
-Quer criar um plano de corte de gastos? Diz "criar meta" para começar. 💡`;
+Quer criar um plano de corte de gastos? Diz "criar meta" para começar. `;
 
       } catch (err) {
         console.error('[WIZARD] Erro na análise:', err);
-        return '❌ Deu erro ao gerar a análise, kamba. Tenta mais tarde.';
+        return ' Deu erro ao gerar a análise, kamba. Tenta mais tarde.';
       }
     }
   }
@@ -360,7 +355,7 @@ const processarRespostaFluxo = async (usuarioId, resposta) => {
   if (!lockAcquired) {
     return {
       continuar: true,
-      mensagem: 'Eish, kamba! Aguarda um momento, estou a processar... 🔄'
+      mensagem: 'Eish, kamba! Aguarda um momento, estou a processar... '
     };
   }
 
@@ -391,7 +386,7 @@ const processarRespostaFluxo = async (usuarioId, resposta) => {
     if (!passoAtual.validacao(respostaTrimmed)) {
       return {
         continuar: true,
-        mensagem: `❌ ${passoAtual.erroMsg}\n\n${passoAtual.pergunta}`
+        mensagem: ` ${passoAtual.erroMsg}\n\n${passoAtual.pergunta}`
       };
     }
 
@@ -426,7 +421,7 @@ const processarRespostaFluxo = async (usuarioId, resposta) => {
 
     return {
       continuar: false,
-      mensagem: '❌ Deu erro ao processar, kamba. Tenta novamente.',
+      mensagem: ' Deu erro ao processar, kamba. Tenta novamente.',
       concluido: false,
       erro: true
     };
@@ -442,7 +437,7 @@ const cancelarFluxo = (usuarioId) => {
   const tinhaFluxo = wizardStates.has(usuarioId);
   wizardStates.delete(usuarioId);
   return tinhaFluxo
-    ? 'Fluxo cancelado, kamba! Qualquer coisa, é só chamar. 👋'
+    ? 'Fluxo cancelado, kamba! Qualquer coisa, é só chamar. '
     : 'Não havia nenhum fluxo ativo, mano.';
 };
 
@@ -490,7 +485,7 @@ const detectarIntencaoFluxo = (mensagem) => {
  * Lista fluxos disponíveis formatada
  */
 const listarFluxos = () => {
-  return `🧙‍♂️ *Fluxos Guiados disponíveis:*
+  return ` *Fluxos Guiados disponíveis:*
 
 ${Object.entries(FLUXOS).map(([key, fluxo], i) =>
   `${i + 1}️⃣ *${fluxo.icone} ${fluxo.nome}*`
