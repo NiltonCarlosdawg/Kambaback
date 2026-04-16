@@ -3,6 +3,7 @@ const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
 const NotificacaoService = require('../../users/services/notificacaoService');
+const { sanitizeHtml } = require('../../../utils/sanitizer');
 
 /**
  * CRIAR NOVO GASTO / RECEITA (Versão Corrigida com WebSocket)
@@ -42,6 +43,14 @@ const criarGasto = async (req, res, next) => {
       });
       
       if (!cartao) throw new AppError('Cartão inválido ou inativo', 404);
+
+      // 1.1 Validação da Categoria (se fornecida)
+      if (categoriaId) {
+        const categoria = await tx.categoria.findFirst({
+          where: { id: categoriaId, usuarioId, excluido: false }
+        });
+        if (!categoria) throw new AppError('Categoria inválida', 400);
+      }
 
       // 2. Verificação de Saldo para DESPESA
       if (tipo === 'DESPESA') {
@@ -325,10 +334,12 @@ const listarGastos = async (req, res, next) => {
       prisma.gasto.count({ where })
     ]);
 
-    // Converter Decimal para Number na resposta
+      // Converter Decimal para Number na resposta
     const gastosFormatados = gastos.map(g => ({
       ...g,
-      valor: Number(g.valor)
+      valor: Number(g.valor),
+      descricao: g.descricao ? sanitizeHtml(g.descricao) : '',
+      local: g.local ? sanitizeHtml(g.local) : null
     }));
 
     res.json({
@@ -655,6 +666,23 @@ const atualizarGasto = async (req, res, next) => {
   const { id } = req.params;
   const { descricao, categoriaId, data, local, tags } = req.body;
   const usuarioId = req.user.id;
+
+  const camposPermitidos = ['descricao', 'categoriaId', 'data', 'local', 'tags'];
+  const dadosAtualizacao = {};
+
+  for (const campo of camposPermitidos) {
+    if (req.body[campo] !== undefined) {
+      if (campo === 'data') {
+        dadosAtualizacao[campo] = new Date(req.body[campo]);
+      } else if (campo === 'tags') {
+        dadosAtualizacao[campo] = Array.isArray(req.body[campo]) ? req.body[campo] : [];
+      } else if (typeof req.body[campo] === 'string') {
+        dadosAtualizacao[campo] = req.body[campo].trim();
+      } else {
+        dadosAtualizacao[campo] = req.body[campo];
+      }
+    }
+  }
 
   try {
     const gastoExistente = await prisma.gasto.findFirst({

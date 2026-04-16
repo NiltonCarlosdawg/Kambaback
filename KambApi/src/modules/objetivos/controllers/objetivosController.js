@@ -84,6 +84,29 @@ const atualizarObjetivo = async (req, res, next) => {
   const { id } = req.params;
   const dados = req.body;
 
+  const camposPermitidos = [
+    'titulo', 'valorAlvo', 'valorAtual', 'dataPrevista',
+    'categoria', 'prioridade', 'icone', 'cor', 'porcentagemDistribuicao',
+    'concluido', 'descricao'
+  ];
+
+  const dadosSanitizados = {};
+  for (const campo of camposPermitidos) {
+    if (dados[campo] !== undefined) {
+      if (campo === 'valorAlvo' || campo === 'valorAtual' || campo === 'porcentagemDistribuicao') {
+        dadosSanitizados[campo] = parseFloat(dados[campo]);
+      } else if (campo === 'dataPrevista') {
+        dadosSanitizados[campo] = new Date(dados[campo]);
+      } else if (campo === 'concluido') {
+        dadosSanitizados[campo] = Boolean(dados[campo]);
+      } else if (typeof dados[campo] === 'string') {
+        dadosSanitizados[campo] = dados[campo].trim();
+      } else {
+        dadosSanitizados[campo] = dados[campo];
+      }
+    }
+  }
+
   try {
     const objetivoExistente = await prisma.objetivo.findFirst({
       where: { id, usuarioId: req.user.id, excluido: false }
@@ -91,17 +114,9 @@ const atualizarObjetivo = async (req, res, next) => {
 
     if (!objetivoExistente) return next(new AppError('Objetivo não encontrado', 404));
 
-    // Sanitização de tipos
-    if (dados.valorAlvo) dados.valorAlvo = parseFloat(dados.valorAlvo);
-    if (dados.valorAtual) dados.valorAtual = parseFloat(dados.valorAtual);
-    if (dados.porcentagemDistribuicao !== undefined) {
-      dados.porcentagemDistribuicao = parseFloat(dados.porcentagemDistribuicao);
-    }
-    if (dados.dataPrevista) dados.dataPrevista = new Date(dados.dataPrevista);
-
     const atualizado = await prisma.objetivo.update({
       where: { id },
-      data: dados
+      data: dadosSanitizados
     });
 
     await invalidarCacheUsuario(req.user.id);

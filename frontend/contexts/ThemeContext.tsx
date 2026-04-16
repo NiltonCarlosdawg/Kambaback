@@ -161,6 +161,7 @@ function applyTheme(p: Preferencias) {
   root.setAttribute('data-layout', p.dashboardLayout);
   root.setAttribute('data-valores', p.mostraValores ? 'visible' : 'hidden');
   root.classList.toggle('no-animations', !p.animacoes);
+  root.classList.add('dark');
 }
 
 // ─────────────────────────────────────────

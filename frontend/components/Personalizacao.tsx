@@ -1,5 +1,6 @@
 // src/components/Personalizacao.tsx
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Palette, Moon, Monitor, Sun,
   Bell, Eye, EyeOff, Globe, Calendar, DollarSign, Layout,
@@ -7,6 +8,7 @@ import {
   Zap, ZapOff, PanelLeft, AlertCircle, LayoutGrid,
 } from 'lucide-react';
 import { useTheme, PREFS_DEFAULTS, type Preferencias } from '../contexts/ThemeContext';
+import { springBouncy, springSmooth, staggerContainer, fadeInUp } from './ui/animations/variants';
 
 // ─────────────────────────────────────────
 // Constants
@@ -34,7 +36,7 @@ const TEMAS: { id: Preferencias['tema']; name: string; desc: string; Icon: React
 const Toggle: React.FC<{ value: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({
   value, onChange, disabled,
 }) => (
-  <button
+  <motion.button
     type="button"
     role="switch"
     aria-checked={value}
@@ -45,29 +47,34 @@ const Toggle: React.FC<{ value: boolean; onChange: (v: boolean) => void; disable
       backgroundColor: value ? 'var(--accent)' : 'rgba(255,255,255,0.12)',
       opacity: disabled ? 0.4 : 1,
       cursor: disabled ? 'not-allowed' : 'pointer',
-      transition: 'background-color var(--transition-speed, 200ms)',
       // @ts-ignore
       '--tw-ring-color': 'var(--accent)',
       '--tw-ring-offset-color': 'var(--bg-base)',
     }}
+    whileTap={disabled ? {} : { scale: 0.95 }}
   >
-    <div
+    <motion.div
       className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow-md"
-      style={{
-        transform: value ? 'translateX(20px)' : 'translateX(0)',
-        transition: 'transform var(--transition-speed, 200ms)',
+      animate={{
+        x: value ? 20 : 0,
+        backgroundColor: value ? 'var(--accent)' : '#ffffff',
       }}
+      transition={springBouncy}
     />
-  </button>
+  </motion.button>
 );
 
 const Card: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div
+  <motion.div
     className="rounded-3xl overflow-hidden"
     style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)' }}
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={springSmooth}
+    whileHover={{ y: -2 }}
   >
     {children}
-  </div>
+  </motion.div>
 );
 
 const CardHeader: React.FC<{ icon: React.ElementType; title: string; desc: string }> = ({
@@ -138,9 +145,10 @@ const AppPreview: React.FC<{ prefs: Preferencias }> = ({ prefs }) => {
   const acc = prefs.accentColor;
 
   return (
-    <div
+    <motion.div
       className="rounded-2xl overflow-hidden shadow-2xl select-none"
       style={{ background: bg, height: 152, border: '1px solid rgba(255,255,255,0.08)' }}
+      layoutId="app-preview"
     >
       <div className="flex h-full">
         {/* Sidebar */}
@@ -215,9 +223,9 @@ const AppPreview: React.FC<{ prefs: Preferencias }> = ({ prefs }) => {
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
+        </div>
+      </motion.div>
+    );
 };
 
 // ─────────────────────────────────────────
@@ -283,18 +291,25 @@ const Personalizacao: React.FC = () => {
 
   // ─────────────────────────────────────────
   return (
-    <div className="max-w-3xl mx-auto space-y-6 px-4 pb-28" style={{ color: 'var(--text-primary)' }}>
+    <motion.div 
+      className="max-w-3xl mx-auto space-y-6 px-4 pb-28" 
+      style={{ color: 'var(--text-primary)' }}
+      variants={staggerContainer}
+      initial="hidden"
+      animate="show"
+    >
 
       {/* ── Page header ── */}
-      <div className="flex items-center justify-between">
+      <motion.div className="flex items-center justify-between" variants={fadeInUp}>
         <div>
           <h2 className="text-3xl font-bold tracking-tight flex items-center gap-3" style={{ color: 'var(--text-primary)' }}>
-            <div
+            <motion.div
               className="w-10 h-10 rounded-xl flex items-center justify-center"
               style={{ background: 'var(--accent-10)', border: '1px solid var(--accent-20)' }}
+              whileHover={{ scale: 1.1, rotate: 5 }}
             >
               <Sliders className="w-5 h-5" style={{ color: 'var(--accent)' }} />
-            </div>
+            </motion.div>
             Personalização
           </h2>
           <p className="text-sm mt-1 ml-[52px]" style={{ color: 'var(--text-faint)' }}>
@@ -302,24 +317,49 @@ const Personalizacao: React.FC = () => {
           </p>
         </div>
 
-        {hasChanges && (
-          <div
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
-            style={{ background: 'var(--accent-10)', border: '1px solid var(--accent-20)', color: 'var(--accent)' }}
-          >
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: 'var(--accent)' }} />
-            Não guardado
-          </div>
-        )}
-      </div>
+        <AnimatePresence>
+          {hasChanges && (
+            <motion.div
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
+              style={{ background: 'var(--accent-10)', border: '1px solid var(--accent-20)', color: 'var(--accent)' }}
+              initial={{ opacity: 0, scale: 0.8, x: 20 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.8, x: 20 }}
+              transition={springBouncy}
+            >
+              <motion.span 
+                className="w-1.5 h-1.5 rounded-full" 
+                style={{ background: 'var(--accent)' }}
+                animate={{ scale: [1, 1.3, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              />
+              Não guardado
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
 
       {/* ── Saved banner ── */}
-      {saved && (
-        <div className="flex items-center gap-3 p-4 rounded-2xl text-sm font-bold border border-green-500/20 bg-green-500/10 text-green-400">
-          <CheckCircle className="w-4 h-4 flex-shrink-0" />
-          Preferências guardadas e aplicadas com sucesso!
-        </div>
-      )}
+      <AnimatePresence>
+        {saved && (
+          <motion.div 
+            className="flex items-center gap-3 p-4 rounded-2xl text-sm font-bold border border-green-500/20 bg-green-500/10 text-green-400"
+            initial={{ opacity: 0, y: -20, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -20, height: 0 }}
+            transition={springBouncy}
+          >
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={springBouncy}
+            >
+              <CheckCircle className="w-4 h-4 flex-shrink-0" />
+            </motion.div>
+            Preferências guardadas e aplicadas com sucesso!
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ══════════════════════════════════════
           PREVIEW AO VIVO
@@ -338,43 +378,58 @@ const Personalizacao: React.FC = () => {
         <CardHeader icon={Palette} title="Tema da Interface" desc="Define o fundo e tonalidade geral da aplicação" />
         <div className="p-6">
           <div className="grid grid-cols-3 gap-3">
-            {TEMAS.map(({ id, name, desc, Icon, bg }) => {
+            {TEMAS.map(({ id, name, desc, Icon, bg }, index) => {
               const active = draft.tema === id;
               return (
-                <button
+                <motion.button
                   key={id}
                   type="button"
                   onClick={() => set('tema', id)}
-                  className="relative flex flex-col gap-3 p-4 rounded-2xl text-left hover:scale-[1.02]"
+                  className="relative flex flex-col gap-3 p-4 rounded-2xl text-left"
                   style={{
                     background: bg,
                     border: `2px solid ${active ? 'var(--accent)' : 'rgba(255,255,255,0.08)'}`,
                     boxShadow: active ? '0 0 20px var(--accent-20)' : 'none',
-                    transition: 'border-color var(--transition-speed,200ms), box-shadow var(--transition-speed,200ms)',
                   }}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ ...springSmooth, delay: index * 0.1 }}
+                  whileHover={{ scale: 1.03, y: -3 }}
+                  whileTap={{ scale: 0.97 }}
                 >
-                  <div
+                  <motion.div
                     className="w-7 h-7 rounded-lg flex items-center justify-center"
                     style={{ background: active ? 'var(--accent-20)' : 'rgba(255,255,255,0.08)' }}
+                    animate={{ 
+                      backgroundColor: active ? 'var(--accent-20)' : 'rgba(255,255,255,0.08)',
+                      scale: active ? 1.1 : 1
+                    }}
+                    transition={springBouncy}
                   >
                     <Icon className="w-3.5 h-3.5" style={{ color: active ? 'var(--accent)' : 'rgba(255,255,255,0.4)' }} />
-                  </div>
+                  </motion.div>
                   <div>
                     <p className="text-xs font-black text-white">{name}</p>
                     <p className="text-[10px] mt-0.5 text-white/30">{desc}</p>
                   </div>
-                  {active && (
-                    <div
-                      className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ background: 'var(--accent)' }}
-                    >
-                      <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"
-                        style={{ color: 'var(--accent-text)' }}>
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                    </div>
-                  )}
-                </button>
+                  <AnimatePresence>
+                    {active && (
+                      <motion.div
+                        className="absolute top-2.5 right-2.5 w-4 h-4 rounded-full flex items-center justify-center"
+                        style={{ background: 'var(--accent)' }}
+                        initial={{ scale: 0, rotate: -180 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        exit={{ scale: 0 }}
+                        transition={springBouncy}
+                      >
+                        <svg className="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20"
+                          style={{ color: 'var(--accent-text)' }}>
+                          <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                        </svg>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
               );
             })}
           </div>
@@ -387,12 +442,17 @@ const Personalizacao: React.FC = () => {
       <Card>
         <CardHeader icon={Sparkles} title="Cor de Destaque" desc="Botões, badges, ícones activos e indicadores em toda a app" />
         <div className="p-6 space-y-5">
-          <div className="flex flex-wrap gap-3">
-            {CORES_ACENTO.map(c => {
+          <motion.div 
+            className="flex flex-wrap gap-3"
+            variants={staggerContainer}
+            initial="hidden"
+            animate="show"
+          >
+            {CORES_ACENTO.map((c, index) => {
               const active = draft.accentColor === c.hex;
               const lightAccent = ['#cbfb46', '#f97316', '#10b981'].includes(c.hex);
               return (
-                <button
+                <motion.button
                   key={c.hex}
                   type="button"
                   title={c.name}
@@ -401,47 +461,83 @@ const Personalizacao: React.FC = () => {
                   style={{
                     backgroundColor: c.hex,
                     boxShadow: active ? `0 0 0 3px var(--bg-base), 0 0 0 5px ${c.hex}` : 'none',
-                    transform: active ? 'scale(1.12)' : 'scale(1)',
-                    transition: 'transform var(--transition-speed,200ms), box-shadow var(--transition-speed,200ms)',
                   }}
+                  variants={fadeInUp}
+                  custom={index}
+                  whileHover={{ scale: 1.15, y: -3 }}
+                  whileTap={{ scale: 0.9 }}
                 >
-                  {active && (
-                    <svg className="absolute inset-0 m-auto w-4 h-4" fill={lightAccent ? '#000' : '#fff'} viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  )}
-                </button>
+                  <AnimatePresence>
+                    {active && (
+                      <motion.svg 
+                        className="absolute inset-0 m-auto w-4 h-4" 
+                        fill={lightAccent ? '#000' : '#fff'} 
+                        viewBox="0 0 20 20"
+                        initial={{ scale: 0, rotate: -180 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        exit={{ scale: 0 }}
+                        transition={springBouncy}
+                      >
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </motion.svg>
+                    )}
+                  </AnimatePresence>
+                </motion.button>
               );
             })}
-          </div>
+          </motion.div>
 
           {/* Colour info strip */}
-          <div
+          <motion.div
             className="flex items-center gap-3 p-3 rounded-xl"
             style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border)' }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={springSmooth}
           >
-            <div
+            <motion.div
               className="w-8 h-8 rounded-lg flex-shrink-0"
-              style={{ backgroundColor: draft.accentColor, transition: 'background-color var(--transition-speed,200ms)' }}
+              style={{ backgroundColor: draft.accentColor }}
+              animate={{ backgroundColor: draft.accentColor }}
+              transition={springSmooth}
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
+              <motion.p 
+                className="text-sm font-bold" 
+                style={{ color: 'var(--text-primary)' }}
+                key={draft.accentColor}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={springSmooth}
+              >
                 {CORES_ACENTO.find(c => c.hex === draft.accentColor)?.name ?? 'Personalizada'}
-              </p>
-              <p className="text-xs font-mono" style={{ color: draft.accentColor }}>{draft.accentColor}</p>
+              </motion.p>
+              <motion.p 
+                className="text-xs font-mono" 
+                style={{ color: draft.accentColor }}
+                key={`color-${draft.accentColor}`}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={springSmooth}
+              >
+                {draft.accentColor}
+              </motion.p>
             </div>
             <div className="flex gap-2 flex-shrink-0">
-              {['Botões', 'Badges', 'Activos'].map(lbl => (
-                <span
+              {['Botões', 'Badges', 'Activos'].map((lbl, i) => (
+                <motion.span
                   key={lbl}
                   className="text-[10px] px-2 py-1 rounded-lg font-bold"
                   style={{ background: `${draft.accentColor}22`, color: draft.accentColor }}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ ...springBouncy, delay: i * 0.05 }}
                 >
                   {lbl}
-                </span>
+                </motion.span>
               ))}
             </div>
-          </div>
+          </motion.div>
         </div>
       </Card>
 
@@ -637,31 +733,52 @@ const Personalizacao: React.FC = () => {
       {/* ══════════════════════════════════════
           FIXED ACTION BAR
       ══════════════════════════════════════ */}
-      <div
+      <motion.div
         className="fixed bottom-0 left-0 right-0 z-30 md:left-64"
         style={{
           background: 'color-mix(in srgb, var(--bg-base) 92%, transparent)',
           backdropFilter: 'blur(20px)',
           borderTop: '1px solid var(--border)',
         }}
+        initial={{ y: 100 }}
+        animate={{ y: 0 }}
+        transition={springSmooth}
       >
         <div className="max-w-3xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-4">
 
-          <button
+          <motion.button
             type="button"
             onClick={handleReset}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm"
             style={{ border: '1px solid var(--border-strong)', color: 'var(--text-muted)' }}
+            whileHover={{ scale: 1.05, borderColor: 'var(--border-strong)' }}
+            whileTap={{ scale: 0.95 }}
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <motion.span
+              animate={{ rotate: hasChanges ? [0, -360] : 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+            </motion.span>
             <span className="hidden sm:inline">Repor Padrões</span>
-          </button>
+          </motion.button>
 
           <div className="flex items-center gap-3">
-            {hasChanges && (
-              <p className="text-xs hidden sm:block" style={{ color: 'var(--text-faint)' }}>Não guardado</p>
-            )}
-            <button
+            <AnimatePresence>
+              {hasChanges && (
+                <motion.p 
+                  className="text-xs hidden sm:block" 
+                  style={{ color: 'var(--text-faint)' }}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={springSmooth}
+                >
+                  Não guardado
+                </motion.p>
+              )}
+            </AnimatePresence>
+            <motion.button
               type="button"
               onClick={handleSave}
               disabled={!hasChanges}
@@ -671,16 +788,32 @@ const Personalizacao: React.FC = () => {
                 color:           hasChanges ? 'var(--accent-text)' : 'rgba(255,255,255,0.20)',
                 cursor:          hasChanges ? 'pointer' : 'not-allowed',
                 boxShadow:       hasChanges ? '0 0 20px var(--accent-20)' : 'none',
-                transition:      'all var(--transition-speed,200ms)',
               }}
+              whileHover={hasChanges ? { scale: 1.05, y: -2 } : {}}
+              whileTap={hasChanges ? { scale: 0.95 } : {}}
+              animate={{
+                boxShadow: hasChanges ? [0, '0 0 20px var(--accent-20)', '0 0 30px var(--accent-30)', '0 0 20px var(--accent-20)'] : 'none',
+              }}
+              transition={{ boxShadow: { duration: 2, repeat: Infinity } }}
             >
-              {saved ? <CheckCircle className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-              {saved ? 'Guardado!' : 'Guardar'}
-            </button>
+              {saved ? <motion.span
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={springBouncy}
+              ><CheckCircle className="w-4 h-4" /></motion.span> : <Save className="w-4 h-4" />}
+              <motion.span
+                key={saved ? 'saved' : 'save'}
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={springSmooth}
+              >
+                {saved ? 'Guardado!' : 'Guardar'}
+              </motion.span>
+            </motion.button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

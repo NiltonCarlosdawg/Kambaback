@@ -50,10 +50,15 @@ const registroSchema = Joi.object({
     'any.required': 'Telefone é obrigatório'
   }),
 
-  senha: Joi.string().min(8).required().messages({
-    'string.min': 'Senha deve ter no mínimo 8 caracteres',
-    'any.required': 'Senha é obrigatória'
-  }),
+  senha: Joi.string()
+    .min(8)
+    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .required()
+    .messages({
+      'string.min': 'Senha deve ter no mínimo 8 caracteres',
+      'string.pattern.base': 'Senha deve conter letras maiúsculas, minúsculas e números',
+      'any.required': 'Senha é obrigatória'
+    }),
 
   // NOVOS CAMPOS OBRIGATÓRIOS
   dataNascimento: Joi.date().iso().required().messages({

@@ -4,6 +4,7 @@ const { validateEnvironment } = require('./src/config/envValidator');
 validateEnvironment();
 
 const http = require('http');
+const rateLimit = require('express-rate-limit');
 const { inicializarSocket } = require('./src/websocket/socketConfig');
 const { iniciarCronJobs } = require('./src/jobs/kambaCronJobs');
 
@@ -51,19 +52,44 @@ const PORT = process.env.PORT || 5000;
 // 6. MIDDLEWARES DE SEGURANÇA
 // ==========================================
 app.use(helmet({
-  contentSecurityPolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      connectSrc: ["'self'", "https://*.groq.ai"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      mediaSrc: ["'self'"],
+      frameSrc: ["'none'"],
+    },
+  },
   crossOriginEmbedderPolicy: false
 }));
+
+// Rate limiting global (protege todas as rotas exceto health check)
+const globalRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minuto
+  max: 100, // 100 requisições por minuto por IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Muitas requisições. Aguarda um momento.'
+  },
+  skip: (req) => req.path === '/health'
+});
 
 // CORS
 const corsOrigins = process.env.NODE_ENV === 'production'
   ? [process.env.CLIENT_URL].filter(Boolean)
-  : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'http://localhost:4173'];
+  : process.env.DEV_ORIGINS?.split(',').filter(Boolean) || ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'http://localhost:4173'];
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (corsOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+    if (!origin) return callback(new Error('CORS: Origin não fornecido'), false);
+    if (corsOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Não permitido por CORS'), false);
@@ -130,8 +156,9 @@ app.get('/health', async (req, res) => {
 });
 
 // ==========================================
-// 8. ROTAS
+// 8. ROTAS (com rate limiting global)
 // ==========================================
+app.use('/api', globalRateLimiter);
 app.use('/api/auth', limiteAuth, authRoutes);
 app.use('/api/kamba', kambaRoutes);
 app.use('/api/cartoes', cartoesRoutes);
@@ -168,7 +195,7 @@ const startServer = async () => {
       console.log(`\n Servidor online na porta ${PORT}`);
       console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
       console.log('WebSocket ativo em /socket.io/');
-      console.log('Rate limiting: APENAS em /api/auth');
+      console.log('Rate limiting: GLOBAL + /api/auth');
       console.log('Notificações em tempo real: ATIVAS\n');
     });
 

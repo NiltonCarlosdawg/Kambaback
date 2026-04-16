@@ -1,9 +1,11 @@
 // src/components/KambaChat.tsx
+// — Visual melhorado inspirado no AnimatedAIChat (fundo escuro, glassmorphism, Framer Motion)
 // — Sem lista lateral de conversas (chat full-width)
 // — Conversa persistida em sessionStorage (sobrevive a navegação na mesma aba)
 // — No mount, tenta carregar histórico do backend via GET /kamba/historico
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   IoPaperPlaneOutline,
   IoCheckmarkDoneOutline, IoCheckmarkOutline,
@@ -14,6 +16,7 @@ import {
   IoWarningOutline, IoCheckmarkCircleOutline,
   IoArrowRedoOutline, IoPersonOutline,
   IoCreateOutline, IoAddOutline,
+  IoAttachOutline,
 } from 'react-icons/io5';
 import api from '../services/api';
 import useSocket from '../hooks/useSocket';
@@ -30,14 +33,13 @@ interface FinancialCard {
   color: string;
 }
 
-// Versão "serializável" do card (sem ReactNode) para o sessionStorage
 interface FinancialCardSerialized {
   type: 'balance' | 'alert' | 'goal' | 'tip';
   title: string;
   value?: string;
   subtitle?: string;
   progress?: number;
-  iconType?: string; // guarda o tipo para reidratar
+  iconType?: string;
   color: string;
 }
 
@@ -50,7 +52,7 @@ interface Message {
   fluxoAtivo?: boolean;
   fluxoConcluido?: boolean;
   fromCache?: boolean;
-  cardData?: FinancialCardSerialized; // armazenável em JSON
+  cardData?: FinancialCardSerialized;
 }
 
 interface LembreteTempoReal {
@@ -62,8 +64,6 @@ interface LembreteTempoReal {
 }
 
 // ─── Persistência sessionStorage ─────────────────────────────────────────────
-// sessionStorage: por-aba, limpa ao fechar o browser → ideal para chat de sessão.
-// Sobrevive a trocas de rota dentro da mesma aba (React Router, etc.).
 
 const SESSION_MSGS_KEY  = 'kamba_msgs_v2';
 const SESSION_FLUXO_KEY = 'kamba_fluxo_v2';
@@ -75,18 +75,13 @@ function loadStoredMessages(): Message[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function saveStoredMessages(msgs: Message[]) {
   try {
-    sessionStorage.setItem(
-      SESSION_MSGS_KEY,
-      JSON.stringify(msgs.slice(-MAX_STORED_MSGS))
-    );
-  } catch { /* quota excedida — silencioso */ }
+    sessionStorage.setItem(SESSION_MSGS_KEY, JSON.stringify(msgs.slice(-MAX_STORED_MSGS)));
+  } catch {}
 }
 
 function loadStoredFluxo(): string | undefined {
@@ -98,7 +93,7 @@ function saveStoredFluxo(fluxo: string | undefined) {
   try {
     if (fluxo) sessionStorage.setItem(SESSION_FLUXO_KEY, fluxo);
     else sessionStorage.removeItem(SESSION_FLUXO_KEY);
-  } catch { /* silencioso */ }
+  } catch {}
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,7 +105,6 @@ function cx(...cls: (string | boolean | undefined)[]) {
   return cls.filter(Boolean).join(' ');
 }
 
-// Reidrata o ícone do card a partir do tipo guardado
 function rehydrateCardIcon(iconType?: string): React.ReactNode {
   switch (iconType) {
     case 'warning': return <IoWarningOutline size={14} />;
@@ -128,16 +122,13 @@ function cardFromSerialized(cd?: FinancialCardSerialized): FinancialCard | undef
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const SUGGESTIONS = [
-  { icon: <IoWalletOutline      size={13} />, label: 'Qual o meu saldo?',    cmd: 'Qual o meu saldo?' },
-  { icon: <IoStatsChartOutline  size={13} />, label: 'Análise do mês',       cmd: 'análise do mês' },
-  { icon: <IoTrophyOutline      size={13} />, label: 'Ver objetivos',        cmd: 'Como vão meus objetivos?' },
-  { icon: <IoBarChartOutline    size={13} />, label: 'Gastos por categoria', cmd: 'Gastos por categoria' },
-  { icon: <IoFlashOutline       size={13} />, label: 'Criar meta',           cmd: 'criar meta' },
-  { icon: <IoShieldCheckmarkOutline size={13} />, label: 'Fundo emergência', cmd: 'Como está meu fundo de emergência?' },
+  { icon: <IoWalletOutline      size={13} />, label: 'Saldo',           cmd: 'Qual o meu saldo?' },
+  { icon: <IoStatsChartOutline  size={13} />, label: 'Análise do mês',  cmd: 'análise do mês' },
+  { icon: <IoTrophyOutline      size={13} />, label: 'Objetivos',       cmd: 'Como vão meus objetivos?' },
+  { icon: <IoBarChartOutline    size={13} />, label: 'Gastos',          cmd: 'Gastos por categoria' },
+  { icon: <IoFlashOutline       size={13} />, label: 'Criar meta',      cmd: 'criar meta' },
+  { icon: <IoShieldCheckmarkOutline size={13} />, label: 'Emergência',  cmd: 'Como está meu fundo de emergência?' },
 ];
-
-const ONLINE_PILL  = 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-400/20';
-const OFFLINE_PILL = 'bg-zinc-100 text-zinc-600 ring-zinc-400/20 dark:bg-zinc-800 dark:text-zinc-400';
 
 const WELCOME_MSG: Message = {
   id:   'welcome-0',
@@ -148,20 +139,19 @@ const WELCOME_MSG: Message = {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-/** Renderiza **negrito**, quebras de linha e separadores --- */
 function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
   return (
     <>
       {text.split('\n').map((line, li) => {
         if (line === '---') return (
-          <div key={li} className={cx('my-2 border-t', isUser ? 'border-blue-400/40' : 'border-zinc-200 dark:border-zinc-700')} />
+          <div key={li} className={cx('my-2 border-t', isUser ? 'border-white/20' : 'border-white/10')} />
         );
         const parts = line.split('**');
         return (
           <p key={li} className={li > 0 ? 'mt-1' : ''}>
             {parts.map((part, i) =>
               i % 2 === 1
-                ? <strong key={i} className={isUser ? 'text-white' : 'text-zinc-900 dark:text-zinc-100'}>{part}</strong>
+                ? <strong key={i} className="font-semibold text-white">{part}</strong>
                 : part
             )}
           </p>
@@ -171,36 +161,45 @@ function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
   );
 }
 
-/** Card financeiro inline na bolha */
 function FinancialCardInline({ card }: { card: FinancialCard }) {
-  const border: Record<string, string> = {
-    balance: 'from-blue-500/10 to-blue-600/5 border-blue-200/60 dark:border-blue-500/20',
-    alert:   'from-amber-500/10 to-amber-600/5 border-amber-200/60 dark:border-amber-500/20',
-    goal:    'from-emerald-500/10 to-emerald-600/5 border-emerald-200/60 dark:border-emerald-500/20',
-    tip:     'from-violet-500/10 to-violet-600/5 border-violet-200/60 dark:border-violet-500/20',
+  const styles: Record<string, string> = {
+    balance: 'border-blue-500/30 bg-blue-500/10',
+    alert:   'border-amber-500/30 bg-amber-500/10',
+    goal:    'border-emerald-500/30 bg-emerald-500/10',
+    tip:     'border-violet-500/30 bg-violet-500/10',
   };
-  const icon: Record<string, string> = {
-    balance: 'text-blue-500', alert: 'text-amber-500',
-    goal: 'text-emerald-500', tip: 'text-violet-500',
+  const iconColor: Record<string, string> = {
+    balance: 'text-blue-400',
+    alert:   'text-amber-400',
+    goal:    'text-emerald-400',
+    tip:     'text-violet-400',
+  };
+  const barColor: Record<string, string> = {
+    balance: 'bg-blue-400',
+    alert:   'bg-amber-400',
+    goal:    'bg-emerald-400',
+    tip:     'bg-violet-400',
   };
   return (
-    <div className={cx('mt-2 rounded-xl border bg-gradient-to-br p-3', border[card.type] ?? border.tip)}>
+    <div className={cx('mt-2.5 rounded-xl border p-3', styles[card.type] ?? styles.tip)}>
       <div className="flex items-center gap-2 mb-1.5">
-        <span className={icon[card.type]}>{card.icon}</span>
-        <span className="text-[11px] font-bold text-zinc-700 dark:text-zinc-300">{card.title}</span>
+        <span className={iconColor[card.type]}>{card.icon}</span>
+        <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider">{card.title}</span>
       </div>
-      {card.value    && <p className="text-base font-bold text-zinc-900 dark:text-zinc-100">{card.value}</p>}
-      {card.subtitle && <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">{card.subtitle}</p>}
+      {card.value    && <p className="text-base font-bold text-white">{card.value}</p>}
+      {card.subtitle && <p className="text-[11px] text-white/50 mt-0.5">{card.subtitle}</p>}
       {card.progress !== undefined && (
         <div className="mt-2">
           <div className="flex justify-between mb-1">
-            <span className="text-[10px] text-zinc-500">Progresso</span>
-            <span className="text-[10px] font-semibold text-zinc-700 dark:text-zinc-300">{card.progress}%</span>
+            <span className="text-[10px] text-white/40">Progresso</span>
+            <span className="text-[10px] font-semibold text-white/70">{card.progress}%</span>
           </div>
-          <div className="h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
-            <div
-              className={cx('h-full rounded-full transition-all duration-700', card.type === 'goal' ? 'bg-emerald-500' : 'bg-blue-500')}
-              style={{ width: `${Math.min(100, card.progress)}%` }}
+          <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+            <motion.div
+              className={cx('h-full rounded-full', barColor[card.type] ?? 'bg-violet-400')}
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(100, card.progress)}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
             />
           </div>
         </div>
@@ -209,40 +208,43 @@ function FinancialCardInline({ card }: { card: FinancialCard }) {
   );
 }
 
-/** Badge de fluxo wizard activo */
 function FluxoBadge({ tipo }: { tipo: string }) {
   const labels: Record<string, string> = {
     criar_meta: '🎯 Criar Meta', registar_gasto: '💸 Registar Gasto', analise_mensal: '📊 Análise',
   };
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
-      <span className="h-1 w-1 rounded-full bg-violet-500 animate-pulse" />
+    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-semibold text-violet-300 border border-violet-500/30">
+      <span className="h-1 w-1 rounded-full bg-violet-400 animate-pulse" />
       {labels[tipo] ?? 'Fluxo activo'}
     </span>
   );
 }
 
-/** Três pontos animados de "a pensar" */
 function TypingDots() {
   return (
-    <div className="flex justify-start animate-in fade-in duration-200">
-      <div className="shrink-0 mr-2">
-        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[9px] font-bold text-white">✦</div>
+    <div className="flex justify-start">
+      <div className="shrink-0 mr-2.5">
+        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[10px] font-bold text-white shadow-lg shadow-violet-500/30">✦</div>
       </div>
-      <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm border border-zinc-100 bg-white px-3.5 py-2.5 shadow-sm dark:border-zinc-700/50 dark:bg-zinc-800">
-        <span className="text-violet-500 animate-pulse"><IoSparklesOutline size={10} /></span>
+      <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-4 py-3 shadow-sm">
+        <span className="text-violet-400 animate-pulse"><IoSparklesOutline size={11} /></span>
         <div className="flex gap-1">
           {[0, 160, 320].map(d => (
-            <div key={d} className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+            <motion.div
+              key={d}
+              className="w-1.5 h-1.5 rounded-full bg-violet-400"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
+              transition={{ duration: 1.2, repeat: Infinity, delay: d / 1000, ease: 'easeInOut' }}
+            />
           ))}
         </div>
-        <span className="text-[11px] text-zinc-400 dark:text-zinc-500 select-none">A pensar…</span>
+        <span className="text-[11px] text-white/30 select-none">A pensar…</span>
       </div>
     </div>
   );
 }
 
-// ─── Painel lateral de atalhos ─────────────────────────────────────────────────
+// ─── Painel lateral ────────────────────────────────────────────────────────────
 
 function SidePanel({ onClose, onSend, socketConectado }: {
   onClose: () => void;
@@ -253,54 +255,65 @@ function SidePanel({ onClose, onSend, socketConectado }: {
   const [editNotes, setEditNotes] = useState(false);
 
   return (
-    <div className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-l border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <motion.div
+      className="flex h-full w-64 shrink-0 flex-col overflow-y-auto border-l border-white/[0.06] bg-black/40 backdrop-blur-2xl"
+      initial={{ x: 64, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: 64, opacity: 0 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+    >
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between border-b border-zinc-100 px-5 py-4 dark:border-zinc-800">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Atalhos & Dicas</span>
-        <button onClick={onClose} className="rounded-full p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800 transition-colors">
+      <div className="shrink-0 flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
+        <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">Atalhos & Dicas</span>
+        <button onClick={onClose} className="rounded-full p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors">
           <IoCloseOutline size={16} />
         </button>
       </div>
 
       {/* Avatar */}
-      <div className="shrink-0 flex flex-col items-center px-5 py-5 border-b border-zinc-100 dark:border-zinc-800">
-        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-xl font-bold text-white shadow-md ring-4 ring-violet-100 dark:ring-violet-500/20">✦</div>
-        <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Kamba AI</h3>
-        <p className="mt-0.5 text-[11px] text-zinc-500 dark:text-zinc-400">Assistente Financeiro</p>
+      <div className="shrink-0 flex flex-col items-center px-5 py-6 border-b border-white/[0.06]">
+        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-xl font-bold text-white shadow-lg shadow-violet-500/30 ring-4 ring-violet-500/10">✦</div>
+        <h3 className="text-sm font-bold text-white">Kamba AI</h3>
+        <p className="mt-0.5 text-[11px] text-white/40">Assistente Financeiro</p>
         <div className="mt-2">
-          <span className={cx('rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset', socketConectado ? ONLINE_PILL : OFFLINE_PILL)}>
-            {socketConectado ? 'Online' : 'Offline'}
+          <span className={cx(
+            'rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+            socketConectado
+              ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-400/20'
+              : 'bg-white/[0.04] text-white/40 ring-white/10'
+          )}>
+            {socketConectado ? '● Online' : '○ Offline'}
           </span>
         </div>
       </div>
 
       {/* Perguntas rápidas */}
-      <div className="shrink-0 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3">Perguntas rápidas</p>
-        <div className="space-y-1.5">
+      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Perguntas rápidas</p>
+        <div className="space-y-1">
           {SUGGESTIONS.map((s, i) => (
             <button key={i} onClick={() => onSend(s.cmd)}
-              className="w-full flex items-center gap-2.5 rounded-xl bg-zinc-50 px-3 py-2.5 text-left text-[12px] font-medium text-zinc-700 hover:bg-violet-50 hover:text-violet-700 transition-colors dark:bg-zinc-800/50 dark:text-zinc-300 dark:hover:bg-violet-500/10 dark:hover:text-violet-400">
-              <span className="text-violet-500 shrink-0">{s.icon}</span>
+              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[12px] font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/90 transition-all">
+              <span className="text-violet-400 shrink-0">{s.icon}</span>
               <span className="truncate">{s.label}</span>
-              <IoArrowRedoOutline size={11} className="ml-auto shrink-0 text-zinc-300 dark:text-zinc-600" />
+              <span className="ml-auto shrink-0 text-white/20"><IoArrowRedoOutline size={10} /></span>
             </button>
           ))}
         </div>
       </div>
 
       {/* Fluxos guiados */}
-      <div className="shrink-0 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3">Fluxos Guiados</p>
-        <div className="space-y-1.5">
+      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Fluxos Guiados</p>
+        <div className="space-y-1">
           {[
             { icon: <IoFlashOutline size={12} />,      label: 'Criar meta financeira',   cmd: 'criar meta' },
             { icon: <IoStatsChartOutline size={12} />, label: 'Registar gasto rápido',   cmd: 'registar gasto' },
             { icon: <IoBarChartOutline size={12} />,   label: 'Análise completa do mês', cmd: 'análise do mês' },
           ].map((f, i) => (
             <button key={i} onClick={() => onSend(f.cmd)}
-              className="w-full flex items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-left text-[12px] font-medium text-zinc-600 hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 transition-all dark:border-zinc-700 dark:bg-zinc-800/30 dark:text-zinc-400 dark:hover:bg-violet-500/10 dark:hover:text-violet-400">
-              <span className="text-violet-400 shrink-0">{f.icon}</span>
+              className="w-full flex items-center gap-2.5 rounded-xl border border-white/[0.06] px-3 py-2.5 text-left text-[12px] font-medium text-white/50 hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-300 transition-all">
+              <span className="text-violet-400/70 shrink-0">{f.icon}</span>
               <span className="truncate">{f.label}</span>
             </button>
           ))}
@@ -308,50 +321,51 @@ function SidePanel({ onClose, onSend, socketConectado }: {
       </div>
 
       {/* Notas */}
-      <div className="shrink-0 px-5 py-4 border-b border-zinc-100 dark:border-zinc-800">
+      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
         <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500">Notas</p>
-          <button onClick={() => setEditNotes(!editNotes)} className="rounded p-0.5 text-zinc-400 hover:text-zinc-600 transition-colors">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Notas</p>
+          <button onClick={() => setEditNotes(!editNotes)} className="rounded p-0.5 text-white/30 hover:text-white/60 transition-colors">
             <IoCreateOutline size={13} />
           </button>
         </div>
         {editNotes ? (
           <div className="space-y-2">
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-              className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[12px] text-zinc-900 outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/10 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-zinc-100 resize-none" />
+              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[12px] text-white/80 outline-none focus:border-violet-500/40 focus:ring-1 focus:ring-violet-500/20 resize-none placeholder:text-white/20"
+              placeholder="Escreve a tua nota..." />
             <div className="flex gap-2">
-              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg border border-zinc-200 py-1.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 transition-colors">Cancelar</button>
-              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg bg-zinc-900 py-1.5 text-[11px] font-medium text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 transition-colors">Guardar</button>
+              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg border border-white/[0.08] py-1.5 text-[11px] font-medium text-white/40 hover:bg-white/[0.04] transition-colors">Cancelar</button>
+              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg bg-violet-600 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500 transition-colors">Guardar</button>
             </div>
           </div>
         ) : notes ? (
-          <p className="text-[12px] leading-relaxed text-zinc-600 dark:text-zinc-400">{notes}</p>
+          <p className="text-[12px] leading-relaxed text-white/40">{notes}</p>
         ) : (
-          <button onClick={() => setEditNotes(true)} className="flex items-center gap-1.5 text-[12px] text-zinc-400 hover:text-zinc-600 transition-colors">
+          <button onClick={() => setEditNotes(true)} className="flex items-center gap-1.5 text-[12px] text-white/25 hover:text-white/50 transition-colors">
             <IoAddOutline size={13} /> Adicionar nota...
           </button>
         )}
       </div>
 
       {/* Dicas */}
-      <div className="flex-1 px-5 py-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400 dark:text-zinc-500 mb-3">Dicas</p>
+      <div className="flex-1 px-4 py-4">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Dicas</p>
         <div className="space-y-2">
           {[
             'Usa **⏎** para enviar rapidamente.',
             'Digita **"ajuda"** para ver todos os comandos.',
-            'Diz **"cancelar"** para sair de um fluxo a qualquer momento.',
+            'Diz **"cancelar"** para sair de um fluxo.',
             'O Kamba nunca armazena **senhas** ou **PINs**.',
           ].map((tip, i) => (
-            <div key={i} className="rounded-xl bg-zinc-50 px-3 py-2.5 dark:bg-zinc-800/50">
-              <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
-                {tip.split('**').map((p, j) => j % 2 === 1 ? <strong key={j} className="text-zinc-700 dark:text-zinc-300">{p}</strong> : p)}
+            <div key={i} className="rounded-xl bg-white/[0.03] border border-white/[0.05] px-3 py-2.5">
+              <p className="text-[11px] leading-relaxed text-white/35">
+                {tip.split('**').map((p, j) => j % 2 === 1 ? <strong key={j} className="text-white/60">{p}</strong> : p)}
               </p>
             </div>
           ))}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -359,10 +373,8 @@ function SidePanel({ onClose, onSend, socketConectado }: {
 
 const KambaChat: React.FC = () => {
 
-  // ── Estado — inicializa a partir do sessionStorage ─────────────────────────
   const [messages, setMessages] = useState<Message[]>(() => {
     const stored = loadStoredMessages();
-    // Se há mensagens guardadas (além da welcome), usa-as directamente
     return stored.length > 0 ? stored : [WELCOME_MSG];
   });
 
@@ -372,35 +384,35 @@ const KambaChat: React.FC = () => {
   const [rateLimited, setRateLimited] = useState(false);
   const [retryIn, setRetryIn]         = useState(0);
   const [socketConectado, setSocketConectado] = useState(false);
-  const [showPanel, setShowPanel]     = useState(true);
+  const [showPanel, setShowPanel]     = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
-  // Flag para não repetir o carregamento do histórico do backend
   const historyFetchedRef = useRef(false);
-
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bottomRef         = useRef<HTMLDivElement>(null);
+  const textareaRef       = useRef<HTMLTextAreaElement>(null);
 
   // ── Persistência automática ────────────────────────────────────────────────
-  // Grava no sessionStorage sempre que messages ou fluxoAtivo mudam.
-  // Assim, ao navegar para outra rota e voltar, o estado é recuperado.
   useEffect(() => { saveStoredMessages(messages); }, [messages]);
   useEffect(() => { saveStoredFluxo(fluxoAtivo); },  [fluxoAtivo]);
 
-  // ── Carrega histórico do backend na primeira montagem ──────────────────────
-  // Só corre se o sessionStorage estiver vazio (utilizador recarregou a página
-  // ou abriu numa aba nova). Permite recuperar conversas de sessões anteriores.
+  // ── Mouse tracking para aura ───────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: MouseEvent) => setMousePosition({ x: e.clientX, y: e.clientY });
+    window.addEventListener('mousemove', handler);
+    return () => window.removeEventListener('mousemove', handler);
+  }, []);
+
+  // ── Histórico do backend ───────────────────────────────────────────────────
   useEffect(() => {
     if (historyFetchedRef.current) return;
     historyFetchedRef.current = true;
-
-    // Se já temos mensagens reais no storage, não precisamos do backend
     const stored = loadStoredMessages();
-    if (stored.length > 1) return; // > 1 porque a welcome msg conta como 1
+    if (stored.length > 1) return;
 
     api.get('/kamba/historico')
       .then(({ data }) => {
         if (!data.success || !Array.isArray(data.historico) || data.historico.length === 0) return;
-
         const historico: Message[] = data.historico.map((m: {
           role: string; content: string; criadoEm?: string;
         }) => ({
@@ -412,13 +424,9 @@ const KambaChat: React.FC = () => {
             : '--:--',
           read: true,
         } as Message));
-
-        // Substitui a welcome msg pelo histórico real do utilizador
         setMessages(historico);
       })
-      .catch(() => {
-        // Endpoint ainda não existe → fica com a welcome msg. Sem erro visível.
-      });
+      .catch(() => {});
   }, []);
 
   // ── Auto-scroll ────────────────────────────────────────────────────────────
@@ -426,7 +434,7 @@ const KambaChat: React.FC = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, isLoading]);
 
-  // ── Countdown rate limit ───────────────────────────────────────────────────
+  // ── Rate limit countdown ───────────────────────────────────────────────────
   useEffect(() => {
     if (!rateLimited || retryIn <= 0) return;
     const t = setInterval(() => {
@@ -438,12 +446,11 @@ const KambaChat: React.FC = () => {
     return () => clearInterval(t);
   }, [rateLimited, retryIn]);
 
-  // ── Helper: adiciona mensagem ──────────────────────────────────────────────
   const addMessage = useCallback((msg: Message) => {
     setMessages(prev => [...prev, msg]);
   }, []);
 
-  // ── WebSocket — notificações proativas ────────────────────────────────────
+  // ── WebSocket ──────────────────────────────────────────────────────────────
   useSocket({
     onLembrete: (d: unknown) => {
       const l = d as LembreteTempoReal;
@@ -498,7 +505,7 @@ const KambaChat: React.FC = () => {
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     e.target.style.height = 'auto';
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 100)}px`;
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
   };
 
   // ── Enviar mensagem ────────────────────────────────────────────────────────
@@ -549,49 +556,75 @@ const KambaChat: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="-m-4 md:-m-6 flex overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>
+    <div className="relative flex overflow-hidden bg-[#080810]" style={{ height: 'calc(100vh - 64px)' }}>
+
+      {/* ── Aura de fundo animada ── */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-violet-500/8 rounded-full filter blur-[120px] animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-500/8 rounded-full filter blur-[120px] animate-pulse" style={{ animationDelay: '700ms' }} />
+        <div className="absolute top-1/3 right-1/3 w-64 h-64 bg-fuchsia-500/6 rounded-full filter blur-[96px] animate-pulse" style={{ animationDelay: '1200ms' }} />
+      </div>
+
+      {/* ── Aura que segue o cursor quando o input está focado ── */}
+      <AnimatePresence>
+        {inputFocused && (
+          <motion.div
+            className="pointer-events-none fixed w-[40rem] h-[40rem] rounded-full z-0 opacity-[0.025] bg-gradient-to-r from-violet-500 via-fuchsia-500 to-indigo-500 blur-[80px]"
+            animate={{ x: mousePosition.x - 320, y: mousePosition.y - 320 }}
+            transition={{ type: 'spring', damping: 30, stiffness: 120, mass: 0.5 }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* ══ Área de chat (full-width) ══ */}
-      <div className="flex flex-1 flex-col overflow-hidden bg-white dark:bg-zinc-900">
+      <div className="relative flex flex-1 flex-col overflow-hidden z-10">
 
         {/* Topbar */}
-        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-black/30 backdrop-blur-xl px-5 py-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative shrink-0">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-sm font-bold text-white shadow-sm">✦</div>
-              <span className={cx('absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-zinc-900', socketConectado ? 'bg-emerald-500' : 'bg-zinc-400')} />
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-sm font-bold text-white shadow-lg shadow-violet-500/30">✦</div>
+              <span className={cx(
+                'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#080810]',
+                socketConectado ? 'bg-emerald-400' : 'bg-white/20'
+              )} />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Kamba AI</span>
-                <span className="text-violet-500"><IoSparklesOutline size={12} /></span>
-                <span className={cx('rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset', socketConectado ? ONLINE_PILL : OFFLINE_PILL)}>
+                <span className="text-sm font-semibold text-white">Kamba AI</span>
+                <span className="text-violet-400"><IoSparklesOutline size={12} /></span>
+                <span className={cx(
+                  'rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                  socketConectado
+                    ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-400/20'
+                    : 'bg-white/[0.04] text-white/30 ring-white/10'
+                )}>
                   {socketConectado ? 'Online' : 'Offline'}
                 </span>
                 {fluxoAtivo && <FluxoBadge tipo={fluxoAtivo} />}
               </div>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">Assistente Financeiro Angolano</p>
+              <p className="text-[11px] text-white/30 truncate">Assistente Financeiro Angolano</p>
             </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {/* Atalhos rápidos no header */}
             {SUGGESTIONS.slice(0, 2).map((s, i) => (
               <button key={i} onClick={() => handleSend(s.cmd)} disabled={isLoading || rateLimited}
-                className="hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors disabled:opacity-40">
+                className="hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors disabled:opacity-30">
                 {s.icon}<span className="hidden lg:inline">{s.label}</span>
               </button>
             ))}
-            {/* Cancelar fluxo */}
             {fluxoAtivo && (
               <button onClick={() => handleSend('cancelar')} disabled={isLoading}
-                className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-40">
+                className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30">
                 <IoCloseOutline size={13} /><span className="hidden sm:inline">Cancelar</span>
               </button>
             )}
-            {/* Toggle painel */}
             <button onClick={() => setShowPanel(p => !p)}
-              className={cx('ml-1 rounded-lg p-1.5 transition-colors', showPanel ? 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300' : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:hover:bg-zinc-800')}
+              className={cx(
+                'ml-1 rounded-lg p-1.5 transition-colors',
+                showPanel ? 'bg-white/[0.08] text-white/70' : 'text-white/30 hover:bg-white/[0.06] hover:text-white/60'
+              )}
               title="Atalhos & Dicas">
               <IoPersonOutline size={17} />
             </button>
@@ -599,169 +632,230 @@ const KambaChat: React.FC = () => {
         </div>
 
         {/* Banner rate limit */}
-        {rateLimited && (
-          <div className="shrink-0 flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-400/20 dark:bg-amber-500/10">
-            <IoWarningOutline size={14} className="text-amber-500 shrink-0" />
-            <p className="text-[12px] text-amber-700 dark:text-amber-400">
-              Calma, kamba! Muitas mensagens seguidas. Aguarda <strong>{retryIn}s</strong>.
-            </p>
-          </div>
-        )}
+        <AnimatePresence>
+          {rateLimited && (
+            <motion.div
+              className="shrink-0 flex items-center gap-2 border-b border-amber-400/20 bg-amber-500/10 px-5 py-2.5"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+            >
+              <span className="text-amber-400 shrink-0"><IoWarningOutline size={14} /></span>
+              <p className="text-[12px] text-amber-300">
+                Calma, kamba! Muitas mensagens seguidas. Aguarda <strong>{retryIn}s</strong>.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Mensagens */}
-        <div className="flex-1 overflow-y-auto overscroll-contain bg-[#f7f8fa] px-4 py-3 dark:bg-zinc-950">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-            <span className="text-[10px] font-medium text-zinc-400 dark:text-zinc-500">Hoje</span>
-            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.08) transparent' }}>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-px flex-1 bg-white/[0.06]" />
+            <span className="text-[10px] font-medium text-white/20">Hoje</span>
+            <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
 
           {messages.map((msg, idx) => {
             const isUser  = msg.from === 'user';
             const isKamba = msg.from === 'kamba';
             const card    = cardFromSerialized(msg.cardData);
-
-            // Agrupa mensagens consecutivas do mesmo remetente (menos espaço entre elas)
             const prevFrom = idx > 0 ? messages[idx - 1].from : null;
             const isGrouped = prevFrom === msg.from;
 
             if (msg.from === 'system') return (
-              <div key={msg.id} className="my-2 flex items-center justify-center">
-                <span className="rounded-full bg-zinc-200/80 px-3 py-1 text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">{msg.text}</span>
+              <div key={msg.id} className="my-3 flex items-center justify-center">
+                <span className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[10px] text-white/30">{msg.text}</span>
               </div>
             );
 
             return (
-              <div key={msg.id} className={cx(
-                'flex animate-in fade-in slide-in-from-bottom-1 duration-200',
-                isUser ? 'justify-end' : 'justify-start',
-                isGrouped ? 'mt-0.5' : 'mt-3'
-              )}>
-                {/* Avatar Kamba — só na primeira mensagem de cada grupo */}
+              <motion.div
+                key={msg.id}
+                className={cx('flex', isUser ? 'justify-end' : 'justify-start', isGrouped ? 'mt-0.5' : 'mt-3')}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+              >
+                {/* Avatar Kamba */}
                 {isKamba && (
-                  <div className="shrink-0 mr-2 mt-auto mb-0.5">
+                  <div className="shrink-0 mr-2.5 mt-auto mb-0.5">
                     {!isGrouped
-                      ? <div className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[9px] font-bold text-white shadow-sm">✦</div>
-                      : <div className="w-6" /> /* espaçador para alinhar */
+                      ? <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[10px] font-bold text-white shadow-md shadow-violet-500/20">✦</div>
+                      : <div className="w-7" />
                     }
                   </div>
                 )}
+
                 <div className={cx(
-                  'max-w-[62%] rounded-2xl px-3 py-2 shadow-sm',
+                  'max-w-[65%] rounded-2xl px-3.5 py-2.5',
                   isUser
-                    ? 'rounded-br-sm bg-blue-600 text-white'
-                    : 'rounded-bl-sm bg-white text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 border border-zinc-100 dark:border-zinc-700/50'
+                    ? 'rounded-br-sm bg-violet-600/80 text-white backdrop-blur-sm border border-violet-500/30 shadow-lg shadow-violet-500/10'
+                    : 'rounded-bl-sm bg-white/[0.05] text-white/85 backdrop-blur-sm border border-white/[0.07] shadow-sm'
                 )}>
                   {isKamba && !isGrouped && (
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <span className="text-violet-500"><IoSparklesOutline size={10} /></span>
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-violet-500">Kamba AI</span>
-                      {msg.fromCache && <span className="text-[8px] text-zinc-400 italic">• cache</span>}
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <span className="text-violet-400"><IoSparklesOutline size={10} /></span>
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400">Kamba AI</span>
+                      {msg.fromCache && <span className="text-[8px] text-white/25 italic">• cache</span>}
                     </div>
                   )}
-                  <div className="text-[13px] leading-snug">
+                  <div className="text-[13px] leading-snug text-white/80">
                     <RenderText text={msg.text} isUser={isUser} />
                   </div>
                   {card && <FinancialCardInline card={card} />}
                   {msg.fluxoConcluido && (
-                    <div className="mt-1.5 flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 dark:bg-emerald-500/10">
-                      <IoCheckmarkCircleOutline size={12} className="text-emerald-500" />
-                      <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">Concluído</span>
+                    <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5">
+                      <span className="text-emerald-400"><IoCheckmarkCircleOutline size={12} /></span>
+                      <span className="text-[10px] font-semibold text-emerald-400">Concluído</span>
                     </div>
                   )}
-                  <div className={cx('mt-0.5 flex items-center gap-1', isUser ? 'justify-end' : 'justify-start')}>
-                    <span className={cx('text-[9px]', isUser ? 'text-blue-200' : 'text-zinc-400 dark:text-zinc-500')}>{msg.time}</span>
+                  <div className={cx('mt-1 flex items-center gap-1', isUser ? 'justify-end' : 'justify-start')}>
+                    <span className="text-[9px] text-white/25">{msg.time}</span>
                     {isUser && (msg.read
-                      ? <span className="text-blue-200"><IoCheckmarkDoneOutline size={10} /></span>
-                      : <span className="text-blue-300"><IoCheckmarkOutline size={10} /></span>
+                      ? <span className="text-violet-300/60"><IoCheckmarkDoneOutline size={10} /></span>
+                      : <span className="text-white/25"><IoCheckmarkOutline size={10} /></span>
                     )}
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
 
           {isLoading && (
-            <div className="mt-3">
+            <motion.div
+              className="mt-3"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
               <TypingDots />
-            </div>
+            </motion.div>
           )}
           <div ref={bottomRef} className="h-2" />
         </div>
 
         {/* Chips de sugestão */}
-        {!fluxoAtivo && (
-          <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pt-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="flex gap-1.5 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
-              {SUGGESTIONS.map((s, i) => (
-                <button key={i} onClick={() => handleSend(s.cmd)} disabled={isLoading || rateLimited}
-                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[11px] font-medium text-zinc-500 transition-all hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-violet-500/10 dark:hover:text-violet-400">
-                  {s.icon} {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <AnimatePresence>
+          {!fluxoAtivo && (
+            <motion.div
+              className="shrink-0 border-t border-white/[0.06] bg-black/20 backdrop-blur-xl px-5 pt-2.5"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+            >
+              <div className="flex gap-1.5 overflow-x-auto pb-2.5" style={{ scrollbarWidth: 'none' }}>
+                {SUGGESTIONS.map((s, i) => (
+                  <motion.button
+                    key={i}
+                    onClick={() => handleSend(s.cmd)}
+                    disabled={isLoading || rateLimited}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/40 transition-all hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-300 disabled:opacity-30"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.04 }}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <span className="text-violet-400/70">{s.icon}</span>
+                    {s.label}
+                  </motion.button>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Compose */}
-        <div className={cx('shrink-0 border-t border-zinc-200 bg-white px-4 pb-4 dark:border-zinc-800 dark:bg-zinc-900', !fluxoAtivo ? 'pt-2' : 'pt-3')}>
-          {fluxoAtivo && (
-            <div className="mb-2.5 flex items-center justify-between rounded-xl bg-violet-50 px-3 py-2 dark:bg-violet-500/10">
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-violet-500 animate-pulse" />
-                <span className="text-[12px] font-medium text-violet-700 dark:text-violet-300">Fluxo guiado activo — responde à pergunta acima</span>
-              </div>
-              <button onClick={() => handleSend('cancelar')} disabled={isLoading}
-                className="flex items-center gap-1 text-[11px] text-violet-500 hover:text-violet-700 transition-colors disabled:opacity-40">
-                <IoCloseOutline size={13} /> Cancelar
-              </button>
-            </div>
-          )}
+        <div className={cx(
+          'shrink-0 border-t border-white/[0.06] bg-black/30 backdrop-blur-xl px-5 pb-5',
+          !fluxoAtivo ? 'pt-3' : 'pt-4'
+        )}>
+          {/* Banner fluxo activo */}
+          <AnimatePresence>
+            {fluxoAtivo && (
+              <motion.div
+                className="mb-3 flex items-center justify-between rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-2"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
+                  <span className="text-[12px] font-medium text-violet-300">Fluxo guiado activo — responde à pergunta acima</span>
+                </div>
+                <button onClick={() => handleSend('cancelar')} disabled={isLoading}
+                  className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-200 transition-colors disabled:opacity-30">
+                  <IoCloseOutline size={13} /> Cancelar
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Input box */}
           <div className={cx(
-            'flex items-end gap-2 rounded-2xl border px-3.5 py-2.5 transition-all focus-within:ring-2',
+            'flex items-end gap-3 rounded-2xl border px-4 py-3 transition-all',
+            'backdrop-blur-xl',
             rateLimited
-              ? 'border-amber-300/60 bg-amber-50/60 focus-within:ring-amber-400/10 dark:border-amber-400/20 dark:bg-amber-500/5'
-              : 'border-zinc-200 bg-zinc-50/70 focus-within:border-violet-400/50 focus-within:bg-white focus-within:ring-violet-400/10 dark:border-zinc-700 dark:bg-zinc-800/60 dark:focus-within:bg-zinc-800'
+              ? 'border-amber-400/20 bg-amber-500/5'
+              : inputFocused
+                ? 'border-violet-500/40 bg-white/[0.05] shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
+                : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.12]'
           )}>
             <textarea
               ref={textareaRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKey}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               rows={1}
               disabled={isLoading || rateLimited}
               placeholder={
                 rateLimited  ? `Aguarda ${retryIn}s antes de enviar...`
-                : fluxoAtivo ? 'Responde ao Kamba... (ou "cancelar" para sair)'
-                             : 'Pergunta sobre o teu saldo, gastos ou metas… (⏎ para enviar)'
+                : fluxoAtivo ? 'Responde ao Kamba… (ou "cancelar" para sair)'
+                             : 'Pergunta sobre o teu saldo, gastos ou metas…'
               }
-              className="min-h-[22px] flex-1 resize-none bg-transparent text-[13px] leading-snug text-zinc-900 outline-none placeholder:text-zinc-400 disabled:opacity-50 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-              style={{ maxHeight: 100 }}
+              className="min-h-[22px] flex-1 resize-none bg-transparent text-[13px] leading-snug text-white/85 outline-none placeholder:text-white/20 disabled:opacity-40"
+              style={{ maxHeight: 120 }}
             />
-            {input.trim()
-              ? <button onClick={() => handleSend()} disabled={isLoading || rateLimited}
-                  className="mb-0.5 shrink-0 rounded-full bg-violet-600 p-1.5 text-white transition-all hover:bg-violet-700 active:scale-95 disabled:opacity-50">
-                  <IoPaperPlaneOutline size={13} />
-                </button>
-              : <button className="mb-0.5 shrink-0 text-zinc-400 hover:text-zinc-600 transition-colors">
+            <div className="flex items-center gap-2 pb-0.5 shrink-0">
+              {/* Microfone / Enviar */}
+              {input.trim() ? (
+                <motion.button
+                  onClick={() => handleSend()}
+                  disabled={isLoading || rateLimited}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-500/30 hover:bg-violet-500 disabled:opacity-40 transition-all"
+                  whileHover={{ scale: 1.06 }}
+                  whileTap={{ scale: 0.94 }}
+                >
+                  <IoPaperPlaneOutline size={14} />
+                </motion.button>
+              ) : (
+                <button
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"
+                >
                   <IoMicOutline size={17} />
                 </button>
-            }
+              )}
+            </div>
           </div>
-          <p className="mt-1.5 text-center text-[9px] text-zinc-400 dark:text-zinc-600">
+          <p className="mt-2 text-center text-[9px] text-white/15">
             IA financeira · Dados em tempo real · Kambapro
           </p>
         </div>
       </div>
 
-      {/* ══ Painel lateral de atalhos (toggle) ══ */}
-      {showPanel && (
-        <SidePanel
-          onClose={() => setShowPanel(false)}
-          onSend={(cmd) => handleSend(cmd)}
-          socketConectado={socketConectado}
-        />
-      )}
+      {/* ══ Painel lateral (toggle) ══ */}
+      <AnimatePresence>
+        {showPanel && (
+          <SidePanel
+            onClose={() => setShowPanel(false)}
+            onSend={(cmd) => handleSend(cmd)}
+            socketConectado={socketConectado}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -35,7 +35,8 @@ export interface Cartao {
   icone?: string;
   ativo: boolean;
   bloqueado: boolean;
-  excluido?: boolean; // Soft delete flag (não mostrar se true)
+  excluido?: boolean;
+  distribuirParaObjetivos?: boolean;
 }
 
 export interface Categoria {
@@ -69,13 +70,14 @@ export interface Objetivo {
   progressoPercentual: number;
   valorFaltante: number;
   dataFinal: string;
-  dataPrevista?: string; // Alias opcional
+  dataPrevista?: string;
   cor?: string;
   icone?: string;
   concluido: boolean;
   prioridade?: string;
   porcentagemDistribuicao?: number;
   modoDistribuicao?: 'automatico' | 'manual';
+  categoria?: string;
 }
 
 export interface KambaMessage {

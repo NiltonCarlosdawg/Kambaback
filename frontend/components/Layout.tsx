@@ -1,11 +1,13 @@
 // src/components/Layout.tsx
 import React, { useCallback, useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeftRight, BarChart2, Bell, ChevronDown, ChevronRight, LayoutDashboard, LogOut, Menu, MessageCircle, Newspaper, Palette, Search, Tag, TrendingDown, TrendingUp, Trophy, User, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 import useSocket from '../hooks/useSocket';
 import useNotificacoes, { NotificacaoTempoReal } from '../hooks/useNotificacoes';
 import NotificacoesDrawer from './NotificacoesDrawer';
+import { springBouncy, springSmooth } from './ui/animations/variants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LayoutProps {
@@ -139,64 +141,101 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
         {/* Logo */}
         <div className="flex items-center gap-3 flex-shrink-0 mb-6"
           style={{ padding: expanded ? '24px 16px 0' : '24px 12px 0', justifyContent: expanded ? 'flex-start' : 'center' }}>
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: 'var(--accent)' }}>
+          <motion.div 
+            className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+            style={{ backgroundColor: 'var(--accent)' }}
+            whileHover={{ scale: 1.1, rotate: 5 }}
+          >
             <svg fill="black" viewBox="0 0 48 48" className="w-4 h-4"><path d="M6 6H42L36 24L42 42H6L12 24L6 6Z" /></svg>
-          </div>
-          {expanded && (
-            <div className="flex items-center gap-2 flex-1">
-              <h1 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
-                Kamba<span style={{ color: 'var(--accent)' }}>Pro</span>
-              </h1>
-              <div className="ml-auto">
-                <div className={`w-1.5 h-1.5 rounded-full ${socketOnline ? 'bg-emerald-500 animate-ping' : 'bg-zinc-600'}`} />
-              </div>
-            </div>
-          )}
+          </motion.div>
+          <AnimatePresence>
+            {expanded && (
+              <motion.div 
+                className="flex items-center gap-2 flex-1"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={springSmooth}
+              >
+                <h1 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+                  Kamba<span style={{ color: 'var(--accent)' }}>Pro</span>
+                </h1>
+                <div className="ml-auto">
+                  <motion.div 
+                    className="w-1.5 h-1.5 rounded-full"
+                    animate={{ scale: socketOnline ? [1, 1.3, 1] : 1 }}
+                    transition={{ duration: 2, repeat: socketOnline ? Infinity : 0 }}
+                    style={{ backgroundColor: socketOnline ? '#10b981' : '#52525b' }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Section label */}
-        {expanded && (
-          <p className="text-[10px] font-bold uppercase tracking-widest px-4 mb-2"
-            style={{ color: 'var(--text-faint)', opacity: 0.5 }}>Menu</p>
-        )}
+        <AnimatePresence>
+          {expanded && (
+            <motion.p 
+              className="text-[10px] font-bold uppercase tracking-widest px-4 mb-2"
+              style={{ color: 'var(--text-faint)', opacity: 0.5 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+            >
+              Menu
+            </motion.p>
+          )}
+        </AnimatePresence>
 
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto space-y-0.5" style={{ padding: expanded ? '0 8px' : '0 6px' }}>
-          {MENU_ITEMS.map(({ id, label, description, Icon, highlight }) => {
+          {MENU_ITEMS.map(({ id, label, description, Icon, highlight }, index) => {
             const active = activePage === id;
             return (
-              <button
+              <motion.button
                 key={id}
                 onClick={() => handleNavigate(id)}
                 title={compact ? label : undefined}
-                className="w-full flex items-center rounded-xl transition-all"
+                className="w-full flex items-center rounded-xl"
                 style={{
                   gap: expanded ? 12 : 0,
                   padding: expanded ? '9px 12px' : '10px',
                   justifyContent: expanded ? 'flex-start' : 'center',
                   backgroundColor: active ? 'var(--accent)' : 'transparent',
                   color: active ? 'var(--accent-text)' : highlight ? 'var(--accent)' : 'var(--text-muted)',
-                  transition: 'all 150ms',
                 }}
-                onMouseEnter={e => { if (!active) (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
-                onMouseLeave={e => { if (!active) (e.currentTarget).style.backgroundColor = 'transparent'; }}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ ...springSmooth, delay: index * 0.05 }}
+                whileHover={!active ? { backgroundColor: 'var(--bg-elevated)' } : {}}
+                whileTap={{ scale: 0.98 }}
               >
                 <Icon size={18} className="flex-shrink-0" />
-                {expanded && (
-                  <>
-                    <div className="text-left flex-1 min-w-0">
+                <AnimatePresence>
+                  {expanded && (
+                    <motion.div 
+                      className="text-left flex-1 min-w-0"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                    >
                       <span className="font-semibold block text-sm truncate">{label}</span>
                       <span className="text-[11px] truncate block" style={{
                         color: active ? 'var(--accent-text)' : 'var(--text-faint)', opacity: 0.7
                       }}>{description}</span>
-                    </div>
-                    {highlight && !active && (
-                      <span className="w-1.5 h-1.5 rounded-full animate-pulse flex-shrink-0" style={{ backgroundColor: 'var(--accent)' }} />
-                    )}
-                  </>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                {highlight && !active && (
+                  <motion.span 
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0" 
+                    style={{ backgroundColor: 'var(--accent)' }}
+                    animate={{ scale: [1, 1.3, 1] }}
+                    transition={{ duration: 2, repeat: Infinity }}
+                  />
                 )}
-              </button>
+              </motion.button>
             );
           })}
         </nav>
@@ -236,33 +275,52 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
     <div className="flex h-screen overflow-hidden" style={{ backgroundColor: 'var(--bg-base)' }}>
 
       {/* Desktop sidebar */}
-      <aside
+      <motion.aside
         className="hidden md:flex flex-col flex-shrink-0 overflow-hidden"
         style={{
-          width: compact ? '60px' : '240px', minWidth: compact ? '60px' : '240px',
           backgroundColor: 'var(--bg-base)', borderRight: '1px solid var(--border)',
-          transition: 'width 200ms, min-width 200ms',
         }}
+        animate={{ width: compact ? 60 : 240, minWidth: compact ? 60 : 240 }}
+        transition={springSmooth}
       >
         <NavContent />
-      </aside>
+      </motion.aside>
 
       {/* Mobile drawer */}
-      {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
-          <div className="absolute left-0 top-0 h-full w-64 shadow-2xl flex flex-col"
-            style={{ backgroundColor: 'var(--bg-base)', borderRight: '1px solid var(--border)', animation: 'slideInLeft 0.2s ease-out' }}>
-            <div className="flex justify-end p-3">
-              <button onClick={() => setMobileMenuOpen(false)} className="p-2 rounded-lg transition-colors"
-                style={{ color: 'var(--text-faint)' }}>
-                <X size={20} />
-              </button>
-            </div>
-            <NavContent forceExpanded />
+      <AnimatePresence>
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 md:hidden">
+            <motion.div 
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <motion.div
+              className="absolute left-0 top-0 h-full w-64 shadow-2xl flex flex-col"
+              style={{ backgroundColor: 'var(--bg-base)', borderRight: '1px solid var(--border)' }}
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={springSmooth}
+            >
+              <div className="flex justify-end p-3">
+                <motion.button 
+                  onClick={() => setMobileMenuOpen(false)} 
+                  className="p-2 rounded-lg"
+                  style={{ color: 'var(--text-faint)' }}
+                  whileHover={{ scale: 1.1, backgroundColor: 'var(--bg-elevated)' }}
+                  whileTap={{ scale: 0.9 }}
+                >
+                  <X size={20} />
+                </motion.button>
+              </div>
+              <NavContent forceExpanded />
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
 
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -275,10 +333,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
           <div className="flex items-center gap-3 px-4 md:px-5 h-14">
 
             {/* Mobile hamburger */}
-            <button onClick={() => setMobileMenuOpen(true)} className="md:hidden p-1.5 rounded-lg flex-shrink-0"
-              style={{ color: 'var(--text-muted)' }}>
+            <motion.button 
+              onClick={() => setMobileMenuOpen(true)} 
+              className="md:hidden p-1.5 rounded-lg flex-shrink-0"
+              style={{ color: 'var(--text-muted)' }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+            >
               <Menu size={20} />
-            </button>
+            </motion.button>
 
             {/* Page breadcrumb + title */}
             <div className="flex-1 min-w-0 hidden md:flex items-center gap-1.5">
@@ -293,15 +356,20 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
             </h2>
 
             {/* Search */}
-            <div className="relative hidden lg:block" ref={searchRef}>
-              <div
+            <motion.div 
+              className="relative hidden lg:block" 
+              ref={searchRef}
+              animate={{ width: searchOpen ? 240 : 150 }}
+              transition={springSmooth}
+            >
+              <motion.div
                 className="flex items-center gap-2 h-8 rounded-xl border cursor-pointer"
                 style={{
                   backgroundColor: 'var(--bg-surface)', borderColor: searchOpen ? 'var(--accent)' : 'var(--border)',
-                  width: searchOpen ? '240px' : '150px', transition: 'width 200ms, border-color 150ms',
                   boxShadow: searchOpen ? '0 0 0 3px var(--accent-10)' : 'none',
                 }}
                 onClick={() => { if (!searchOpen) { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50); } }}
+                whileHover={!searchOpen ? { scale: 1.02 } : {}}
               >
                 <Search size={14} className="ml-3 flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
                 {searchOpen
@@ -311,104 +379,161 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                 }
                 <kbd className="text-[9px] font-mono mr-2 flex-shrink-0 hidden xl:block px-1.5 py-0.5 rounded"
                   style={{ color: 'var(--text-faint)', backgroundColor: 'var(--bg-elevated)' }}>⌘K</kbd>
-              </div>
+              </motion.div>
 
-              {searchOpen && searchQuery.trim().length > 0 && (
-                <div className="absolute top-[calc(100%+6px)] left-0 w-64 rounded-2xl shadow-2xl overflow-hidden z-50 border"
-                  style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)', animation: 'fadeScaleIn 0.12s ease-out' }}>
-                  {searchResults.length > 0 ? (
-                    <div className="p-1.5">
-                      {searchResults.map(r => {
-                        const found = [...MENU_ITEMS, ...AVATAR_PAGES].find(m => m.id === r.id);
-                        const Icon = found?.Icon;
-                        return (
-                          <button key={r.id} onClick={() => handleNavigate(r.page)}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left group transition-all"
-                            onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
-                            onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; }}>
-                            {Icon && <Icon size={16} style={{ color: 'var(--text-faint)' }} />}
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>{r.label}</p>
-                              <p className="text-[11px] truncate" style={{ color: 'var(--text-faint)' }}>{r.sub}</p>
-                            </div>
-                            <ChevronRight size={12} className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center py-8 gap-2">
-                      <Search size={24} style={{ color: 'var(--text-faint)' }} />
-                      <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+              <AnimatePresence>
+                {searchOpen && searchQuery.trim().length > 0 && (
+                  <motion.div
+                    className="absolute top-[calc(100%+6px)] left-0 w-64 rounded-2xl shadow-2xl overflow-hidden z-50 border"
+                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)' }}
+                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                    transition={springBouncy}
+                  >
+                    {searchResults.length > 0 ? (
+                      <div className="p-1.5">
+                        {searchResults.map((r, index) => {
+                          const found = [...MENU_ITEMS, ...AVATAR_PAGES].find(m => m.id === r.id);
+                          const Icon = found?.Icon;
+                          return (
+                            <motion.button 
+                              key={r.id} 
+                              onClick={() => handleNavigate(r.page)}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left"
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ ...springSmooth, delay: index * 0.05 }}
+                              whileHover={{ backgroundColor: 'var(--bg-elevated)' }}
+                              whileTap={{ scale: 0.98 }}
+                            >
+                              {Icon && <Icon size={16} style={{ color: 'var(--text-faint)' }} />}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold truncate" style={{ color: 'var(--text-primary)' }}>{r.label}</p>
+                                <p className="text-[11px] truncate" style={{ color: 'var(--text-faint)' }}>{r.sub}</p>
+                              </div>
+                              <ChevronRight size={12} className="flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center py-8 gap-2">
+                        <Search size={24} style={{ color: 'var(--text-faint)' }} />
+                        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Sem resultados</p>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
 
             {/* Socket pill */}
-            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold flex-shrink-0"
+            <motion.div 
+              className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[11px] font-bold flex-shrink-0"
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
               style={{
                 backgroundColor: socketOnline ? 'rgba(16,185,129,0.08)' : 'var(--bg-surface)',
                 borderColor: socketOnline ? 'rgba(16,185,129,0.2)' : 'var(--border)',
                 color: socketOnline ? '#10b981' : 'var(--text-faint)',
-              }}>
+              }}
+            >
               {socketOnline ? <Wifi size={13} /> : <WifiOff size={13} />}
               <span className="hidden xl:inline">{socketOnline ? 'Ao vivo' : 'Offline'}</span>
-            </div>
+            </motion.div>
 
             {/* Bell */}
-            <button
+            <motion.button
               onClick={() => setDrawerOpen(true)}
-              className="relative w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0 transition-all"
+              className="relative w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0"
               style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-              onMouseEnter={e => { (e.currentTarget).style.borderColor = 'var(--border-strong)'; }}
-              onMouseLeave={e => { (e.currentTarget).style.borderColor = 'var(--border)'; }}
+              whileHover={{ scale: 1.1, borderColor: 'var(--border-strong)' }}
+              whileTap={{ scale: 0.95 }}
             >
               <Bell size={17} />
-              {totalNaoLidas > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px] font-black rounded-full flex items-center justify-center px-1"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
-                  {totalNaoLidas > 99 ? '99+' : totalNaoLidas}
-                </span>
-              )}
-            </button>
+              <AnimatePresence>
+                {totalNaoLidas > 0 && (
+                  <motion.span
+                    className="absolute -top-1 -right-1 min-w-[16px] h-4 text-[9px] font-black rounded-full flex items-center justify-center px-1"
+                    style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0 }}
+                    transition={springBouncy}
+                  >
+                    {totalNaoLidas > 99 ? '99+' : totalNaoLidas}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.button>
 
             {/* Avatar */}
             <div className="relative flex-shrink-0" ref={avatarRef}>
-              <button onClick={() => setAvatarDropdownOpen(p => !p)} className="flex items-center gap-1.5">
-                <div className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0"
+              <motion.button 
+                onClick={() => setAvatarDropdownOpen(p => !p)} 
+                className="flex items-center gap-1.5"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <motion.div 
+                  className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0"
+                  animate={{ 
+                    borderColor: avatarDropdownOpen ? 'var(--accent)' : 'transparent',
+                    scale: avatarDropdownOpen ? 1.05 : 1
+                  }}
                   style={{
                     background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))',
                     color: 'var(--accent-text)',
-                    border: `2px solid ${avatarDropdownOpen ? 'var(--accent)' : 'transparent'}`,
-                  }}>
+                    border: '2px solid',
+                  }}
+                >
                   {initials}
-                </div>
-                <ChevronDown size={13} className="hidden md:block transition-transform duration-200"
-                  style={{ color: 'var(--text-faint)', transform: avatarDropdownOpen ? 'rotate(180deg)' : 'rotate(0)' }} />
-              </button>
+                </motion.div>
+                <motion.div
+                  animate={{ rotate: avatarDropdownOpen ? 180 : 0 }}
+                  transition={springSmooth}
+                >
+                  <ChevronDown size={13} className="hidden md:block" style={{ color: 'var(--text-faint)' }} />
+                </motion.div>
+              </motion.button>
 
-              {avatarDropdownOpen && (
-                <div className="absolute right-0 top-[calc(100%+8px)] rounded-2xl shadow-2xl overflow-hidden z-50 border"
-                  style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)', minWidth: 200, animation: 'fadeScaleIn 0.12s ease-out' }}>
-
-                  <div className="px-4 py-3 flex items-center gap-3 border-b" style={{ borderColor: 'var(--border)' }}>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
-                      style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}>
-                      {initials}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-bold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{user?.nome || 'Utilizador'}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: socketOnline ? '#10b981' : 'var(--text-faint)' }} />
-                        <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>{socketOnline ? 'Online' : 'Offline'}</p>
+              <AnimatePresence>
+                {avatarDropdownOpen && (
+                  <motion.div
+                    className="absolute right-0 top-[calc(100%+8px)] rounded-2xl shadow-2xl overflow-hidden z-50 border"
+                    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border-strong)', minWidth: 200 }}
+                    initial={{ opacity: 0, scale: 0.9, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9, y: -10 }}
+                    transition={springBouncy}
+                  >
+                    <motion.div 
+                      className="px-4 py-3 flex items-center gap-3"
+                      style={{ borderBottom: '1px solid var(--border)' }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                    >
+                      <motion.div 
+                        className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0"
+                        style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}
+                      >
+                        {initials}
+                      </motion.div>
+                      <div className="min-w-0">
+                        <p className="font-bold text-sm truncate" style={{ color: 'var(--text-primary)' }}>{user?.nome || 'Utilizador'}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <motion.div 
+                            className="w-1.5 h-1.5 rounded-full" 
+                            animate={{ backgroundColor: socketOnline ? '#10b981' : 'var(--text-faint)' }}
+                          />
+                          <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>{socketOnline ? 'Online' : 'Offline'}</p>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    </motion.div>
 
-                  <div className="p-1.5">
-                    {AVATAR_PAGES.map(({ id, label, Icon }) => {
+                    <div className="p-1.5">
+                      {AVATAR_PAGES.map(({ id, label, Icon }) => {
                       const active = activePage === id;
                       return (
                         <button key={id} onClick={() => handleNavigate(id)}
@@ -434,8 +559,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                       Sair da conta
                     </button>
                   </div>
-                </div>
-              )}
+                </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
 

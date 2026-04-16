@@ -239,7 +239,7 @@ const Categorias: React.FC = () => {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}>
-          <div className="w-full max-w-md rounded-2xl shadow-2xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-strong)' }}>
+          <div className="relative z-10 w-full max-w-md rounded-2xl shadow-2xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-strong)' }}>
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{editMode ? 'Editar' : 'Nova'} Categoria</h3>
