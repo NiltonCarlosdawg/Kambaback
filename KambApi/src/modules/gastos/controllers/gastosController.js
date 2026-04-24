@@ -44,10 +44,17 @@ const criarGasto = async (req, res, next) => {
       
       if (!cartao) throw new AppError('Cartão inválido ou inativo', 404);
 
-      // 1.1 Validação da Categoria (se fornecida)
+// 1.1 Validação da Categoria (se fornecida)
       if (categoriaId) {
         const categoria = await tx.categoria.findFirst({
-          where: { id: categoriaId, usuarioId, excluido: false }
+          where: {
+            id: categoriaId,
+            excluido: false,
+            OR: [
+              { usuarioId },
+              { usuarioId: null, padrao: true }
+            ]
+          }
         });
         if (!categoria) throw new AppError('Categoria inválida', 400);
       }
