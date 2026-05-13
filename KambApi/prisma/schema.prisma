@@ -25,6 +25,7 @@ model User {
   verificado        Boolean   @default(false)
   
   googleId          String?   @unique
+  appleId           String?   @unique
   refreshToken      String?
   senhaAlteradaEm   DateTime?
   ultimoLogin       DateTime?

@@ -12,6 +12,15 @@ declare global {
         };
       };
     };
+    AppleID?: {
+      auth: {
+        init: (config: any) => void;
+        signIn: () => Promise<{
+          authorization: { id_token: string };
+          user?: { name?: { firstName?: string; lastName?: string }; email?: string };
+        }>;
+      };
+    };
   }
 }
 
@@ -138,30 +147,28 @@ const SocialButton: React.FC<{
   label: string; 
   onClick?: () => void;
   disabled?: boolean;
-}> = ({ icon, label, onClick, disabled }) => {
+}> = ({ icon, label, onClick, disabled = false }) => {
   
   return (
     <motion.button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center justify-center gap-3 w-full h-[48px] rounded-xl border-2"
+      className={`flex items-center justify-center gap-3 w-full h-[48px] rounded-xl border-2 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       style={{
         backgroundColor: 'transparent',
         borderColor: 'var(--border)',
         color: 'var(--text-primary)',
-        opacity: disabled ? 0.6 : 1,
-        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
-      whileHover={{ 
+      whileHover={!disabled ? { 
         scale: 1.02, 
         y: -2,
         borderColor: 'var(--accent)',
         backgroundColor: 'var(--bg-elevated)',
         boxShadow: '0 8px 25px -5px var(--accent-20)',
         transition: springBouncy,
-      }}
-      whileTap={{ scale: 0.98 }}
+      } : {}}
+      whileTap={!disabled ? { scale: 0.98 } : {}}
     >
       {icon}
       <span className="text-sm font-medium">{label}</span>
@@ -221,7 +228,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
           if (data.success) {
             localStorage.setItem('accessToken', data.accessToken);
             if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
-            const authUser = data.user ?? data.usuario;
+            const authUser = (data as any).user ?? (data as any).usuario;
             if (!authUser) {
               setError('Resposta de autenticação inválida.');
               return;
@@ -240,6 +247,55 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
       },
     });
     client.requestAccessToken();
+  };
+
+  const APPLE_CLIENT_ID = import.meta.env.VITE_APPLE_CLIENT_ID || '';
+
+  const loginComApple = async () => {
+    console.log('[APPLE] Iniciando login...');
+    if (!APPLE_CLIENT_ID) {
+      setError('Apple OAuth não configurado. Configura VITE_APPLE_CLIENT_ID no .env');
+      return;
+    }
+    if (!window.AppleID) {
+      setError('Biblioteca Apple ainda a carregar. Tenta novamente.');
+      return;
+    }
+    setError('');
+    try {
+      window.AppleID.auth.init({
+        clientId: APPLE_CLIENT_ID,
+        scope: 'name email',
+        redirectURI: window.location.origin,
+        usePopup: true,
+      });
+      const response = await window.AppleID.auth.signIn();
+      const idToken = response.authorization.id_token;
+      const nomeApple = response.user?.name?.firstName
+        ? `${response.user.name.firstName} ${response.user.name.lastName || ''}`.trim()
+        : null;
+      setLoading(true);
+      const { data } = await api.post<AuthResponse>('/auth/apple', {
+        id_token: idToken,
+        nome: nomeApple,
+      });
+      if (data.success) {
+        localStorage.setItem('accessToken', data.accessToken);
+        if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+        const authUser = data.user ?? data.usuario;
+        if (!authUser) { setError('Resposta de autenticação inválida.'); return; }
+        onLoginSuccess(authUser);
+      }
+    } catch (err: any) {
+      console.error('[APPLE] Erro:', err);
+      if (err.message?.includes('popup_closed')) {
+        setError('Login Apple cancelado.');
+      } else {
+        setError(err.response?.data?.mensagem || 'Erro ao entrar com Apple.');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -602,6 +658,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
               <SocialButton 
                 icon={<AppleIcon />} 
                 label="Apple" 
+                disabled={loading}
+                onClick={() => {
+                  console.log('[APPLE] Botão clicado');
+                  loginComApple();
+                }}
               />
             </motion.div>
 

@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const { registrar, login, refresh, perfil, atualizarPerfil, alterarSenha } = require('../controllers/authController');
 const { loginComGoogle } = require('../controllers/googleAuthController');
+const { loginComApple } = require('../controllers/appleAuthController');
 const { protegerRota } = require('../../../middleware/auth');
 const { validar, registroSchema, loginSchema } = require('../../../middleware/validator');
 const { limiteAuth } = require('../../../middleware/rateLimiter');
@@ -15,6 +16,9 @@ router.post('/login', limiteAuth, validar(loginSchema), login);
 
 // Google OAuth (token-based)
 router.post('/google', loginComGoogle);
+
+// Apple OAuth (token-based)
+router.post('/apple', loginComApple);
 
 // Refresh token - SEM rate limit (já requer token válido)
 router.post('/refresh', refresh);
