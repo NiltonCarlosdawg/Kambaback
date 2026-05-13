@@ -174,6 +174,130 @@ router.get('/dica', async (req, res, next) => {
 });
 
 // ==========================================
+// ROTAS DE EDUCAÇÃO FINANCEIRA (Fase 6)
+// ==========================================
+
+/**
+ * GET /kamba/educacao/conceito
+ * Conceito educativo aleatório ou por tema
+ * Query: ?tema=inflacao
+ */
+router.get('/educacao/conceito', async (req, res, next) => {
+  try {
+    const { tema } = req.query;
+    const conceito = tema
+      ? Proatividade.buscarConceito(tema)
+      : Proatividade.getConceitoAleatorio();
+
+    if (!conceito) {
+      return res.json({
+        success: true,
+        mensagem: 'Esse tema ainda não está no meu banco de conhecimento. Pergunta sobre: inflação, juros compostos, fundo de emergência, regra 50/30/20, dolarização, orçamento, poupança, crédito.'
+      });
+    }
+
+    return res.json({ success: true, conceito });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/educacao/dica-diaria
+ * Dica do dia para educação financeira
+ */
+router.get('/educacao/dica-diaria', async (req, res, next) => {
+  try {
+    const dica = Proatividade.getDicaDiaria();
+    return res.json({ success: true, dica });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/educacao/desafio-mensal
+ * Desafio do mês para o utilizador
+ */
+router.get('/educacao/desafio-mensal', async (req, res, next) => {
+  try {
+    const desafio = Proatividade.getDesafioMensal();
+    return res.json({ success: true, desafio });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/previsoes
+ * Previsões financeiras personalizadas
+ */
+router.get('/previsoes', async (req, res, next) => {
+  try {
+    const usuarioId = req.user.id;
+    const previsoes = await Proatividade.gerarPrevisoes(usuarioId);
+
+    return res.json({
+      success: true,
+      total: previsoes.length,
+      previsoes
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/padroes
+ * Padrões de gastos detectados
+ */
+router.get('/padroes', async (req, res, next) => {
+  try {
+    const usuarioId = req.user.id;
+    const { padroes, insights } = await Proatividade.detectarPadroes(usuarioId);
+
+    return res.json({
+      success: true,
+      padroes,
+      insights
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/historico
+ * Lista últimas mensagens da memória (para o chat)
+ */
+router.get('/historico', async (req, res, next) => {
+  try {
+    const prisma = require('../../../lib/prisma');
+    const usuarioId = req.user.id;
+    
+    const mensagens = await prisma.kambaMemoria.findMany({
+      where: { usuarioId },
+      orderBy: { criadoEm: 'desc' },
+      take: 50
+    });
+
+    return res.json({
+      success: true,
+      total: mensagens.length,
+      mensagens: mensagens.reverse().map(m => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        contexto: m.contexto,
+        criadoEm: m.criadoEm
+      }))
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================
 // ROTAS DE ESTATÍSTICAS (ADMIN/DEBUG)
 // ==========================================
 
@@ -345,6 +469,69 @@ router.get('/memoria', async (req, res, next) => {
         criadoEm: m.criadoEm  // CORRIGIDO: era 'timestamp'
       }))
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ==========================================
+// ROTAS DE ANALYTICS / DASHBOARD
+// ==========================================
+
+/**
+ * GET /kamba/analytics/dashboard
+ * Dashboard completo de analytics
+ */
+router.get('/analytics/dashboard', async (req, res, next) => {
+  try {
+    const analytics = require('../services/core/analyticsService');
+    const usuarioId = req.user.id;
+    const dias = parseInt(req.query.dias) || 30;
+
+    const dashboard = await analytics.getDashboard(usuarioId, dias);
+    return res.json({ success: true, ...dashboard });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /kamba/analytics/testes
+ * Lista resultados de A/B testing (admin only)
+ */
+router.get('/analytics/testes', async (req, res, next) => {
+  try {
+    const analytics = require('../services/core/analyticsService');
+    const resultados = await analytics.getResultadosTestes();
+    return res.json({ success: true, testes: resultados });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /kamba/analytics/testes
+ * Criar/activar versão de prompt para A/B testing (admin only)
+ * Body: { versao, nome, promptContent, descricao? }
+ */
+router.post('/analytics/testes', async (req, res, next) => {
+  try {
+    if (req.user.role !== 'ADMIN') {
+      return res.status(403).json({ success: false, mensagem: 'Apenas administradores' });
+    }
+
+    const analytics = require('../services/core/analyticsService');
+    const { versao, nome, promptContent, descricao } = req.body;
+
+    if (!versao || !nome || !promptContent) {
+      return res.status(400).json({
+        success: false,
+        mensagem: 'Campos obrigatórios: versao, nome, promptContent'
+      });
+    }
+
+    const result = await analytics.criarTestePrompt(versao, nome, promptContent, descricao);
+    return res.json(result);
   } catch (err) {
     next(err);
   }

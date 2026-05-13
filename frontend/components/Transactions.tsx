@@ -1,5 +1,5 @@
 // src/components/Transactions.tsx
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import { AlertCircle, ArrowDown, ArrowUp, Plus, Trophy, X } from 'lucide-react';
 import api from '../services/api';
@@ -125,6 +125,7 @@ const Transactions: React.FC = () => {
   const [loading,    setLoading]    = useState(true);
   const [showModal,  setShowModal]  = useState(false);
   const [error,      setError]      = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
   const [filter,     setFilter]     = useState<'todos' | 'RECEITA' | 'DESPESA'>('todos');
   const [formData,   setFormData]   = useState({
     descricao: '', valor: '', tipo: 'DESPESA' as 'DESPESA' | 'RECEITA',
@@ -133,6 +134,11 @@ const Transactions: React.FC = () => {
   });
 
   useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error]);
 
   const fetchData = async () => {
     try {
@@ -157,6 +163,17 @@ const Transactions: React.FC = () => {
     categoriasFiltradas.forEach(c => { (g[c.tipo] = g[c.tipo] || []).push(c); });
     return g;
   }, [categoriasFiltradas]);
+
+  const formHasData = formData.descricao || formData.valor || formData.cartaoId || formData.categoriaId;
+
+  const handleCloseModal = () => {
+    if (formHasData) {
+      if (!confirm('Tens alterações não guardadas. Queres mesmo fechar?')) return;
+    }
+    setShowModal(false);
+    setFormData({ descricao: '', valor: '', tipo: 'DESPESA', cartaoId: '', categoriaId: '', objetivoId: '', data: new Date().toISOString().split('T')[0], local: '' });
+    setError('');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
@@ -214,6 +231,7 @@ const Transactions: React.FC = () => {
       <AnimatePresence>
         {error && (
           <motion.div
+            ref={errorRef}
             className="flex items-center gap-3 p-3.5 rounded-xl border text-sm"
             style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}
             initial={{ opacity: 0, height: 0, y: -10 }}
@@ -411,7 +429,7 @@ const Transactions: React.FC = () => {
               initial="hidden"
               animate="show"
               exit="exit"
-              onClick={() => setShowModal(false)}
+              onClick={handleCloseModal}
             />
             <motion.div
               className="relative z-10 w-full max-w-md rounded-2xl shadow-2xl border max-h-[90vh] overflow-y-auto"
@@ -433,7 +451,7 @@ const Transactions: React.FC = () => {
                   </div>
                 </div>
                 <motion.button
-                  onClick={() => setShowModal(false)}
+                  onClick={handleCloseModal}
                   className="w-8 h-8 flex items-center justify-center rounded-lg"
                   style={{ color: 'var(--text-faint)' }}
                   whileHover={{ scale: 1.1, backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
@@ -558,7 +576,7 @@ const Transactions: React.FC = () => {
                 <div className="flex gap-3 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
                   <motion.button
                     type="button"
-                    onClick={() => setShowModal(false)}
+              onClick={handleCloseModal}
                     className="flex-1 h-11 rounded-xl text-sm font-medium border"
                     style={{ color: 'var(--text-muted)', borderColor: 'var(--border)', backgroundColor: 'transparent' }}
                     whileHover={{ backgroundColor: 'var(--bg-elevated)' }}

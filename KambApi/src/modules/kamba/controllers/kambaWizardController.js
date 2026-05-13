@@ -474,7 +474,9 @@ const detectarIntencaoFluxo = (mensagem) => {
     return 'registar_gasto';
   }
 
-  if (/análise|analise|resumo do mês|como (estou|vou|tô) (financeiramente|este mês)|ver os gastos do mês/.test(msg)) {
+  if (/^(quero uma |faz(e|) uma |preciso de uma |manda (uma|aí) )?(análise|analise) (completa |do mês|mensal|rápida|)$|^(como (estou|vou|tô) (financeiramente|este mês|neste mês))$|^(resumo do mês)$|^(ver os gastos do mês)$/.test(msg)) {
+    // Apenas correspondências curtas e directas: NÃO captura "analise os meus dados",
+    // "analise de gastos", "análise preditiva", etc. Esses devem ir para tools.
     return 'analise_mensal';
   }
 

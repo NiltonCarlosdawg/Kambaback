@@ -29,6 +29,3 @@ router.get('/historico', historicoMensal);
 router.get('/top-categorias', topCategorias);
 
 module.exports = router;
-
-// Reexporta o mesmo router - funciona como alias perfeito
-module.exports = insightsRouter;

@@ -189,4 +189,4 @@ Após tudo configurado:
 ### Projeto Supabase pausado
 - Free tier pausa após 7 dias. Faça um ping ou upgrade.
 
-Supadase:***REDACTED-SEGURANCA***
+Supabase:***REDACTED-SEGURANCA***

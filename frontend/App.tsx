@@ -15,6 +15,7 @@ import Perfil from './components/Perfil';
 import Personalizacao from './components/Personalizacao';
 import Relatorio from './components/Relatorio';
 import News from './components/News';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -24,13 +25,36 @@ const App: React.FC = () => {
   const [isRegistering, setIsRegistering]     = useState(false);
 
   useEffect(() => {
+    const handleLogout = () => {
+      setUser(null);
+      setIsAuthenticated(false);
+      setActivePage('dashboard');
+    };
+    window.addEventListener('auth:logout', handleLogout);
+    return () => window.removeEventListener('auth:logout', handleLogout);
+  }, []);
+
+  useEffect(() => {
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js')
+        .then((registration) => {
+          console.log('SW registered:', registration.scope);
+        })
+        .catch((error) => {
+          console.log('SW registration failed:', error);
+        });
+    }
+  }, []);
+
+  useEffect(() => {
     const checkAuth = async () => {
       const token = localStorage.getItem('accessToken');
       if (token) {
         try {
           const { data } = await api.get('/auth/perfil');
           if (data.success) {
-            setUser(data.user);
+            setUser(data.user ?? data.usuario);
             setIsAuthenticated(true);
           }
         } catch {
@@ -127,7 +151,9 @@ const App: React.FC = () => {
 
   return (
     <Layout activePage={activePage} onNavigate={setActivePage} user={user}>
-      {renderPage()}
+      <ErrorBoundary>
+        {renderPage()}
+      </ErrorBoundary>
     </Layout>
   );
 };

@@ -12,7 +12,7 @@ model User {
   nome              String    @db.VarChar(100)
   email             String    @unique @db.VarChar(255)
   telefone          String?   @unique @db.VarChar(20)
-  senha             String    @db.VarChar(255)
+  senha             String?   @db.VarChar(255)
   dataNascimento    DateTime
   sexo              Sexo
   morada            String    @db.VarChar(255)
@@ -24,6 +24,7 @@ model User {
   bloqueado         Boolean   @default(false)
   verificado        Boolean   @default(false)
   
+  googleId          String?   @unique
   refreshToken      String?
   senhaAlteradaEm   DateTime?
   ultimoLogin       DateTime?
@@ -37,6 +38,9 @@ model User {
   objetivos         Objetivo[]
   categorias        Categoria[]
   kambaMemoria      KambaMemoria[]
+  kambaEmbeddings   KambaEmbedding[]
+  kambaThread       KambaThread[]
+  kambaPreferencias KambaPreferencias?
   kambaUsage        KambaUsage[]
   kambaLembretes    KambaLembrete[]
   kambaFeedback     KambaFeedback[]
@@ -165,7 +169,21 @@ model Categoria {
   @@index([tipo])
 }
 
-// Os modelos abaixo foram mantidos conforme a estrutura original do seu sistema
+// Modelos de memória semântica para busca inteligente de contexto
+model KambaEmbedding {
+  id          String   @id @default(cuid())
+  usuarioId   String
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  content     String   @db.Text                        // Texto original
+  contexto    String   @db.VarChar(50)                  // 'user', 'assistant', 'sumario'
+  threadId    String   @default("default")
+  embedding   Json?                                     // Array de 384 floats (vector)
+  criadoEm    DateTime @default(now())
+
+  @@index([usuarioId, criadoEm])
+  @@index([usuarioId, threadId])
+}
+
 model KambaMemoria {
   id          String   @id @default(cuid())
   role        String   @db.VarChar(20)    // "user" ou "assistant"
@@ -173,23 +191,79 @@ model KambaMemoria {
   contexto    String   @db.Text            // Contexto da conversa (resumo/json)
   usuarioId   String
   usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  threadId    String   @default("default") // ID da thread de conversação
   criadoEm    DateTime @default(now())
   
   @@index([usuarioId, criadoEm])
+  @@index([usuarioId, threadId])
+}
+
+model KambaThread {
+  id          String   @id @default(cuid())
+  nome        String   @db.VarChar(200)   // Nome da thread
+  usuarioId   String
+  usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  ativa       Boolean  @default(true)     // Se a thread está ativa
+  criadoEm    DateTime @default(now())
+  atualizadoEm DateTime @updatedAt
+  
+  @@index([usuarioId, ativa])
+}
+
+model KambaPreferencias {
+  id               String   @id @default(cuid())
+  usuarioId        String   @unique
+  usuario          User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  
+  // Preferências detectadas
+  temNegocio       Boolean  @default(false)
+  preocupaComDolar Boolean  @default(false)
+  querPoupar       Boolean  @default(false)
+  temDividas       Boolean  @default(false)
+  estiloResposta   String   @default("normal") @db.VarChar(20) // curto, normal, detalhado
+  temasFrequentes  String[] @default([]) // Array de temas mais discutidos
+  
+  criadoEm         DateTime @default(now())
+  atualizadoEm     DateTime @updatedAt
 }
 
 model KambaUsage {
-  id          String   @id @default(cuid())
-  tokens      Int
-  latencia    Int?                     // Tempo de resposta em ms
-  modelo      String?   @db.VarChar(100)  // Modelo de IA usado
-  sucesso     Boolean   @default(true)    // Se a requisição teve sucesso
-  erro        String?   @db.Text          // Mensagem de erro se falhou
-  usuarioId   String
-  usuario     User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
-  criadoEm    DateTime  @default(now())
+  id            String    @id @default(cuid())
+  tokens        Int
+  latencia      Int?                      // Tempo de resposta em ms
+  modelo        String?   @db.VarChar(100)  // Modelo de IA usado
+  sucesso       Boolean   @default(true)
+  erro          String?   @db.Text          // Mensagem de erro se falhou
+  intencao      String?   @db.VarChar(50)   // Intenção detectada
+  sentimento    String?   @db.VarChar(20)   // Sentimento detectado
+  confianca     Float?                      // Confiança da classificação
+  ferramentas   Json?                       // Tools usadas: [{ nome, sucesso }]
+  promptVersao  String?   @db.VarChar(20)   // Versão do prompt (A/B test)
+  feedbackId    String?                     // Ligação ao feedback opcional
+  usuarioId     String
+  usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm      DateTime  @default(now())
   
   @@index([usuarioId, criadoEm])
+  @@index([intencao])
+  @@index([promptVersao])
+}
+
+// Modelo para A/B testing de prompts
+model KambaPromptTest {
+  id            String   @id @default(cuid())
+  versao        String   @db.VarChar(20)    // 'A', 'B', 'control'
+  nome          String   @db.VarChar(100)   // Nome descritivo do teste
+  descricao     String?  @db.Text           // O que está a ser testado
+  promptContent String   @db.Text           // Conteúdo do system prompt
+  ativo         Boolean  @default(true)     // Se esta versão está activa
+  usuariosAlocados Int   @default(0)        // Qtd de users nesta versão
+  scoreMedio    Float    @default(0)        // Avaliação média recebida
+  totalRespostas Int     @default(0)
+  criadoEm      DateTime @default(now())
+  atualizadoEm  DateTime @updatedAt
+
+  @@index([ativo, versao])
 }
 
 model KambaLembrete {
@@ -210,8 +284,12 @@ model KambaFeedback {
   id          String   @id @default(cuid())
   avaliacao   Int
   comentario  String?  @db.Text
+  mensagemId  String?                     // Ligação ao registo de KambaUsage
   usuarioId   String
   usuario     User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  criadoEm    DateTime @default(now())
+
+  @@index([usuarioId, criadoEm])
 }
 
 model DispositivoPush {

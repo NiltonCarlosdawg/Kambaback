@@ -69,25 +69,4 @@ export function RuixenStatsChart({
   );
 }
  
-export default function RuixenStats() {
-  return (
-    <section className="w-full max-w-7xl mx-auto px-4 py-20 grid lg:grid-cols-2 gap-12 items-center">
-      {/* Left: Text & CTA */}
-      <div className="flex flex-col justify-center gap-6">
-        <h3 className="text-lg sm:text-xl lg:text-3xl font-normal text-gray-900 dark:text-white leading-relaxed">
-            Intuitive Dashboard Experience <span className="text-primary">Ruixen UI</span>{" "}
-            <span className="text-gray-500 dark:text-gray-400 text-sm sm:text-base lg:text-3xl">Experience an analytics UI that blends speed, clarity, and design precision—giving your team
-            everything they need to make decisions faster.</span>
-          </h3>
-        <Button asChild size="lg" className="mt-4 w-fit">
-          <a href="https://ruixen.com/" target="_blank" rel="noopener noreferrer">
-            Get Started ↗
-          </a>
-        </Button>
-      </div>
 
-      {/* Right: Chart + Stats */}
-      <RuixenStatsChart />
-    </section>
-  );
-}

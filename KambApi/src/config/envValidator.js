@@ -17,7 +17,8 @@ const optionalEnvVars = {
   'KAMBA_AI_BASE_URL': 'Usando URL padrão da API de IA',
   'GNEWS_API_KEY': 'Notícias usarão fallback offline',
   'PORT': 'Usando porta padrão 3000',
-  'REDIS_URL': 'Cache em memória (não recomendado para produção)'
+  'REDIS_URL': 'Cache em memória (não recomendado para produção)',
+  'GOOGLE_CLIENT_ID': 'Login com Google não estará disponível'
 };
 
 /**

@@ -109,10 +109,15 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
       const payload = { ...formData, dataNascimento: new Date(formData.dataNascimento).toISOString(), telefone: cleanPhone };
       const { data } = await api.post<AuthResponse>('/auth/register', payload);
       if (data.success) {
+        const authUser = data.user ?? data.usuario;
         if (data.accessToken) {
           localStorage.setItem('accessToken', data.accessToken);
           if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
-          onRegisterSuccess(data.user);
+          if (!authUser) {
+            setError('Resposta de autenticação inválida.');
+            return;
+          }
+          onRegisterSuccess(authUser);
         } else { alert('Conta criada! Faz login.'); onBackToLogin(); }
       }
     } catch (err: any) { setError(getErrorMessage(err)); }
@@ -177,22 +182,26 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
             <div className="md:col-span-2">
               <Field label="Nome completo">
                 <Input name="nome" type="text" required minLength={2} placeholder="Nilton Costa"
+                  autoComplete="name"
                   value={formData.nome} onChange={handle} />
               </Field>
             </div>
 
             <Field label="Email">
               <Input name="email" type="email" required placeholder="email@exemplo.com"
+                autoComplete="email"
                 value={formData.email} onChange={handle} />
             </Field>
 
             <Field label="Telefone" hint="9 dígitos, começa por 9 (ex: 923…)">
               <Input name="telefone" type="tel" required placeholder="923 123 456"
+                autoComplete="tel"
                 value={formData.telefone} onChange={handle} />
             </Field>
 
             <Field label="Data de nascimento" hint="Mínimo 18 anos">
               <Input name="dataNascimento" type="date" required
+                autoComplete="bday"
                 value={formData.dataNascimento} onChange={handle}
                 style={{ colorScheme: 'dark' } as any} />
             </Field>
@@ -207,6 +216,7 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
             <div className="md:col-span-2">
               <Field label="Morada">
                 <Input name="morada" type="text" required minLength={3} placeholder="Luanda, Angola"
+                  autoComplete="street-address"
                   value={formData.morada} onChange={handle} />
               </Field>
             </div>
@@ -219,6 +229,7 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
                     type={showPassword ? 'text' : 'password'}
                     required
                     minLength={8}
+                    autoComplete="new-password"
                     placeholder="Mínimo 8 caracteres"
                     value={formData.senha}
                     onChange={handle}

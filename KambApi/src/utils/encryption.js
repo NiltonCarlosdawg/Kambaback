@@ -8,18 +8,21 @@ const crypto = require('crypto');
  * ==========================================
  */
 
-// Chave de criptografia (deve estar no .env!)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+function getKey() {
+  const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
 
-if (!ENCRYPTION_KEY) {
-  throw new Error('ENCRYPTION_KEY não configurada no .env! Use: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
-}
+  if (!ENCRYPTION_KEY) {
+    throw new Error('ENCRYPTION_KEY não configurada no .env! Use: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  }
 
-// Converte hex string para buffer (32 bytes para AES-256)
-const KEY = Buffer.from(ENCRYPTION_KEY, 'hex');
+  // Converte hex string para buffer (32 bytes para AES-256)
+  const KEY = Buffer.from(ENCRYPTION_KEY, 'hex');
 
-if (KEY.length !== 32) {
-  throw new Error('ENCRYPTION_KEY deve ter exatamente 32 bytes (64 caracteres hex)');
+  if (KEY.length !== 32) {
+    throw new Error('ENCRYPTION_KEY deve ter exatamente 32 bytes (64 caracteres hex)');
+  }
+
+  return KEY;
 }
 
 /**
@@ -35,7 +38,7 @@ const encrypt = (text) => {
     const iv = crypto.randomBytes(12);
 
     // Cria cipher
-    const cipher = crypto.createCipheriv('aes-256-gcm', KEY, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', getKey(), iv);
 
     // Criptografa
     let encrypted = cipher.update(text, 'utf8', 'hex');
@@ -74,7 +77,7 @@ const decrypt = (encryptedData) => {
     const authTag = Buffer.from(authTagHex, 'hex');
 
     // Cria decipher
-    const decipher = crypto.createDecipheriv('aes-256-gcm', KEY, iv);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', getKey(), iv);
     decipher.setAuthTag(authTag);
 
     // Descriptografa

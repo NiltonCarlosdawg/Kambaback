@@ -1,5 +1,5 @@
 // src/components/Wallet.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Plus, Save, ShieldCheck, X } from 'lucide-react';
 import api from '../services/api';
@@ -141,6 +141,7 @@ const Wallet: React.FC = () => {
   const [loading,        setLoading]        = useState(true);
   const [showModal,      setShowModal]      = useState(false);
   const [error,          setError]          = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
   const [fundo,          setFundo]          = useState<FundoStatus | null>(null);
   const [showFundoModal, setShowFundoModal] = useState(false);
   const [fundoLoading,   setFundoLoading]   = useState(false);
@@ -154,6 +155,11 @@ const Wallet: React.FC = () => {
   });
 
   useEffect(() => { fetchCards(); fetchFundo(); }, []);
+  useEffect(() => {
+    if (error && errorRef.current) {
+      errorRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [error]);
 
   const fetchCards = async () => { try { const { data } = await api.get('/cartoes'); setCartoes(data.cartoes || []); } catch (e) { console.error(e); } finally { setLoading(false); } };
   const fetchFundo = async () => { try { const { data } = await api.get('/fundo-emergencia'); setFundo(data); } catch (e) { console.error(e); } };
@@ -647,6 +653,7 @@ const Wallet: React.FC = () => {
                 <AnimatePresence>
                   {error && (
                     <motion.div
+                      ref={errorRef}
                       className="px-3 py-2.5 rounded-xl border text-[11px] font-medium"
                       style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}
                       initial={{ opacity: 0, height: 0 }}

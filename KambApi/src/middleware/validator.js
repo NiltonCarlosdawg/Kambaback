@@ -5,9 +5,10 @@ const AppError = require('./AppError');
 /**
  * VALIDADOR GENÉRICO
  */
-const validar = (schema) => {
+const validar = (schema, target = 'body') => {
   return (req, res, next) => {
-    const { error, value } = schema.validate(req.body, {
+    const source = target === 'query' ? req.query : req.body;
+    const { error, value } = schema.validate(source, {
       abortEarly: false,
       stripUnknown: true,
       convert: true
@@ -22,7 +23,8 @@ const validar = (schema) => {
       return next(new AppError('Dados inválidos, kamba! Verifica e tenta novamente.', 400, 'VALIDATION_ERROR', erros));
     }
 
-    req.body = value;
+    if (target === 'query') req.query = value;
+    else req.body = value;
     next();
   };
 };

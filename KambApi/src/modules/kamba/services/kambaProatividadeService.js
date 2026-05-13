@@ -3,6 +3,9 @@
 const prisma = require('../../../lib/prisma');
 const { emitirLembrete } = require('../../../websocket/socketConfig');
 const NotificacaoService = require('../../users/services/notificacaoService');
+const { detectarPadroes } = require('./ai/patternDetectionService');
+const { gerarPrevisoes } = require('./ai/predictionService');
+const { getConceitoAleatorio, getDicaDiaria, getDesafioMensal, buscarConceito } = require('./ai/educacaoFinanceira');
 
 // ==========================================
 // SISTEMA DE PROATIVIDADE DO KAMBA
@@ -200,6 +203,36 @@ const analisarECriarLembretes = async (usuarioId) => {
       );
     }
 
+    // 5. PADRÕES RECORRENTES
+    try {
+      const { padroes, insights } = await detectarPadroes(usuarioId);
+      for (const insight of insights) {
+        if (insight.tipo === 'velocidade_alta') {
+          await criarLembrete(usuarioId, 'velocidade_alta', insight.mensagem);
+        }
+        if (insight.tipo === 'gasto_crescente') {
+          await criarLembrete(usuarioId, 'gasto_crescente', insight.mensagem);
+        }
+      }
+    } catch (err) {
+      console.error(`[PROATIVIDADE] Erro na detecção de padrões:`, err.message);
+    }
+
+    // 6. PREVISÕES
+    try {
+      const previsoes = await gerarPrevisoes(usuarioId);
+      for (const pv of previsoes) {
+        if (pv.tipo === 'bater_parede' || pv.tipo === 'ja_bateu') {
+          await criarLembrete(usuarioId, 'previsao_bater_parede', pv.mensagem);
+        }
+        if (pv.tipo === 'categoria_acima') {
+          await criarLembrete(usuarioId, 'categoria_acima', pv.mensagem);
+        }
+      }
+    } catch (err) {
+      console.error(`[PROATIVIDADE] Erro nas previsões:`, err.message);
+    }
+
     console.log(`[PROATIVIDADE] Análise concluída para user ${usuarioId}`);
 
   } catch (err) {
@@ -378,5 +411,12 @@ module.exports = {
   marcarLembreteLido,
   adicionarLembretesNaResposta,
   executarAnaliseDiaria,
-  gerarDicaProativa
+  gerarDicaProativa,
+  // Novas funcionalidades da Fase 6
+  detectarPadroes,
+  gerarPrevisoes,
+  getConceitoAleatorio,
+  getDicaDiaria,
+  getDesafioMensal,
+  buscarConceito
 };

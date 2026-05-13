@@ -136,6 +136,10 @@ const registrar = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: 'Conta criada com sucesso!',
+      user: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia) // Decimal → Number
+      },
       usuario: {
         ...usuario,
         rendaMensalMedia: Number(usuario.rendaMensalMedia) // Decimal → Number
@@ -174,6 +178,16 @@ const login = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Login realizado',
+      user: {
+        id: usuario.id,
+        nome: usuario.nome,
+        email: usuario.email,
+        telefone: usuario.telefone,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia), // ⚡ Converte Decimal
+        sexo: usuario.sexo,
+        role: usuario.role,
+        perfilDeRisco: usuario.perfilDeRisco
+      },
       usuario: {
         id: usuario.id,
         nome: usuario.nome,
@@ -266,6 +280,10 @@ const perfil = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil carregado',
+      user: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia) // ⚡ Converte Decimal
+      },
       usuario: {
         ...usuario,
         rendaMensalMedia: Number(usuario.rendaMensalMedia) // ⚡ Converte Decimal
@@ -331,6 +349,10 @@ const atualizarPerfil = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Perfil atualizado com sucesso',
+      user: {
+        ...usuario,
+        rendaMensalMedia: Number(usuario.rendaMensalMedia)
+      },
       usuario: {
         ...usuario,
         rendaMensalMedia: Number(usuario.rendaMensalMedia)
@@ -367,11 +389,56 @@ const logout = async (req, res, next) => {
   }
 };
 
+// ==========================================
+// ALTERAR SENHA
+// ==========================================
+const alterarSenha = async (req, res, next) => {
+  const { senhaAtual, novaSenha } = req.body;
+
+  if (!senhaAtual || !novaSenha) {
+    return next(new AppError('Senha atual e nova senha são obrigatórias', 400));
+  }
+
+  if (novaSenha.length < 8) {
+    return next(new AppError('Nova senha deve ter pelo menos 8 caracteres', 400));
+  }
+
+  try {
+    const usuario = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { id: true, senha: true }
+    });
+
+    if (!usuario) {
+      return next(new AppError('Usuário não encontrado', 404));
+    }
+
+    const senhaValida = await bcrypt.compare(senhaAtual, usuario.senha);
+    if (!senhaValida) {
+      return next(new AppError('Senha atual incorreta', 401));
+    }
+
+    const novoHash = await bcrypt.hash(novaSenha, 12);
+    await prisma.user.update({
+      where: { id: usuario.id },
+      data: { senha: novoHash }
+    });
+
+    res.json({
+      success: true,
+      message: 'Senha alterada com sucesso'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   registrar,
   login,
   refresh,
   perfil,
   atualizarPerfil,
-  logout
+  logout,
+  alterarSenha
 };

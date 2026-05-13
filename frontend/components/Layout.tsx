@@ -8,6 +8,7 @@ import useSocket from '../hooks/useSocket';
 import useNotificacoes, { NotificacaoTempoReal } from '../hooks/useNotificacoes';
 import NotificacoesDrawer from './NotificacoesDrawer';
 import { springBouncy, springSmooth } from './ui/animations/variants';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LayoutProps {
@@ -63,6 +64,7 @@ const SectionHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, 
 // ─── Component ────────────────────────────────────────────────────────────────
 const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user }) => {
   const { prefs, maskValue, formatMoney } = useTheme();
+  const reducedMotion = useReducedMotion();
 
   const [mobileMenuOpen,    setMobileMenuOpen]    = useState(false);
   const [drawerOpen,         setDrawerOpen]        = useState(false);
@@ -144,7 +146,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
           <motion.div 
             className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: 'var(--accent)' }}
-            whileHover={{ scale: 1.1, rotate: 5 }}
+            whileHover={reducedMotion ? {} : { scale: 1.1, rotate: 5 }}
           >
             <svg fill="black" viewBox="0 0 48 48" className="w-4 h-4"><path d="M6 6H42L36 24L42 42H6L12 24L6 6Z" /></svg>
           </motion.div>
@@ -208,8 +210,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ ...springSmooth, delay: index * 0.05 }}
-                whileHover={!active ? { backgroundColor: 'var(--bg-elevated)' } : {}}
-                whileTap={{ scale: 0.98 }}
+                whileHover={reducedMotion || active ? {} : { backgroundColor: 'var(--bg-elevated)' }}
+                whileTap={reducedMotion ? {} : { scale: 0.98 }}
               >
                 <Icon size={18} className="flex-shrink-0" />
                 <AnimatePresence>
@@ -310,8 +312,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                   onClick={() => setMobileMenuOpen(false)} 
                   className="p-2 rounded-lg"
                   style={{ color: 'var(--text-faint)' }}
-                  whileHover={{ scale: 1.1, backgroundColor: 'var(--bg-elevated)' }}
-                  whileTap={{ scale: 0.9 }}
+                  whileHover={reducedMotion ? {} : { scale: 1.1, backgroundColor: 'var(--bg-elevated)' }}
+                  whileTap={reducedMotion ? {} : { scale: 0.9 }}
+                  aria-label="Fechar menu"
                 >
                   <X size={20} />
                 </motion.button>
@@ -337,8 +340,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
               onClick={() => setMobileMenuOpen(true)} 
               className="md:hidden p-1.5 rounded-lg flex-shrink-0"
               style={{ color: 'var(--text-muted)' }}
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
+              whileHover={reducedMotion ? {} : { scale: 1.1 }}
+              whileTap={reducedMotion ? {} : { scale: 0.9 }}
+              aria-label="Abrir menu"
             >
               <Menu size={20} />
             </motion.button>
@@ -369,7 +373,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                   boxShadow: searchOpen ? '0 0 0 3px var(--accent-10)' : 'none',
                 }}
                 onClick={() => { if (!searchOpen) { setSearchOpen(true); setTimeout(() => searchInputRef.current?.focus(), 50); } }}
-                whileHover={!searchOpen ? { scale: 1.02 } : {}}
+                whileHover={reducedMotion || searchOpen ? {} : { scale: 1.02 }}
               >
                 <Search size={14} className="ml-3 flex-shrink-0" style={{ color: 'var(--text-faint)' }} />
                 {searchOpen
@@ -404,8 +408,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
                               initial={{ opacity: 0, x: -10 }}
                               animate={{ opacity: 1, x: 0 }}
                               transition={{ ...springSmooth, delay: index * 0.05 }}
-                              whileHover={{ backgroundColor: 'var(--bg-elevated)' }}
-                              whileTap={{ scale: 0.98 }}
+                              whileHover={reducedMotion ? {} : { backgroundColor: 'var(--bg-elevated)' }}
+                              whileTap={reducedMotion ? {} : { scale: 0.98 }}
                             >
                               {Icon && <Icon size={16} style={{ color: 'var(--text-faint)' }} />}
                               <div className="min-w-0 flex-1">
@@ -448,8 +452,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
               onClick={() => setDrawerOpen(true)}
               className="relative w-8 h-8 flex items-center justify-center rounded-xl flex-shrink-0"
               style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
-              whileHover={{ scale: 1.1, borderColor: 'var(--border-strong)' }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={reducedMotion ? {} : { scale: 1.1, borderColor: 'var(--border-strong)' }}
+              whileTap={reducedMotion ? {} : { scale: 0.95 }}
+              aria-label={`Notificações${totalNaoLidas > 0 ? ` (${totalNaoLidas} não lidas)` : ''}`}
             >
               <Bell size={17} />
               <AnimatePresence>
@@ -473,8 +478,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
               <motion.button 
                 onClick={() => setAvatarDropdownOpen(p => !p)} 
                 className="flex items-center gap-1.5"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+                whileHover={reducedMotion ? {} : { scale: 1.05 }}
+                whileTap={reducedMotion ? {} : { scale: 0.95 }}
               >
                 <motion.div 
                   className="w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0"

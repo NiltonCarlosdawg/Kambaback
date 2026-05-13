@@ -22,7 +22,7 @@ const getSocket = (): Socket | null => globalSocket;
 const createSocket = (token: string): Socket => {
   if (globalSocket?.connected) return globalSocket;
 
-  const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:3333';
+  const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3333';
 
   globalSocket = io(baseURL, {
     auth: { token },

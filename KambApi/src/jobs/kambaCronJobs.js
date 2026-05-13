@@ -1,32 +1,50 @@
-process.env.TZ = 'UTC'; 
+process.env.TZ = 'UTC';
 
 const cron = require('node-cron');
 const Proatividade = require('../modules/kamba/services/kambaProatividadeService');
 const prisma = require('../lib/prisma');
+const logger = require('../utils/logger');
 
 /**
  * Configura todas as tarefas agendadas do Kamba
  */
+const runningJobs = new Set();
+
+const withLock = (name, fn) => {
+  return async () => {
+    if (runningJobs.has(name)) {
+      console.log(`[CRON] Job ${name} já em execução. Ignorando...`);
+      return;
+    }
+    runningJobs.add(name);
+    try {
+      await fn();
+    } finally {
+      runningJobs.delete(name);
+    }
+  };
+};
+
 const iniciarCronJobs = () => {
-  
+
   // ==========================================
   // 1. ANÁLISE DIÁRIA (todo dia às 08:00 UTC)
   // ==========================================
-  cron.schedule('0 8 * * *', async () => {
-    console.log('[CRON] Iniciando análise diária do Kamba...');
+  cron.schedule('0 8 * * *', withLock('analise-diaria', async () => {
+    logger.info('[CRON] Iniciando análise diária do Kamba...');
     try {
       await Proatividade.executarAnaliseDiaria();
-      console.log('[CRON] Análise diária concluída com sucesso!');
+      logger.info('[CRON] Análise diária concluída com sucesso!');
     } catch (err) {
-      console.error('[CRON] Erro na análise diária:', err.message, err.stack);
+      logger.error({ err }, '[CRON] Erro na análise diária');
     }
-  });
+  }));
 
   // ==========================================
   // 2. LEMBRETE SEMANAL (segunda-feira às 09:00 UTC)
   // ==========================================
-  cron.schedule('0 9 * * 1', async () => {
-    console.log('[CRON] Iniciando envio de lembretes semanais...');
+  cron.schedule('0 9 * * 1', withLock('lembretes-semanais', async () => {
+    logger.info('[CRON] Iniciando envio de lembretes semanais...');
     try {
       const usuarios = await prisma.user.findMany({
         where: { ativo: true },
@@ -34,7 +52,7 @@ const iniciarCronJobs = () => {
       });
 
       if (usuarios.length === 0) {
-        console.log('[CRON] Nenhum usuário ativo encontrado. Pulando lembretes.');
+        logger.info('[CRON] Nenhum usuário ativo encontrado. Pulando lembretes.');
         return;
       }
 
@@ -42,11 +60,11 @@ const iniciarCronJobs = () => {
         await Proatividade.analisarECriarLembretes(user.id);
       }
 
-      console.log(`[CRON] Lembretes criados/enviados para ${usuarios.length} usuários`);
+      logger.info(`[CRON] Lembretes criados/enviados para ${usuarios.length} usuários`);
     } catch (err) {
-      console.error('[CRON] Erro nos lembretes semanais:', err.message, err.stack);
+      logger.error({ err }, '[CRON] Erro nos lembretes semanais');
     }
-  });
+  }));
 
   // ==========================================
   // 3. LIMPEZA DE CACHE (a cada 30 minutos)
@@ -83,7 +101,7 @@ const iniciarCronJobs = () => {
       try {
         stats = await prisma.kambaUsage.aggregate({
           where: {
-            timestamp: { gte: inicioMes, lte: fimMes }
+            criadoEm: { gte: inicioMes, lte: fimMes }
           },
           _sum: { tokens: true },
           _avg: { latencia: true },
@@ -114,7 +132,7 @@ const iniciarCronJobs = () => {
     }
   });
 
-  console.log('✅ Todos os cron jobs do Kamba foram iniciados (timezone forçado: UTC)');
+  logger.info('✅ Todos os cron jobs do Kamba foram iniciados (timezone forçado: UTC)');
 };
 
 module.exports = { iniciarCronJobs };

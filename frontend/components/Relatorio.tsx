@@ -77,7 +77,7 @@ const fmt = (v: number) => {
   return `${v.toFixed(0)} Kz`;
 };
 
-const fmtFull = (v: number) =>
+  const fmtFull = (v: number) =>
   v?.toLocaleString('pt-AO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' Kz';
 
 const CORES = ['#cbfb46', '#3b82f6', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6', '#06b6d4', '#ec4899'];
@@ -151,8 +151,8 @@ const Relatorio: React.FC = () => {
     setError('');
     try {
       const [resHistorico, resTop, resDash] = await Promise.all([
-        api.get<HistoricoResponse>(`/dashboard/historico?periodo=${periodo}`),
-        api.get('/dashboard/top-categorias'),
+        api.get<HistoricoResponse>(`/insights/historico?periodo=${periodo}`),
+        api.get('/insights/top-categorias'),
         api.get('/dashboard/resumo'),
       ]);
 
@@ -171,6 +171,27 @@ const Relatorio: React.FC = () => {
   }, [periodo]);
 
   useEffect(() => { fetchTudo(); }, [fetchTudo]);
+
+  const exportCSV = () => {
+    if (!historico.length) return;
+    const headers = ['Período', 'Receitas', 'Despesas', 'Poupanca Liquida', 'Taxa Poupanca (%)'];
+    const rows = historico.map(h => [
+      h.periodo,
+      h.receitas,
+      h.despesas,
+      h.poupancaLiquida,
+      h.taxaPoupanca?.toFixed(2)
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `relatorio-${periodo}-${new Date().toISOString().slice(0,10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const esteMes = dashData?.esteMes;
   const totalGastoCategorias = topCategorias.reduce((a, c) => a + c.valor, 0);
@@ -453,7 +474,16 @@ const Relatorio: React.FC = () => {
             <h3 className="text-white font-black text-base flex items-center gap-2">
               <Calendar className="w-4 h-4 text-[#cbfb46]" /> Histórico Detalhado
             </h3>
-            <span className="text-white/30 text-xs">{periodoAtual?.descricao}</span>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={exportCSV}
+                className="text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors hover:bg-white/5"
+                style={{ color: 'var(--accent)', borderColor: 'var(--accent-20)' }}
+              >
+                Exportar CSV
+              </button>
+              <span className="text-white/30 text-xs">{periodoAtual?.descricao}</span>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">

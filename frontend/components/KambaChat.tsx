@@ -20,6 +20,7 @@ import {
 } from 'react-icons/io5';
 import api from '../services/api';
 import useSocket from '../hooks/useSocket';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -265,7 +266,7 @@ function SidePanel({ onClose, onSend, socketConectado }: {
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
         <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">Atalhos & Dicas</span>
-        <button onClick={onClose} className="rounded-full p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors">
+        <button onClick={onClose} className="rounded-full p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors" aria-label="Fechar chat">
           <IoCloseOutline size={16} />
         </button>
       </div>
@@ -372,6 +373,7 @@ function SidePanel({ onClose, onSend, socketConectado }: {
 // ─── ROOT ─────────────────────────────────────────────────────────────────────
 
 const KambaChat: React.FC = () => {
+  const reducedMotion = useReducedMotion();
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const stored = loadStoredMessages();
@@ -828,12 +830,14 @@ const KambaChat: React.FC = () => {
                   className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-500/30 hover:bg-violet-500 disabled:opacity-40 transition-all"
                   whileHover={{ scale: 1.06 }}
                   whileTap={{ scale: 0.94 }}
+                  aria-label="Enviar mensagem"
                 >
                   <IoPaperPlaneOutline size={14} />
                 </motion.button>
               ) : (
                 <button
                   className="flex h-8 w-8 items-center justify-center rounded-full text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"
+                  aria-label="Usar microfone"
                 >
                   <IoMicOutline size={17} />
                 </button>

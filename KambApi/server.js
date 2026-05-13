@@ -15,10 +15,27 @@ const mongoSanitize = require('express-mongo-sanitize');
 const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const prisma = require('./src/lib/prisma');
+const logger = require('./src/utils/logger');
 
 // ==========================================
 // 2. IMPORTA MIDDLEWARES
 // ==========================================
+const swaggerUi = require('swagger-ui-express');
+const swaggerJsdoc = require('swagger-jsdoc');
+
+const swaggerOptions = {
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'KambaPro API',
+      version: '1.0.0',
+      description: 'API REST para gestão financeira angolana'
+    },
+    servers: [{ url: '/api' }]
+  },
+  apis: ['./src/modules/**/*.js']
+};
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
 const { limiteAuth } = require('./src/middleware/rateLimiter');
 
 // ==========================================
@@ -88,6 +105,7 @@ const corsOrigins = process.env.NODE_ENV === 'production'
 
 app.use(cors({
   origin: (origin, callback) => {
+    if (!origin && process.env.NODE_ENV !== 'production') return callback(null, true);
     if (!origin) return callback(new Error('CORS: Origin não fornecido'), false);
     if (corsOrigins.includes(origin)) {
       callback(null, true);
@@ -158,6 +176,7 @@ app.get('/health', async (req, res) => {
 // ==========================================
 // 8. ROTAS (com rate limiting global)
 // ==========================================
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/api', globalRateLimiter);
 app.use('/api/auth', limiteAuth, authRoutes);
 app.use('/api/kamba', kambaRoutes);
@@ -183,20 +202,21 @@ app.use(errorHandler);
 const startServer = async () => {
   try {
     await prisma.$connect();
-    console.log('PostgreSQL conectado');
+    logger.info('PostgreSQL conectado');
 
     await inicializarSocket(server);
-    console.log('WebSocket inicializado');
+    logger.info('WebSocket inicializado');
 
     iniciarCronJobs();
-    console.log('Cron jobs iniciados');
+    logger.info('Cron jobs iniciados');
 
     server.listen(PORT, () => {
-      console.log(`\n Servidor online na porta ${PORT}`);
-      console.log(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
-      console.log('WebSocket ativo em /socket.io/');
-      console.log('Rate limiting: GLOBAL + /api/auth');
-      console.log('Notificações em tempo real: ATIVAS\n');
+      logger.info(`Servidor online na porta ${PORT}`);
+      logger.info(`Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      logger.info('WebSocket ativo em /socket.io/');
+      logger.info('Rate limiting: GLOBAL + /api/auth');
+      logger.info('Notificações em tempo real: ATIVAS');
+      logger.info(`Documentação Swagger em http://localhost:${PORT}/api-docs`);
     });
 
     // Graceful shutdown

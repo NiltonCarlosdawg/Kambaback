@@ -145,7 +145,8 @@ const NotificacoesDrawer: React.FC<NotificacoesDrawerProps> = ({
               className="w-8 h-8 flex items-center justify-center rounded-lg transition-all"
               style={{ color: 'var(--text-faint)' }}
               onMouseEnter={e => { (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; (e.currentTarget).style.color = 'var(--text-primary)'; }}
-              onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; (e.currentTarget).style.color = 'var(--text-faint)'; }}>
+              onMouseLeave={e => { (e.currentTarget).style.backgroundColor = 'transparent'; (e.currentTarget).style.color = 'var(--text-faint)'; }}
+              aria-label="Fechar notificações">
               <X size={20} />
             </button>
           </div>

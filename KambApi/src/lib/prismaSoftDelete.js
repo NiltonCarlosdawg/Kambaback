@@ -72,11 +72,11 @@ const prismaNoDeleted = {
   softDelete: {
     gasto: (args) => prisma.gasto.update({
       where: args.where,
-      data: { excluido: true, ativo: false }
+      data: { excluido: true }
     }),
     cartao: (args) => prisma.cartao.update({
       where: args.where,
-      data: { excluido: true, ativo: false }
+      data: { excluido: true }
     }),
     objetivo: (args) => prisma.objetivo.update({
       where: args.where,

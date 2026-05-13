@@ -6,6 +6,7 @@ import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
 import { RuixenStatsChart } from './ui/ruixen-stats';
+import { SkeletonCard, SkeletonChart, SkeletonRow } from './ui/Skeleton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Objetivo { id: string; titulo: string; valorAtual: number | string; valorAlvo: number | string; cor?: string; porcentagemDistribuicao?: number; dataPrevista?: string; }
@@ -346,21 +347,19 @@ const Dashboard: React.FC = () => {
   };
 
   if (loading) return (
-    <motion.div 
-      className="flex h-full items-center justify-center"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      <div className="flex flex-col items-center gap-3">
-        <motion.div 
-          className="w-8 h-8 rounded-full border-2 border-t-transparent" 
-          style={{ borderColor: 'var(--accent)', borderTopColor: 'transparent' }}
-          animate={{ rotate: 360 }}
-          transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
-        />
-        <p className="text-sm" style={{ color: 'var(--text-muted)' }}>A carregar os teus dados…</p>
+    <div className="space-y-6 p-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <SkeletonCard />
+        <SkeletonCard />
+        <SkeletonCard />
       </div>
-    </motion.div>
+      <SkeletonChart />
+      <div className="space-y-2">
+        <SkeletonRow />
+        <SkeletonRow />
+        <SkeletonRow />
+      </div>
+    </div>
   );
 
   if (error && !data) return (

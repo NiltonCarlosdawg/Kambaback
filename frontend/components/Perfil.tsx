@@ -97,7 +97,7 @@ const Perfil: React.FC = () => {
     if (novaSenha.length < 8) return setFeedback({ type: 'error', msg: 'Senha deve ter pelo menos 8 caracteres.' });
     setSavingPwd(true); setFeedback(null);
     try {
-      const { data } = await api.patch('/auth/perfil', { senhaAtual, novaSenha });
+      const { data } = await api.post('/auth/alterar-senha', { senhaAtual, novaSenha });
       if (data.success) { setFeedback({ type: 'success', msg: 'Senha alterada com sucesso!' }); setSenhaAtual(''); setNovaSenha(''); setConfirmSenha(''); }
     } catch (e: any) { setFeedback({ type: 'error', msg: e.response?.data?.error?.message || 'Senha atual incorreta.' }); }
     finally { setSavingPwd(false); }

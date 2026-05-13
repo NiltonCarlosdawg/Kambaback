@@ -54,7 +54,7 @@ api.interceptors.response.use(
         // Refresh failed - logout user
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
-        window.location.href = '/login'; // Melhor que hash para SPA
+        window.dispatchEvent(new CustomEvent('auth:logout'));
       }
     }
 

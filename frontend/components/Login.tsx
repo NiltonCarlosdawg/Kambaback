@@ -2,6 +2,19 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, ShieldCheck, Mail, Lock, ArrowRight, Sparkles } from 'lucide-react';
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        oauth2: {
+          initTokenClient: (config: any) => { requestAccessToken: () => void };
+        };
+      };
+    };
+  }
+}
+
 import api from '../services/api';
 import { AuthResponse } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -124,17 +137,21 @@ const SocialButton: React.FC<{
   icon: React.ReactNode; 
   label: string; 
   onClick?: () => void;
-}> = ({ icon, label, onClick }) => {
+  disabled?: boolean;
+}> = ({ icon, label, onClick, disabled }) => {
   
   return (
     <motion.button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className="flex items-center justify-center gap-3 w-full h-[48px] rounded-xl border-2"
       style={{
         backgroundColor: 'transparent',
         borderColor: 'var(--border)',
         color: 'var(--text-primary)',
+        opacity: disabled ? 0.6 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
       }}
       whileHover={{ 
         scale: 1.02, 
@@ -171,9 +188,79 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
   const [loading,      setLoading]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [gisReady, setGisReady] = useState(Boolean(window.google?.accounts?.oauth2));
+  const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+
+  const loginComGoogle = () => {
+    console.log('[GOOGLE] Iniciando login...');
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Google OAuth não configurado. Configura VITE_GOOGLE_CLIENT_ID no .env');
+      return;
+    }
+    if (!window.google?.accounts?.oauth2) {
+      setError('Biblioteca Google ainda a carregar. Tenta novamente em alguns segundos.');
+      return;
+    }
+    setError('');
+
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: 'openid profile email',
+      callback: async (response) => {
+        if (response.error) {
+          console.error('[GOOGLE] Erro:', response.error);
+          setError('Login com Google cancelado.');
+          return;
+        }
+        console.log('[GOOGLE] Token obtido');
+        setLoading(true);
+        try {
+          const { data } = await api.post<AuthResponse>('/auth/google', {
+            access_token: response.access_token
+          });
+          if (data.success) {
+            localStorage.setItem('accessToken', data.accessToken);
+            if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+            const authUser = data.user ?? data.usuario;
+            if (!authUser) {
+              setError('Resposta de autenticação inválida.');
+              return;
+            }
+            onLoginSuccess(authUser);
+          }
+        } catch (err: any) {
+          setError(err.response?.data?.mensagem || 'Erro ao entrar com Google.');
+        } finally {
+          setLoading(false);
+        }
+      },
+      error_callback: (err) => {
+        console.error('[GOOGLE] Erro:', err);
+        setError('Erro no login com Google.');
+      },
+    });
+    client.requestAccessToken();
+  };
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const markReady = () => setGisReady(true);
+    const markError = () => setGisReady(false);
+
+    window.addEventListener('google-gis-ready', markReady);
+    window.addEventListener('google-gis-error', markError);
+
+    if (window.google?.accounts?.oauth2) {
+      setGisReady(true);
+    }
+
+    return () => {
+      window.removeEventListener('google-gis-ready', markReady);
+      window.removeEventListener('google-gis-error', markError);
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -186,7 +273,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
       if (data.success) {
         localStorage.setItem('accessToken', data.accessToken);
         if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
-        onLoginSuccess(data.user);
+        const authUser = data.user ?? data.usuario;
+        if (!authUser) {
+          setError('Resposta de autenticação inválida.');
+          return;
+        }
+        onLoginSuccess(authUser);
       }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Erro ao entrar. Verifica os dados.');
@@ -364,6 +456,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
                 label="Endereço de email"
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="email@exemplo.com"
@@ -380,6 +473,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     required
+                    autoComplete="current-password"
                     value={senha}
                     onChange={e => setSenha(e.target.value)}
                     placeholder="••••••••"
@@ -499,6 +593,11 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
               <SocialButton 
                 icon={<GoogleIcon />} 
                 label="Google" 
+                disabled={!gisReady || loading}
+                onClick={() => {
+                  console.log('[GOOGLE] Botão clicado');
+                  loginComGoogle();
+                }}
               />
               <SocialButton 
                 icon={<AppleIcon />} 
