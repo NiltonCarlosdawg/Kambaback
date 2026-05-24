@@ -1,86 +1,131 @@
-// services/core/rateLimiter.js
-// Rate limiting em memória (preparado para Redis no futuro)
-
-const limites = new Map();
+const redisClient = require("./redisClient");
 
 const MAX_REQUESTS = 15;
-const RATE_WINDOW = 60 * 1000; // 1 minuto
+const RATE_WINDOW = 60;
 
-/**
- * Verifica se o utilizador está dentro do rate limit
- * @param {string} usuarioId - ID do utilizador
- * @returns {Object} { bloqueado: boolean, tentarEm: number }
- */
-const verificar = (usuarioId) => {
+const PREFIXO = "ratelimit:";
+
+const verificar = async (usuarioId) => {
+  const chave = `${PREFIXO}${usuarioId}`;
+
+  if (redisClient.isDisponivel()) {
+    try {
+      const count = await redisClient.incr(chave);
+      if (count === 1) {
+        await redisClient.expire(chave, RATE_WINDOW);
+      }
+
+      if (count > MAX_REQUESTS) {
+        const ttlRemaining = await redisClient.ttl(chave);
+        return {
+          bloqueado: true,
+          tentarEm: ttlRemaining > 0 ? ttlRemaining : 0,
+        };
+      }
+
+      return { bloqueado: false, tentarEm: 0 };
+    } catch {
+      /* fallback memory */
+    }
+  }
+
+  return verificarEmMemoria(usuarioId);
+};
+
+const limitesMemoria = new Map();
+
+const verificarEmMemoria = (usuarioId) => {
   const agora = Date.now();
-  const userLimit = limites.get(usuarioId) || { count: 0, resetAt: agora + RATE_WINDOW };
+  const windowMs = RATE_WINDOW * 1000;
+  const userLimit = limitesMemoria.get(usuarioId) || {
+    count: 0,
+    resetAt: agora + windowMs,
+  };
 
   if (agora > userLimit.resetAt) {
     userLimit.count = 0;
-    userLimit.resetAt = agora + RATE_WINDOW;
+    userLimit.resetAt = agora + windowMs;
   }
 
   if (userLimit.count >= MAX_REQUESTS) {
-    return { 
-      bloqueado: true, 
-      tentarEm: Math.ceil((userLimit.resetAt - agora) / 1000) 
+    return {
+      bloqueado: true,
+      tentarEm: Math.ceil((userLimit.resetAt - agora) / 1000),
     };
   }
 
   userLimit.count++;
-  limites.set(usuarioId, userLimit);
-
+  limitesMemoria.set(usuarioId, userLimit);
   return { bloqueado: false, tentarEm: 0 };
 };
 
-/**
- * Obtém o estado actual do rate limit de um utilizador
- * @param {string} usuarioId - ID do utilizador
- * @returns {Object} Estado do rate limit
- */
-const getEstado = (usuarioId) => {
+const getEstado = async (usuarioId) => {
+  const chave = `${PREFIXO}${usuarioId}`;
+
+  if (redisClient.isDisponivel()) {
+    try {
+      const count = await redisClient.get(chave);
+      const ttlRemaining = await redisClient.ttl(chave);
+
+      return {
+        count: count || 0,
+        limit: MAX_REQUESTS,
+        resetAt:
+          ttlRemaining > 0
+            ? Date.now() + ttlRemaining * 1000
+            : Date.now() + RATE_WINDOW * 1000,
+        remaining: Math.max(0, MAX_REQUESTS - (count || 0)),
+        redis: true,
+      };
+    } catch {
+      /* fallback */
+    }
+  }
+
+  return getEstadoMemoria(usuarioId);
+};
+
+const getEstadoMemoria = (usuarioId) => {
   const agora = Date.now();
-  const userLimit = limites.get(usuarioId);
-  
+  const userLimit = limitesMemoria.get(usuarioId);
+
   if (!userLimit) {
-    return { count: 0, limit: MAX_REQUESTS, resetAt: agora + RATE_WINDOW };
+    return {
+      count: 0,
+      limit: MAX_REQUESTS,
+      resetAt: agora + RATE_WINDOW * 1000,
+      redis: false,
+    };
   }
 
   return {
     count: userLimit.count,
     limit: MAX_REQUESTS,
     resetAt: userLimit.resetAt,
-    remaining: Math.max(0, MAX_REQUESTS - userLimit.count)
+    remaining: Math.max(0, MAX_REQUESTS - userLimit.count),
+    redis: false,
   };
 };
 
-/**
- * Reseta o rate limit de um utilizador
- * @param {string} usuarioId - ID do utilizador
- */
-const reset = (usuarioId) => {
-  limites.delete(usuarioId);
-};
+const reset = async (usuarioId) => {
+  const chave = `${PREFIXO}${usuarioId}`;
 
-/**
- * Limpa entradas expiradas do rate limiter
- */
-const limparExpirados = () => {
-  const agora = Date.now();
-  for (const [usuarioId, limit] of limites.entries()) {
-    if (agora > limit.resetAt) {
-      limites.delete(usuarioId);
+  if (redisClient.isDisponivel()) {
+    try {
+      await redisClient.del(chave);
+      return;
+    } catch {
+      /* fallback */
     }
   }
-};
 
-// Limpar expirados a cada 5 minutos
-setInterval(limparExpirados, 5 * 60 * 1000);
+  limitesMemoria.delete(usuarioId);
+};
 
 module.exports = {
   verificar,
   getEstado,
   reset,
   MAX_REQUESTS,
-  RATE_WINDOW
+  RATE_WINDOW,
 };

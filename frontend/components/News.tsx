@@ -1,6 +1,6 @@
 // src/components/News.tsx
 import React, { useEffect, useState } from 'react';
-import { Calendar, Cpu, ExternalLink, Globe, Newspaper, RefreshCw, TrendingUp } from 'lucide-react';
+import { Calendar, Cpu, ExternalLink, Globe, Landmark, MapPin, Newspaper, RefreshCw } from 'lucide-react';
 import api from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -32,26 +32,55 @@ const SectionHeader: React.FC<{ title: string; subtitle?: string; right?: React.
 const News: React.FC = () => {
   const { formatDate } = useTheme();
   const [artigos,    setArtigos]    = useState<Artigo[]>([]);
+  const [resumo,      setResumo]      = useState<string | null>(null);
+  const [resumoOffline, setResumoOffline] = useState(false);
+  const [artigosUsados, setArtigosUsados] = useState(0);
   const [loading,    setLoading]    = useState(true);
-  const [categoria,  setCategoria]  = useState('business');
+  const [loadingResumo, setLoadingResumo] = useState(false);
+  const [categoria,  setCategoria]  = useState('angola');
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
 
-  useEffect(() => { fetchNoticias(); }, [categoria]);
+  useEffect(() => { 
+    fetchNoticias();
+    fetchResumo();
+  }, [categoria]);
 
   const fetchNoticias = async () => {
     try {
       setLoading(true);
       const { data } = await api.get(`/noticias?categoria=${categoria}`);
-      setArtigos(data.artigos || []);
-      if (data.atualizadoEm) setLastUpdate(new Date(data.atualizadoEm).toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' }));
-    } catch { /* silent */ }
+      const noticiasData = data.data || {};
+      setArtigos(noticiasData.artigos || []);
+      if (noticiasData.atualizadoEm) setLastUpdate(new Date(noticiasData.atualizadoEm).toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' }));
+    } catch (err) {
+      console.error('Erro ao buscar notícias:', err);
+      setArtigos([]);
+    }
     finally { setLoading(false); }
   };
 
+  const fetchResumo = async () => {
+    try {
+      setLoadingResumo(true);
+      const { data } = await api.get(`/noticias/resumo?categoria=${categoria}`);
+      const resumoData = data.data || {};
+      setResumo(resumoData.resumo || null);
+      setResumoOffline(resumoData.offline || false);
+      setArtigosUsados(resumoData.artigosUsados || 0);
+    } catch (err) {
+      console.error('Erro ao buscar resumo:', err);
+      setResumo(null);
+      setResumoOffline(false);
+      setArtigosUsados(0);
+    } finally {
+      setLoadingResumo(false);
+    }
+  };
+
   const categorias = [
-    { id: 'business',   label: 'Negócios',   Icon: TrendingUp   },
-    { id: 'technology', label: 'Tecnologia', Icon: Cpu  },
-    { id: 'general',    label: 'Mundo',      Icon: Globe         },
+    { id: 'angola',  label: 'Angola',      Icon: MapPin     },
+    { id: 'global',  label: 'Economia Global', Icon: Globe      },
+    { id: 'mercados', label: 'Mercados',    Icon: Landmark   },
   ];
 
   return (
@@ -66,7 +95,7 @@ const News: React.FC = () => {
             Notícias & Insights
           </h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-faint)' }}>
-            Fica a par do que move a economia {lastUpdate && `· Atualizado às ${lastUpdate}`}
+            Angola, economia global e mercados financeiros {lastUpdate && `· Atualizado às ${lastUpdate}`}
           </p>
         </div>
 
@@ -84,7 +113,7 @@ const News: React.FC = () => {
             </button>
           ))}
           <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border)' }} />
-          <button onClick={fetchNoticias} title="Atualizar"
+          <button onClick={() => { fetchNoticias(); fetchResumo(); }} title="Atualizar"
             className="w-8 h-8 flex items-center justify-center rounded-xl transition-all"
             style={{ color: 'var(--text-faint)' }}
             onMouseEnter={e => { (e.currentTarget).style.color = 'var(--accent)'; (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
@@ -93,6 +122,48 @@ const News: React.FC = () => {
           </button>
         </Card>
       </div>
+
+      {/* AI Summary Section */}
+      {(loadingResumo || resumo) && (
+        <Card className="p-0 overflow-hidden" style={{ 
+          backgroundColor: 'var(--bg-elevated)', 
+          border: '1px solid var(--border)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
+        }}>
+          <div className="px-6 py-5">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="p-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent)', opacity: 0.15 }}>
+                <Cpu size={16} style={{ color: 'var(--accent)' }} />
+              </div>
+              <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Análise Económica · Kamba AI</span>
+            </div>
+            
+            {loadingResumo ? (
+              <div className="space-y-2">
+                <div className="h-4 rounded w-3/4 animate-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
+                <div className="h-4 rounded w-1/2 animate-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
+              </div>
+            ) : (
+              <>
+                <div className="text-sm leading-relaxed whitespace-pre-line font-medium italic" style={{ color: 'var(--text-primary)' }}>
+                  "{resumo}"
+                </div>
+                <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+                  {resumoOffline ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-faint)' }}>
+                      ⚠️ Dados offline
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)', opacity: 0.15, color: 'var(--accent)' }}>
+                      {artigosUsados} notícias analisadas
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      )}
 
       {/* Grid */}
       {loading ? (

@@ -1,73 +1,91 @@
 // services/core/cacheService.js
-// Cache de respostas com TTL
+// Cache de respostas com Redis + fallback em memória
 
-const NodeCache = require('node-cache');
+const NodeCache = require("node-cache");
+const redisClient = require("./redisClient");
 
-const cache = new NodeCache({ 
-  stdTTL: 5 * 60, // 5 minutos
-  checkperiod: 60, // Verifica a cada 60s
-  useClones: false
+const cacheMemoria = new NodeCache({
+  stdTTL: 5 * 60,
+  checkperiod: 60,
+  useClones: false,
 });
 
-/**
- * Gera uma chave de cache baseada no utilizador e mensagem
- * @param {string} usuarioId - ID do utilizador
- * @param {string} mensagem - Mensagem
- * @returns {string} Chave de cache
- */
+const CACHE_TTL_PADRAO = 5 * 60;
+
 const gerarChave = (usuarioId, mensagem) => {
-  return `${usuarioId}:${mensagem.toLowerCase().trim()}`;
+  return `cache:${usuarioId}:${mensagem.toLowerCase().trim()}`;
 };
 
-/**
- * Verifica se existe uma resposta cacheada
- * @param {string} usuarioId - ID do utilizador
- * @param {string} mensagem - Mensagem
- * @returns {string|null} Resposta cacheada ou null
- */
-const verificar = (usuarioId, mensagem) => {
+const verificar = async (usuarioId, mensagem) => {
   const chave = gerarChave(usuarioId, mensagem);
-  return cache.get(chave) || null;
+
+  if (redisClient.isDisponivel()) {
+    try {
+      const valor = await redisClient.get(chave);
+      if (valor !== null) return valor;
+    } catch {
+      /* fallback */
+    }
+  }
+
+  return cacheMemoria.get(chave) || null;
 };
 
-/**
- * Guarda uma resposta no cache
- * @param {string} usuarioId - ID do utilizador
- * @param {string} mensagem - Mensagem
- * @param {string} resposta - Resposta a guardar
- * @param {number} ttl - Tempo de vida em segundos (opcional)
- */
-const guardar = (usuarioId, mensagem, resposta, ttl = null) => {
+const guardar = async (usuarioId, mensagem, resposta, ttl = null) => {
   const chave = gerarChave(usuarioId, mensagem);
-  cache.set(chave, resposta, ttl);
+  const ttlFinal = ttl || CACHE_TTL_PADRAO;
+
+  if (redisClient.isDisponivel()) {
+    try {
+      await redisClient.set(chave, resposta, ttlFinal);
+      return;
+    } catch {
+      /* fallback */
+    }
+  }
+
+  cacheMemoria.set(chave, resposta, ttlFinal);
 };
 
-/**
- * Limpa o cache de um utilizador
- * @param {string} usuarioId - ID do utilizador
- */
-const limpar = (usuarioId) => {
-  const keys = cache.keys();
-  const userKeys = keys.filter(k => k.startsWith(`${usuarioId}:`));
-  cache.del(userKeys);
+const limpar = async (usuarioId) => {
+  if (redisClient.isDisponivel()) {
+    try {
+      const keys = await redisClient.keys(`cache:${usuarioId}:*`);
+      for (const key of keys) {
+        await redisClient.del(key);
+      }
+    } catch {
+      /* fallback */
+    }
+  }
+
+  const keys = cacheMemoria
+    .keys()
+    .filter((k) => k.startsWith(`cache:${usuarioId}:`));
+  cacheMemoria.del(keys);
 };
 
-/**
- * Limpa todo o cache
- */
-const limparTudo = () => {
-  cache.flushAll();
+const limparTudo = async () => {
+  if (redisClient.isDisponivel()) {
+    try {
+      const keys = await redisClient.keys("cache:*");
+      for (const key of keys) {
+        await redisClient.del(key);
+      }
+    } catch {
+      /* fallback */
+    }
+  }
+
+  cacheMemoria.flushAll();
 };
 
-/**
- * Obtém estatísticas do cache
- * @returns {Object} Estatísticas
- */
 const getEstatisticas = () => {
   return {
-    keys: cache.keys().length,
-    hits: cache.getStats().hits,
-    misses: cache.getStats().misses
+    keys: cacheMemoria.keys().length,
+    hits: cacheMemoria.getStats().hits,
+    misses: cacheMemoria.getStats().misses,
+    redisDisponivel: redisClient.isDisponivel(),
   };
 };
 
@@ -76,5 +94,5 @@ module.exports = {
   guardar,
   limpar,
   limparTudo,
-  getEstatisticas
+  getEstatisticas,
 };
