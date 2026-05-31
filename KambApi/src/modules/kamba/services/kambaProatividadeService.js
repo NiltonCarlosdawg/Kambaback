@@ -1,11 +1,16 @@
 // src/services/kambaProatividadeService.js
 
-const prisma = require('../../../lib/prisma');
-const { emitirLembrete } = require('../../../websocket/socketConfig');
-const NotificacaoService = require('../../users/services/notificacaoService');
-const { detectarPadroes } = require('./ai/patternDetectionService');
-const { gerarPrevisoes } = require('./ai/predictionService');
-const { getConceitoAleatorio, getDicaDiaria, getDesafioMensal, buscarConceito } = require('./ai/educacaoFinanceira');
+const prisma = require("../../../lib/prisma");
+const { emitirLembrete } = require("../../../websocket/socketConfig");
+const NotificacaoService = require("../../users/services/notificacaoService");
+const { detectarPadroes } = require("./ai/patternDetectionService");
+const { gerarPrevisoes } = require("./ai/predictionService");
+const {
+  getConceitoAleatorio,
+  getDicaDiaria,
+  getDesafioMensal,
+  buscarConceito,
+} = require("./ai/educacaoFinanceira");
 
 // ==========================================
 // SISTEMA DE PROATIVIDADE DO KAMBA
@@ -16,13 +21,13 @@ const { getConceitoAleatorio, getDicaDiaria, getDesafioMensal, buscarConceito } 
  */
 const getTituloPorTipo = (tipo) => {
   const titulos = {
-    'gasto_alto': '⚠️ Gasto Elevado',
-    'objetivo_perto': '⏰ Meta Próxima',
-    'fundo_baixo': '🛡️ Fundo de Emergência Baixo',
-    'balanco_semanal': '📊 Balanço Semanal',
-    'dica_economia': '💡 Dica de Economia'
+    gasto_alto: "⚠️ Gasto Elevado",
+    objetivo_perto: "⏰ Meta Próxima",
+    fundo_baixo: "🛡️ Fundo de Emergência Baixo",
+    balanco_semanal: "📊 Balanço Semanal",
+    dica_economia: "💡 Dica de Economia",
   };
-  return titulos[tipo] || '🔔 Notificação';
+  return titulos[tipo] || "🔔 Notificação";
 };
 
 /**
@@ -39,13 +44,15 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
         tipo,
         enviado: false,
         dataHora: {
-          gte: new Date(Date.now() - 24 * 60 * 60 * 1000)
-        }
-      }
+          gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
+        },
+      },
     });
 
     if (jaExiste) {
-      console.log(`[LEMBRETE] Já existe lembrete '${tipo}' para user ${usuarioId} nas últimas 24h`);
+      console.log(
+        `[LEMBRETE] Já existe lembrete '${tipo}' para user ${usuarioId} nas últimas 24h`,
+      );
       return null;
     }
 
@@ -60,8 +67,8 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
         mensagem,
         dataHora: new Date(),
         enviado: false,
-        lido: false
-      }
+        lido: false,
+      },
     });
 
     // Emissões secundárias (não-críticas): falhas aqui não afectam o lembrete criado
@@ -70,30 +77,35 @@ const criarLembrete = async (usuarioId, tipo, mensagem) => {
       tipo: lembrete.tipo,
       titulo: lembrete.titulo,
       mensagem: lembrete.mensagem,
-      dataHora: lembrete.dataHora
+      dataHora: lembrete.dataHora,
     };
 
     // Emite WebSocket (fire-and-forget seguro)
     Promise.resolve()
       .then(() => emitirLembrete(usuarioId, payload))
-      .catch(err => console.error('[LEMBRETE] Erro no WebSocket:', err.message));
+      .catch((err) =>
+        console.error("[LEMBRETE] Erro no WebSocket:", err.message),
+      );
 
     // Cria notificação persistente (fire-and-forget seguro)
     Promise.resolve()
-      .then(() => NotificacaoService.criarNotificacao(
-        usuarioId,
-        `LEMBRETE_${tipo.toUpperCase()}`,
-        titulo,
-        mensagem,
-        { lembreteId: lembrete.id }
-      ))
-      .catch(err => console.error('[LEMBRETE] Erro ao criar notificação:', err.message));
+      .then(() =>
+        NotificacaoService.criarNotificacao(
+          usuarioId,
+          `LEMBRETE_${tipo.toUpperCase()}`,
+          titulo,
+          mensagem,
+          { lembreteId: lembrete.id },
+        ),
+      )
+      .catch((err) =>
+        console.error("[LEMBRETE] Erro ao criar notificação:", err.message),
+      );
 
     console.log(`[LEMBRETE] Criado: ${tipo} para user ${usuarioId}`);
     return lembrete;
-
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao criar:', err.message);
+    console.error("[LEMBRETE] Erro ao criar:", err.message);
     return null;
   }
 };
@@ -113,14 +125,14 @@ const analisarECriarLembretes = async (usuarioId) => {
           usuarioId,
           data: { gte: inicioMes },
           excluido: false,
-          tipo: 'DESPESA'
+          tipo: "DESPESA",
         },
-        select: { valor: true }
+        select: { valor: true },
       }),
       prisma.user.findUnique({
         where: { id: usuarioId },
-        select: { rendaMensalMedia: true }
-      })
+        select: { rendaMensalMedia: true },
+      }),
     ]);
 
     if (!user) {
@@ -134,8 +146,10 @@ const analisarECriarLembretes = async (usuarioId) => {
     // 1. ALERTA DE GASTOS ALTOS (>80% da renda)
     if (renda > 0 && totalGasto > renda * 0.8) {
       const percentual = Math.round((totalGasto / renda) * 100);
-      await criarLembrete(usuarioId, 'gasto_alto',
-        `⚠️ Atenção, kamba! Já gastaste ${totalGasto.toLocaleString('pt-AO')} AOA este mês (${percentual}% da tua renda). Controla o kumbú! 💸`
+      await criarLembrete(
+        usuarioId,
+        "gasto_alto",
+        `⚠️ Atenção, kamba! Já gastaste ${totalGasto.toLocaleString("pt-AO")} AOA este mês (${percentual}% da tua renda). Controla o kumbú! 💸`,
       );
     }
 
@@ -147,9 +161,9 @@ const analisarECriarLembretes = async (usuarioId) => {
         excluido: false,
         dataPrevista: {
           gte: agora,
-          lte: new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000)
-        }
-      }
+          lte: new Date(agora.getTime() + 7 * 24 * 60 * 60 * 1000),
+        },
+      },
     });
 
     for (const obj of objetivosProximos) {
@@ -159,9 +173,11 @@ const analisarECriarLembretes = async (usuarioId) => {
 
       const progresso = (valorAtual / valorAlvo) * 100;
       if (progresso < 80) {
-        const falta = (valorAlvo - valorAtual).toLocaleString('pt-AO');
-        await criarLembrete(usuarioId, 'objetivo_perto',
-          `⏰ Meta "${obj.titulo}" vence em breve com apenas ${progresso.toFixed(0)}% concluído! Faltam ${falta} AOA. Bora acelerar? 🚀`
+        const falta = (valorAlvo - valorAtual).toLocaleString("pt-AO");
+        await criarLembrete(
+          usuarioId,
+          "objetivo_perto",
+          `⏰ Meta "${obj.titulo}" vence em breve com apenas ${progresso.toFixed(0)}% concluído! Faltam ${falta} AOA. Bora acelerar? 🚀`,
         );
       }
     }
@@ -173,33 +189,41 @@ const analisarECriarLembretes = async (usuarioId) => {
         ativo: true,
         excluido: false,
         OR: [
-          { tipo: 'POUPANCA' },
-          { nome: { contains: 'Reserva', mode: 'insensitive' } },
-          { nome: { contains: 'Emergência', mode: 'insensitive' } },
-          { nome: { contains: 'Emergencia', mode: 'insensitive' } }
-        ]
+          { tipo: "POUPANCA" },
+          { nome: { contains: "Reserva", mode: "insensitive" } },
+          { nome: { contains: "Emergência", mode: "insensitive" } },
+          { nome: { contains: "Emergencia", mode: "insensitive" } },
+        ],
       },
-      select: { saldoAtual: true }
+      select: { saldoAtual: true },
     });
 
-    const reservaTotal = cartoes.reduce((acc, c) => acc + Number(c.saldoAtual), 0);
+    const reservaTotal = cartoes.reduce(
+      (acc, c) => acc + Number(c.saldoAtual),
+      0,
+    );
 
     if (reservaTotal > 0) {
       const diasNoMes = Math.max(agora.getDate(), 1);
       const gastoMedioDiario = totalGasto / diasNoMes;
-      const mesesReserva = gastoMedioDiario > 0 ? reservaTotal / (gastoMedioDiario * 30) : 0;
+      const mesesReserva =
+        gastoMedioDiario > 0 ? reservaTotal / (gastoMedioDiario * 30) : 0;
 
       if (mesesReserva < 3) {
-        await criarLembrete(usuarioId, 'fundo_baixo',
-          `🛡️ O teu fundo de emergência cobre apenas ${mesesReserva.toFixed(1)} meses. O ideal são 6 meses! Bora reforçar, kamba? 💪`
+        await criarLembrete(
+          usuarioId,
+          "fundo_baixo",
+          `🛡️ O teu fundo de emergência cobre apenas ${mesesReserva.toFixed(1)} meses. O ideal são 6 meses! Bora reforçar, kamba? 💪`,
         );
       }
     }
 
     // 4. BALANÇO SEMANAL (às segundas-feiras)
     if (agora.getDay() === 1) {
-      await criarLembrete(usuarioId, 'balanco_semanal',
-        `📊 Bom dia, kamba! Nova semana, nova oportunidade. Já registaste todos os gastos da semana passada? Mantém tudo actualizado! 👊`
+      await criarLembrete(
+        usuarioId,
+        "balanco_semanal",
+        `📊 Bom dia, kamba! Nova semana, nova oportunidade. Já registaste todos os gastos da semana passada? Mantém tudo actualizado! 👊`,
       );
     }
 
@@ -207,11 +231,11 @@ const analisarECriarLembretes = async (usuarioId) => {
     try {
       const { padroes, insights } = await detectarPadroes(usuarioId);
       for (const insight of insights) {
-        if (insight.tipo === 'velocidade_alta') {
-          await criarLembrete(usuarioId, 'velocidade_alta', insight.mensagem);
+        if (insight.tipo === "velocidade_alta") {
+          await criarLembrete(usuarioId, "velocidade_alta", insight.mensagem);
         }
-        if (insight.tipo === 'gasto_crescente') {
-          await criarLembrete(usuarioId, 'gasto_crescente', insight.mensagem);
+        if (insight.tipo === "gasto_crescente") {
+          await criarLembrete(usuarioId, "gasto_crescente", insight.mensagem);
         }
       }
     } catch (err) {
@@ -222,11 +246,11 @@ const analisarECriarLembretes = async (usuarioId) => {
     try {
       const previsoes = await gerarPrevisoes(usuarioId);
       for (const pv of previsoes) {
-        if (pv.tipo === 'bater_parede' || pv.tipo === 'ja_bateu') {
-          await criarLembrete(usuarioId, 'previsao_bater_parede', pv.mensagem);
+        if (pv.tipo === "bater_parede" || pv.tipo === "ja_bateu") {
+          await criarLembrete(usuarioId, "previsao_bater_parede", pv.mensagem);
         }
-        if (pv.tipo === 'categoria_acima') {
-          await criarLembrete(usuarioId, 'categoria_acima', pv.mensagem);
+        if (pv.tipo === "categoria_acima") {
+          await criarLembrete(usuarioId, "categoria_acima", pv.mensagem);
         }
       }
     } catch (err) {
@@ -234,7 +258,6 @@ const analisarECriarLembretes = async (usuarioId) => {
     }
 
     console.log(`[PROATIVIDADE] Análise concluída para user ${usuarioId}`);
-
   } catch (err) {
     console.error(`[PROATIVIDADE] Erro para user ${usuarioId}:`, err.message);
   }
@@ -249,13 +272,13 @@ const buscarLembretesPendentes = async (usuarioId) => {
       where: {
         usuarioId,
         enviado: false,
-        dataHora: { lte: new Date() }
+        dataHora: { lte: new Date() },
       },
-      orderBy: { dataHora: 'asc' },
-      take: 3
+      orderBy: { dataHora: "asc" },
+      take: 3,
     });
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao buscar pendentes:', err.message);
+    console.error("[LEMBRETE] Erro ao buscar pendentes:", err.message);
     return [];
   }
 };
@@ -263,28 +286,38 @@ const buscarLembretesPendentes = async (usuarioId) => {
 /**
  * Marca lembrete como enviado (foi incluído numa resposta)
  */
-const marcarLembreteEnviado = async (lembreteId) => {
+const marcarLembreteEnviado = async (lembreteId, usuarioId) => {
   try {
-    await prisma.kambaLembrete.update({
-      where: { id: lembreteId },
-      data: { enviado: true }
+    const resultado = await prisma.kambaLembrete.updateMany({
+      where: { id: lembreteId, usuarioId },
+      data: { enviado: true },
     });
+    if (resultado.count === 0) {
+      console.warn(
+        `[LEMBRETE] Tentativa de marcar lembrete ${lembreteId} sem ownership (user ${usuarioId})`,
+      );
+    }
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao marcar enviado:', err.message);
+    console.error("[LEMBRETE] Erro ao marcar enviado:", err.message);
   }
 };
 
 /**
  * Marca lembrete como lido pelo utilizador
  */
-const marcarLembreteLido = async (lembreteId) => {
+const marcarLembreteLido = async (lembreteId, usuarioId) => {
   try {
-    await prisma.kambaLembrete.update({
-      where: { id: lembreteId },
-      data: { lido: true }
+    const resultado = await prisma.kambaLembrete.updateMany({
+      where: { id: lembreteId, usuarioId },
+      data: { lido: true },
     });
+    if (resultado.count === 0) {
+      console.warn(
+        `[LEMBRETE] Tentativa de marcar lembrete ${lembreteId} sem ownership (user ${usuarioId})`,
+      );
+    }
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao marcar lido:', err.message);
+    console.error("[LEMBRETE] Erro ao marcar lido:", err.message);
   }
 };
 
@@ -299,7 +332,7 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
       return respostaOriginal;
     }
 
-    let respostaComLembretes = respostaOriginal + '\n\n---\n';
+    let respostaComLembretes = respostaOriginal + "\n\n---\n";
 
     for (const lembrete of lembretes) {
       respostaComLembretes += `\n${lembrete.titulo}\n${lembrete.mensagem}\n`;
@@ -308,9 +341,8 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
     }
 
     return respostaComLembretes;
-
   } catch (err) {
-    console.error('[LEMBRETE] Erro ao adicionar na resposta:', err.message);
+    console.error("[LEMBRETE] Erro ao adicionar na resposta:", err.message);
     return respostaOriginal; // Retorna original em caso de erro (nunca falha a resposta)
   }
 };
@@ -320,11 +352,11 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
  */
 const executarAnaliseDiaria = async () => {
   try {
-    console.log('[CRON] Iniciando análise proativa diária...');
+    console.log("[CRON] Iniciando análise proativa diária...");
 
     const usuarios = await prisma.user.findMany({
       where: { ativo: true },
-      select: { id: true }
+      select: { id: true },
     });
 
     let processados = 0;
@@ -339,13 +371,14 @@ const executarAnaliseDiaria = async () => {
         console.error(`[CRON] Erro para user ${user.id}:`, err.message);
       }
       // Delay entre processamentos para não sobrecarregar o BD
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
 
-    console.log(`[CRON] Análise concluída: ${processados} OK, ${erros} erros de ${usuarios.length} users`);
-
+    console.log(
+      `[CRON] Análise concluída: ${processados} OK, ${erros} erros de ${usuarios.length} users`,
+    );
   } catch (err) {
-    console.error('[CRON] Erro crítico:', err.message);
+    console.error("[CRON] Erro crítico:", err.message);
   }
 };
 
@@ -361,42 +394,44 @@ const gerarDicaProativa = async (usuarioId) => {
         usuarioId,
         data: { gte: mes30DiasAtras },
         excluido: false,
-        tipo: 'DESPESA'
+        tipo: "DESPESA",
       },
-      include: { categoria: { select: { nome: true } } }
+      include: { categoria: { select: { nome: true } } },
     });
 
     if (gastos.length === 0) return null;
 
     // Agrupa por categoria
     const porCategoria = gastos.reduce((acc, g) => {
-      const cat = g.categoria?.nome || 'Geral';
+      const cat = g.categoria?.nome || "Geral";
       if (!acc[cat]) acc[cat] = { total: 0, count: 0 };
       acc[cat].total += Number(g.valor);
       acc[cat].count++;
       return acc;
     }, {});
 
-    const topEntry = Object.entries(porCategoria)
-      .sort((a, b) => b[1].total - a[1].total)[0];
+    const topEntry = Object.entries(porCategoria).sort(
+      (a, b) => b[1].total - a[1].total,
+    )[0];
 
     if (!topEntry) return null;
 
     const [catMaisGasta, dados] = topEntry;
-    const valorFmt = dados.total.toLocaleString('pt-AO');
+    const valorFmt = dados.total.toLocaleString("pt-AO");
 
     const dicasPorCategoria = {
-      'Alimentação': `💡 Notei que gastas muito em Alimentação (${valorFmt} AOA/mês). Que tal cozinhar mais em casa? Podes poupar até 40% desse valor!`,
-      'Transporte': `💡 Transporte tá a pesar, kamba (${valorFmt} AOA/mês). Considera combinar viagens com colegas ou usar o candongueiro nalgumas rotas!`,
-      'Lazer': `💡 ${valorFmt} AOA em Lazer! Estás a curtir, mas garante que não falta no fim do mês. Um limite mensal ajuda bastante. 🎯`,
-      'Saúde': `💡 Investir em Saúde é importante! ${valorFmt} AOA/mês é bastante. Já pensaste num plano de saúde ou clínica de confiança?`
+      Alimentação: `💡 Notei que gastas muito em Alimentação (${valorFmt} AOA/mês). Que tal cozinhar mais em casa? Podes poupar até 40% desse valor!`,
+      Transporte: `💡 Transporte tá a pesar, kamba (${valorFmt} AOA/mês). Considera combinar viagens com colegas ou usar o candongueiro nalgumas rotas!`,
+      Lazer: `💡 ${valorFmt} AOA em Lazer! Estás a curtir, mas garante que não falta no fim do mês. Um limite mensal ajuda bastante. 🎯`,
+      Saúde: `💡 Investir em Saúde é importante! ${valorFmt} AOA/mês é bastante. Já pensaste num plano de saúde ou clínica de confiança?`,
     };
 
-    return dicasPorCategoria[catMaisGasta] ||
-      `💡 A categoria "${catMaisGasta}" já vai em ${valorFmt} AOA este mês. Tá dentro do teu orçamento?`;
-
+    return (
+      dicasPorCategoria[catMaisGasta] ||
+      `💡 A categoria "${catMaisGasta}" já vai em ${valorFmt} AOA este mês. Tá dentro do teu orçamento?`
+    );
   } catch (err) {
-    console.error('[DICA] Erro:', err.message);
+    console.error("[DICA] Erro:", err.message);
     return null;
   }
 };
@@ -418,5 +453,5 @@ module.exports = {
   getConceitoAleatorio,
   getDicaDiaria,
   getDesafioMensal,
-  buscarConceito
+  buscarConceito,
 };

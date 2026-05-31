@@ -1,34 +1,115 @@
+/**
+ * NOTA ARQUITECTURAL: Este embedding é baseado em n-grams + hash determinístico.
+ * NÃO é semântico — apenas detecta similaridade lexical (palavras parecidas).
+ * Para similaridade semântica real, substituir pela API de embeddings do Groq/OpenAI:
+ *   POST /openai/v1/embeddings (model: text-embedding-ada-002 ou equivalent)
+ *
+ * TODO: Migrar para API embeddings quando latência de rede Angola → API for aceitável.
+ * SIMILARIDADE_MINIMA deve ser aumentada de 0.25 para 0.7 após migração.
+ */
 const DIMENSIONS = 384;
 
 const hashString = (str) => {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash;
   }
   return Math.abs(hash);
 };
 
 const tokenizar = (texto) => {
-  return texto.toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
-    .filter(w => w.length > 1 && !STOPWORDS.has(w));
+    .filter((w) => w.length > 1 && !STOPWORDS.has(w));
 };
 
 const STOPWORDS = new Set([
-  'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'para', 'com',
-  'um', 'uma', 'uns', 'umas', 'o', 'a', 'os', 'as', 'é', 'e',
-  'que', 'se', 'por', 'ao', 'aos', 'à', 'às', 'tem', 'têm',
-  'ser', 'mais', 'mas', 'foi', 'são', 'está', 'estão', 'como',
-  'já', 'muito', 'pode', 'vai', 'ter', 'meu', 'minha', 'teu',
-  'tua', 'seu', 'sua', 'isso', 'isto', 'aquele', 'aquela',
-  'quem', 'quando', 'onde', 'porque', 'só', 'sim', 'não',
-  'pra', 'pro', 'tudo', 'saber', 'fazer', 'dizer', 'querer',
-  'entre', 'depois', 'antes', 'sempre', 'nunca', 'aqui', 'ali',
-  'lá', 'cá', 'também', 'ainda', 'bem', 'mal', 'até',
+  "de",
+  "da",
+  "do",
+  "das",
+  "dos",
+  "em",
+  "no",
+  "na",
+  "para",
+  "com",
+  "um",
+  "uma",
+  "uns",
+  "umas",
+  "o",
+  "a",
+  "os",
+  "as",
+  "é",
+  "e",
+  "que",
+  "se",
+  "por",
+  "ao",
+  "aos",
+  "à",
+  "às",
+  "tem",
+  "têm",
+  "ser",
+  "mais",
+  "mas",
+  "foi",
+  "são",
+  "está",
+  "estão",
+  "como",
+  "já",
+  "muito",
+  "pode",
+  "vai",
+  "ter",
+  "meu",
+  "minha",
+  "teu",
+  "tua",
+  "seu",
+  "sua",
+  "isso",
+  "isto",
+  "aquele",
+  "aquela",
+  "quem",
+  "quando",
+  "onde",
+  "porque",
+  "só",
+  "sim",
+  "não",
+  "pra",
+  "pro",
+  "tudo",
+  "saber",
+  "fazer",
+  "dizer",
+  "querer",
+  "entre",
+  "depois",
+  "antes",
+  "sempre",
+  "nunca",
+  "aqui",
+  "ali",
+  "lá",
+  "cá",
+  "também",
+  "ainda",
+  "bem",
+  "mal",
+  "até",
 ]);
 
 const gerarEmbedding = (texto) => {
@@ -95,5 +176,5 @@ const calcularSimilaridade = (vecA, vecB) => {
 module.exports = {
   gerarEmbedding,
   calcularSimilaridade,
-  DIMENSIONS
+  DIMENSIONS,
 };

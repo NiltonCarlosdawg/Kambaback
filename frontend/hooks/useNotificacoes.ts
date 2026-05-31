@@ -1,5 +1,16 @@
 // src/hooks/useNotificacoes.ts
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { 
+  Bell, 
+  AlertTriangle, 
+  Clock, 
+  Target, 
+  ShieldAlert, 
+  BarChart3, 
+  Wallet, 
+  Info,
+  CheckCircle2
+} from 'lucide-react';
 import api from '../services/api';
 
 export interface Notificacao {
@@ -97,31 +108,41 @@ export const useNotificacoes = () => {
 // Helpers
 const getTituloParaTipo = (tipo: string): string => {
   const map: Record<string, string> = {
-    'NOVO_LEMBRETE': '🔔 Lembrete',
-    'LEMBRETE_GASTO_ALTO': '⚠️ Gasto Elevado',
-    'LEMBRETE_OBJETIVO_PERTO': '⏰ Meta Próxima',
-    'LEMBRETE_FUNDO_BAIXO': '🛡️ Fundo Baixo',
-    'LEMBRETE_BALANCO_SEMANAL': '📊 Balanço Semanal',
-    'ALERTA_GASTO_ALTO': '⚠️ Alerta de Gasto',
-    'PROGRESSO_OBJETIVO': '🎯 Progresso da Meta',
-    'ATUALIZACAO_SALDO': '💰 Saldo Atualizado',
-    'NOTIFICACAO_SISTEMA': 'ℹ️ Sistema',
+    'NOVO_LEMBRETE': 'Lembrete',
+    'LEMBRETE_GASTO_ALTO': 'Gasto Elevado',
+    'LEMBRETE_OBJETIVO_PERTO': 'Meta Próxima',
+    'LEMBRETE_FUNDO_BAIXO': 'Fundo Baixo',
+    'LEMBRETE_BALANCO_SEMANAL': 'Balanço Semanal',
+    'ALERTA_GASTO_ALTO': 'Alerta de Gasto',
+    'PROGRESSO_OBJETIVO': 'Progresso da Meta',
+    'ATUALIZACAO_SALDO': 'Saldo Atualizado',
+    'NOTIFICACAO_SISTEMA': 'Sistema',
   };
-  return map[tipo] || '🔔 Notificação';
+  return map[tipo] || 'Notificação';
 };
 
-export const getIconeParaTipo = (tipo: string): string => {
-  const map: Record<string, string> = {
-    'LEMBRETE_GASTO_ALTO': '⚠️',
-    'ALERTA_GASTO_ALTO': '⚠️',
-    'LEMBRETE_OBJETIVO_PERTO': '⏰',
-    'PROGRESSO_OBJETIVO': '🎯',
-    'LEMBRETE_FUNDO_BAIXO': '🛡️',
-    'LEMBRETE_BALANCO_SEMANAL': '📊',
-    'ATUALIZACAO_SALDO': '💰',
-    'NOTIFICACAO_SISTEMA': 'ℹ️',
-  };
-  return map[tipo] || '🔔';
+export const getIconeParaTipo = (tipo: string): React.ReactNode => {
+  switch (tipo) {
+    case 'LEMBRETE_GASTO_ALTO':
+    case 'ALERTA_GASTO_ALTO':
+      return React.createElement(AlertTriangle, { size: 16 });
+    case 'LEMBRETE_OBJETIVO_PERTO':
+      return React.createElement(Clock, { size: 16 });
+    case 'PROGRESSO_OBJETIVO':
+      return React.createElement(Target, { size: 16 });
+    case 'LEMBRETE_FUNDO_BAIXO':
+      return React.createElement(ShieldAlert, { size: 16 });
+    case 'LEMBRETE_BALANCO_SEMANAL':
+      return React.createElement(BarChart3, { size: 16 });
+    case 'ATUALIZACAO_SALDO':
+      return React.createElement(Wallet, { size: 16 });
+    case 'NOTIFICACAO_SISTEMA':
+      return React.createElement(Info, { size: 16 });
+    case 'CONCLUIDO':
+      return React.createElement(CheckCircle2, { size: 16 });
+    default:
+      return React.createElement(Bell, { size: 16 });
+  }
 };
 
 export const getCorParaTipo = (tipo: string): string => {

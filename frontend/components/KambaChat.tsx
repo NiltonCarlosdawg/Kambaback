@@ -1,8 +1,7 @@
 // src/components/KambaChat.tsx
-// — Visual melhorado inspirado no AnimatedAIChat (fundo escuro, glassmorphism, Framer Motion)
-// — Sem lista lateral de conversas (chat full-width)
-// — Conversa persistida em sessionStorage (sobrevive a navegação na mesma aba)
-// — No mount, tenta carregar histórico do backend via GET /kamba/historico
+// — Visual alinhado ao design system da KambaPro
+// — Glassmorphism, Framer Motion e cores baseadas em variáveis CSS
+// — Conversa persistida em sessionStorage e histórico carregado do backend
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,11 +15,12 @@ import {
   IoWarningOutline, IoCheckmarkCircleOutline,
   IoArrowRedoOutline, IoPersonOutline,
   IoCreateOutline, IoAddOutline,
-  IoAttachOutline,
 } from 'react-icons/io5';
-import api from '../services/api';
+import kambaService from '../services/kambaService';
 import useSocket from '../hooks/useSocket';
 import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useTheme } from '../contexts/ThemeContext';
+import { springBouncy, springSmooth } from './ui/animations/variants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -145,14 +145,14 @@ function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
     <>
       {text.split('\n').map((line, li) => {
         if (line === '---') return (
-          <div key={li} className={cx('my-2 border-t', isUser ? 'border-white/20' : 'border-white/10')} />
+          <div key={li} className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />
         );
         const parts = line.split('**');
         return (
           <p key={li} className={li > 0 ? 'mt-1' : ''}>
             {parts.map((part, i) =>
               i % 2 === 1
-                ? <strong key={i} className="font-semibold text-white">{part}</strong>
+                ? <strong key={i} className="font-bold" style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}>{part}</strong>
                 : part
             )}
           </p>
@@ -163,41 +163,31 @@ function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
 }
 
 function FinancialCardInline({ card }: { card: FinancialCard }) {
-  const styles: Record<string, string> = {
-    balance: 'border-blue-500/30 bg-blue-500/10',
-    alert:   'border-amber-500/30 bg-amber-500/10',
-    goal:    'border-emerald-500/30 bg-emerald-500/10',
-    tip:     'border-violet-500/30 bg-violet-500/10',
+  const styles: Record<string, { border: string; bg: string; text: string; icon: string }> = {
+    balance: { border: 'rgba(59,130,246,0.2)', bg: 'rgba(59,130,246,0.1)', text: 'var(--text-primary)', icon: '#60a5fa' },
+    alert:   { border: 'rgba(245,158,11,0.2)', bg: 'rgba(245,158,11,0.1)', text: 'var(--text-primary)', icon: '#f59e0b' },
+    goal:    { border: 'rgba(16,185,129,0.2)', bg: 'rgba(16,185,129,0.1)', text: 'var(--text-primary)', icon: '#10b981' },
+    tip:     { border: 'var(--border-strong)', bg: 'var(--bg-elevated)',   text: 'var(--text-primary)', icon: 'var(--accent)' },
   };
-  const iconColor: Record<string, string> = {
-    balance: 'text-blue-400',
-    alert:   'text-amber-400',
-    goal:    'text-emerald-400',
-    tip:     'text-violet-400',
-  };
-  const barColor: Record<string, string> = {
-    balance: 'bg-blue-400',
-    alert:   'bg-amber-400',
-    goal:    'bg-emerald-400',
-    tip:     'bg-violet-400',
-  };
+  const s = styles[card.type] ?? styles.tip;
   return (
-    <div className={cx('mt-2.5 rounded-xl border p-3', styles[card.type] ?? styles.tip)}>
+    <div className="mt-2.5 rounded-xl border p-3 shadow-sm" style={{ borderColor: s.border, backgroundColor: s.bg }}>
       <div className="flex items-center gap-2 mb-1.5">
-        <span className={iconColor[card.type]}>{card.icon}</span>
-        <span className="text-[11px] font-bold text-white/80 uppercase tracking-wider">{card.title}</span>
+        <span style={{ color: s.icon }}>{card.icon}</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest opacity-70" style={{ color: 'var(--text-primary)' }}>{card.title}</span>
       </div>
-      {card.value    && <p className="text-base font-bold text-white">{card.value}</p>}
-      {card.subtitle && <p className="text-[11px] text-white/50 mt-0.5">{card.subtitle}</p>}
+      {card.value    && <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>{card.value}</p>}
+      {card.subtitle && <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>{card.subtitle}</p>}
       {card.progress !== undefined && (
         <div className="mt-2">
           <div className="flex justify-between mb-1">
-            <span className="text-[10px] text-white/40">Progresso</span>
-            <span className="text-[10px] font-semibold text-white/70">{card.progress}%</span>
+            <span className="text-[10px]" style={{ color: 'var(--text-faint)' }}>Progresso</span>
+            <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>{card.progress}%</span>
           </div>
-          <div className="h-1 rounded-full bg-white/10 overflow-hidden">
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--bg-base)' }}>
             <motion.div
-              className={cx('h-full rounded-full', barColor[card.type] ?? 'bg-violet-400')}
+              className="h-full rounded-full"
+              style={{ backgroundColor: s.icon }}
               initial={{ width: 0 }}
               animate={{ width: `${Math.min(100, card.progress)}%` }}
               transition={{ duration: 0.8, ease: 'easeOut' }}
@@ -214,8 +204,9 @@ function FluxoBadge({ tipo }: { tipo: string }) {
     criar_meta: '🎯 Criar Meta', registar_gasto: '💸 Registar Gasto', analise_mensal: '📊 Análise',
   };
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/20 px-2 py-0.5 text-[10px] font-semibold text-violet-300 border border-violet-500/30">
-      <span className="h-1 w-1 rounded-full bg-violet-400 animate-pulse" />
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border"
+      style={{ backgroundColor: 'var(--accent-10)', color: 'var(--accent)', borderColor: 'var(--accent-20)' }}>
+      <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
       {labels[tipo] ?? 'Fluxo activo'}
     </span>
   );
@@ -225,21 +216,24 @@ function TypingDots() {
   return (
     <div className="flex justify-start">
       <div className="shrink-0 mr-2.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[10px] font-bold text-white shadow-lg shadow-violet-500/30">✦</div>
+        <div className="flex h-8 w-8 items-center justify-center rounded-xl font-bold shadow-lg"
+          style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}>✦</div>
       </div>
-      <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm border border-white/[0.08] bg-white/[0.04] backdrop-blur-xl px-4 py-3 shadow-sm">
-        <span className="text-violet-400 animate-pulse"><IoSparklesOutline size={11} /></span>
+      <div className="flex items-center gap-2 rounded-2xl rounded-bl-sm border px-4 py-3 shadow-sm backdrop-blur-xl"
+        style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-surface)' }}>
+        <span className="animate-pulse" style={{ color: 'var(--accent)' }}><IoSparklesOutline size={12} /></span>
         <div className="flex gap-1">
           {[0, 160, 320].map(d => (
             <motion.div
               key={d}
-              className="w-1.5 h-1.5 rounded-full bg-violet-400"
+              className="w-1.5 h-1.5 rounded-full"
+              style={{ backgroundColor: 'var(--accent)' }}
               animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.1, 0.8] }}
               transition={{ duration: 1.2, repeat: Infinity, delay: d / 1000, ease: 'easeInOut' }}
             />
           ))}
         </div>
-        <span className="text-[11px] text-white/30 select-none">A pensar…</span>
+        <span className="text-[11px] select-none ml-1" style={{ color: 'var(--text-faint)' }}>A pensar…</span>
       </div>
     </div>
   );
@@ -257,31 +251,36 @@ function SidePanel({ onClose, onSend, socketConectado }: {
 
   return (
     <motion.div
-      className="flex h-full w-64 shrink-0 flex-col overflow-y-auto border-l border-white/[0.06] bg-black/40 backdrop-blur-2xl"
-      initial={{ x: 64, opacity: 0 }}
+      className="flex h-full w-64 shrink-0 flex-col overflow-y-auto border-l backdrop-blur-2xl"
+      style={{ borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--bg-base) 80%, transparent)' }}
+      initial={{ x: 240, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 64, opacity: 0 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
+      exit={{ x: 240, opacity: 0 }}
+      transition={springSmooth}
     >
       {/* Header */}
-      <div className="shrink-0 flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
-        <span className="text-[10px] font-bold uppercase tracking-widest text-white/30">Atalhos & Dicas</span>
-        <button onClick={onClose} className="rounded-full p-1 text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors" aria-label="Fechar chat">
-          <IoCloseOutline size={16} />
+      <div className="shrink-0 flex items-center justify-between border-b px-5 py-4" style={{ borderColor: 'var(--border)' }}>
+        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Atalhos & Dicas</span>
+        <button onClick={onClose} className="rounded-lg p-1 transition-colors" style={{ color: 'var(--text-faint)' }} aria-label="Fechar painel">
+          <IoCloseOutline size={18} className="hover:text-white" />
         </button>
       </div>
 
       {/* Avatar */}
-      <div className="shrink-0 flex flex-col items-center px-5 py-6 border-b border-white/[0.06]">
-        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-xl font-bold text-white shadow-lg shadow-violet-500/30 ring-4 ring-violet-500/10">✦</div>
-        <h3 className="text-sm font-bold text-white">Kamba AI</h3>
-        <p className="mt-0.5 text-[11px] text-white/40">Assistente Financeiro</p>
-        <div className="mt-2">
+      <div className="shrink-0 flex flex-col items-center px-5 py-6 border-b" style={{ borderColor: 'var(--border)' }}>
+        <motion.div 
+          className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold shadow-xl"
+          style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}
+          whileHover={{ scale: 1.05, rotate: 5 }}
+        >✦</motion.div>
+        <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Kamba AI</h3>
+        <p className="mt-0.5 text-[11px]" style={{ color: 'var(--text-faint)' }}>Assistente Financeiro</p>
+        <div className="mt-3">
           <span className={cx(
-            'rounded-full px-2.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+            'rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider border transition-all',
             socketConectado
-              ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-400/20'
-              : 'bg-white/[0.04] text-white/40 ring-white/10'
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
           )}>
             {socketConectado ? '● Online' : '○ Offline'}
           </span>
@@ -289,23 +288,24 @@ function SidePanel({ onClose, onSend, socketConectado }: {
       </div>
 
       {/* Perguntas rápidas */}
-      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Perguntas rápidas</p>
+      <div className="shrink-0 px-3 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <p className="text-[10px] font-bold uppercase tracking-widest px-2 mb-3" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Perguntas rápidas</p>
         <div className="space-y-1">
           {SUGGESTIONS.map((s, i) => (
             <button key={i} onClick={() => onSend(s.cmd)}
-              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[12px] font-medium text-white/50 hover:bg-white/[0.06] hover:text-white/90 transition-all">
-              <span className="text-violet-400 shrink-0">{s.icon}</span>
-              <span className="truncate">{s.label}</span>
-              <span className="ml-auto shrink-0 text-white/20"><IoArrowRedoOutline size={10} /></span>
+              className="w-full flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[12px] font-semibold transition-all hover:bg-white/[0.04]"
+              style={{ color: 'var(--text-muted)' }}>
+              <span style={{ color: 'var(--accent)' }} className="shrink-0">{s.icon}</span>
+              <span className="truncate flex-1">{s.label}</span>
+              <IoArrowRedoOutline size={12} className="opacity-20" />
             </button>
           ))}
         </div>
       </div>
 
       {/* Fluxos guiados */}
-      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Fluxos Guiados</p>
+      <div className="shrink-0 px-3 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <p className="text-[10px] font-bold uppercase tracking-widest px-2 mb-3" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Fluxos Guiados</p>
         <div className="space-y-1">
           {[
             { icon: <IoFlashOutline size={12} />,      label: 'Criar meta financeira',   cmd: 'criar meta' },
@@ -313,8 +313,12 @@ function SidePanel({ onClose, onSend, socketConectado }: {
             { icon: <IoBarChartOutline size={12} />,   label: 'Análise completa do mês', cmd: 'análise do mês' },
           ].map((f, i) => (
             <button key={i} onClick={() => onSend(f.cmd)}
-              className="w-full flex items-center gap-2.5 rounded-xl border border-white/[0.06] px-3 py-2.5 text-left text-[12px] font-medium text-white/50 hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-300 transition-all">
-              <span className="text-violet-400/70 shrink-0">{f.icon}</span>
+              className="w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left text-[12px] font-bold transition-all"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', backgroundColor: 'var(--bg-surface)' }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-30)'; e.currentTarget.style.backgroundColor = 'var(--accent-10)'; e.currentTarget.style.color = 'var(--accent)'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.backgroundColor = 'var(--bg-surface)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+            >
+              <span className="shrink-0">{f.icon}</span>
               <span className="truncate">{f.label}</span>
             </button>
           ))}
@@ -322,45 +326,47 @@ function SidePanel({ onClose, onSend, socketConectado }: {
       </div>
 
       {/* Notas */}
-      <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
-        <div className="flex items-center justify-between mb-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/25">Notas</p>
-          <button onClick={() => setEditNotes(!editNotes)} className="rounded p-0.5 text-white/30 hover:text-white/60 transition-colors">
-            <IoCreateOutline size={13} />
+      <div className="shrink-0 px-4 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Notas</p>
+          <button onClick={() => setEditNotes(!editNotes)} className="rounded p-1 transition-colors hover:bg-white/10" style={{ color: 'var(--text-faint)' }}>
+            <IoCreateOutline size={14} />
           </button>
         </div>
         {editNotes ? (
           <div className="space-y-2">
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3}
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[12px] text-white/80 outline-none focus:border-violet-500/40 focus:ring-1 focus:ring-violet-500/20 resize-none placeholder:text-white/20"
+              className="w-full rounded-xl border px-3 py-2 text-[12px] outline-none transition-all resize-none"
+              style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
               placeholder="Escreve a tua nota..." />
             <div className="flex gap-2">
-              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg border border-white/[0.08] py-1.5 text-[11px] font-medium text-white/40 hover:bg-white/[0.04] transition-colors">Cancelar</button>
-              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg bg-violet-600 py-1.5 text-[11px] font-medium text-white hover:bg-violet-500 transition-colors">Guardar</button>
+              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg py-1.5 text-[11px] font-bold border transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>Cancelar</button>
+              <button onClick={() => setEditNotes(false)} className="flex-1 rounded-lg py-1.5 text-[11px] font-bold transition-colors shadow-sm"
+                style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>Guardar</button>
             </div>
           </div>
         ) : notes ? (
-          <p className="text-[12px] leading-relaxed text-white/40">{notes}</p>
+          <p className="text-[12px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>{notes}</p>
         ) : (
-          <button onClick={() => setEditNotes(true)} className="flex items-center gap-1.5 text-[12px] text-white/25 hover:text-white/50 transition-colors">
-            <IoAddOutline size={13} /> Adicionar nota...
+          <button onClick={() => setEditNotes(true)} className="flex items-center gap-1.5 text-[12px] transition-colors" style={{ color: 'var(--text-faint)' }}>
+            <IoAddOutline size={14} /> Adicionar nota...
           </button>
         )}
       </div>
 
       {/* Dicas */}
       <div className="flex-1 px-4 py-4">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-white/25 mb-3">Dicas</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest mb-3" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Dicas</p>
         <div className="space-y-2">
           {[
             'Usa **⏎** para enviar rapidamente.',
-            'Digita **"ajuda"** para ver todos os comandos.',
-            'Diz **"cancelar"** para sair de um fluxo.',
-            'O Kamba nunca armazena **senhas** ou **PINs**.',
+            'Digita **"ajuda"** para ver comandos.',
+            'Diz **"cancelar"** para sair de fluxos.',
           ].map((tip, i) => (
-            <div key={i} className="rounded-xl bg-white/[0.03] border border-white/[0.05] px-3 py-2.5">
-              <p className="text-[11px] leading-relaxed text-white/35">
-                {tip.split('**').map((p, j) => j % 2 === 1 ? <strong key={j} className="text-white/60">{p}</strong> : p)}
+            <div key={i} className="rounded-xl border px-3 py-2.5" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+              <p className="text-[11px] leading-relaxed" style={{ color: 'var(--text-faint)' }}>
+                {tip.split('**').map((p, j) => j % 2 === 1 ? <strong key={j} style={{ color: 'var(--text-muted)' }}>{p}</strong> : p)}
               </p>
             </div>
           ))}
@@ -374,6 +380,7 @@ function SidePanel({ onClose, onSend, socketConectado }: {
 
 const KambaChat: React.FC = () => {
   const reducedMotion = useReducedMotion();
+  const { maskValue, formatMoney } = useTheme();
 
   const [messages, setMessages] = useState<Message[]>(() => {
     const stored = loadStoredMessages();
@@ -412,12 +419,10 @@ const KambaChat: React.FC = () => {
     const stored = loadStoredMessages();
     if (stored.length > 1) return;
 
-    api.get('/kamba/historico')
-      .then(({ data }) => {
+    kambaService.obterHistorico()
+      .then((data) => {
         if (!data.success || !Array.isArray(data.historico) || data.historico.length === 0) return;
-        const historico: Message[] = data.historico.map((m: {
-          role: string; content: string; criadoEm?: string;
-        }) => ({
+        const historico: Message[] = data.historico.map((m) => ({
           id:   `hist-${Math.random().toString(36).slice(2)}`,
           text: m.content,
           from: m.role === 'assistant' ? 'kamba' : 'user',
@@ -435,6 +440,40 @@ const KambaChat: React.FC = () => {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, isLoading]);
+
+  // ── Auto-focus management ──────────────────────────────────────────────────
+  const focusInput = useCallback(() => {
+    if (!isLoading && !rateLimited) {
+      textareaRef.current?.focus();
+    }
+  }, [isLoading, rateLimited]);
+
+  // Initial focus
+  useEffect(() => {
+    const timer = setTimeout(focusInput, 500); // Small delay for layout/animation
+    return () => clearTimeout(timer);
+  }, [focusInput]);
+
+  // Focus after loading or rate limit ends
+  useEffect(() => {
+    if (!isLoading && !rateLimited) focusInput();
+  }, [isLoading, rateLimited, focusInput]);
+
+  // Global keydown to catch typing even if blurred
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in another input/textarea
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      // Only focus on letter, number, or common typing keys
+      if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Enter') {
+        focusInput();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [focusInput]);
 
   // ── Rate limit countdown ───────────────────────────────────────────────────
   useEffect(() => {
@@ -522,7 +561,7 @@ const KambaChat: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const { data } = await api.post('/kamba', { mensagem: txt });
+      const data = await kambaService.enviarMensagem(txt);
 
       if (data.rateLimited) {
         setRateLimited(true);
@@ -549,8 +588,9 @@ const KambaChat: React.FC = () => {
       addMessage({ id: `k-err-${Date.now()}`, text: 'Eish, kamba! Perdi a ligação. Tenta de novo daqui a pouco. 🔌', from: 'kamba', time: nowStr() });
     } finally {
       setIsLoading(false);
+      focusInput(); // Re-focus after response
     }
-  }, [input, isLoading, rateLimited, addMessage]);
+  }, [input, isLoading, rateLimited, addMessage, focusInput]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -558,77 +598,92 @@ const KambaChat: React.FC = () => {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="relative flex overflow-hidden bg-[#080810]" style={{ height: 'calc(100vh - 64px)' }}>
+    <div className="relative flex h-full overflow-hidden" style={{ backgroundColor: 'var(--bg-base)' }}>
 
       {/* ── Aura de fundo animada ── */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-violet-500/8 rounded-full filter blur-[120px] animate-pulse" />
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-indigo-500/8 rounded-full filter blur-[120px] animate-pulse" style={{ animationDelay: '700ms' }} />
-        <div className="absolute top-1/3 right-1/3 w-64 h-64 bg-fuchsia-500/6 rounded-full filter blur-[96px] animate-pulse" style={{ animationDelay: '1200ms' }} />
+        <div className="absolute top-0 left-1/4 w-[500px] h-[500px] rounded-full filter blur-[140px] opacity-20 animate-pulse" 
+          style={{ backgroundColor: 'var(--accent)' }} />
+        <div className="absolute bottom-0 right-1/4 w-[400px] h-[400px] rounded-full filter blur-[120px] opacity-10 animate-pulse" 
+          style={{ backgroundColor: 'var(--accent)', animationDelay: '700ms' }} />
       </div>
 
       {/* ── Aura que segue o cursor quando o input está focado ── */}
       <AnimatePresence>
         {inputFocused && (
           <motion.div
-            className="pointer-events-none fixed w-[40rem] h-[40rem] rounded-full z-0 opacity-[0.025] bg-gradient-to-r from-violet-500 via-fuchsia-500 to-indigo-500 blur-[80px]"
-            animate={{ x: mousePosition.x - 320, y: mousePosition.y - 320 }}
-            transition={{ type: 'spring', damping: 30, stiffness: 120, mass: 0.5 }}
+            className="pointer-events-none fixed w-[600px] h-[600px] rounded-full z-0 opacity-[0.05] blur-[100px]"
+            style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)' }}
+            animate={{ x: mousePosition.x - 300, y: mousePosition.y - 300 }}
+            transition={{ type: 'spring', damping: 40, stiffness: 100, mass: 0.8 }}
           />
         )}
       </AnimatePresence>
 
       {/* ══ Área de chat (full-width) ══ */}
-      <div className="relative flex flex-1 flex-col overflow-hidden z-10">
+      <div className="relative flex flex-1 flex-col overflow-hidden z-10" onClick={focusInput}>
 
         {/* Topbar */}
-        <div className="shrink-0 flex items-center justify-between gap-3 border-b border-white/[0.06] bg-black/30 backdrop-blur-xl px-5 py-3">
+        <div className="shrink-0 flex items-center justify-between gap-3 border-b backdrop-blur-2xl px-5 py-3" 
+          style={{ borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--bg-surface) 70%, transparent)' }}>
           <div className="flex items-center gap-3 min-w-0">
             <div className="relative shrink-0">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-sm font-bold text-white shadow-lg shadow-violet-500/30">✦</div>
+              <motion.div 
+                className="flex h-10 w-10 items-center justify-center rounded-xl text-lg font-bold shadow-lg"
+                style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}
+                whileHover={{ scale: 1.05, rotate: 5 }}
+              >✦</motion.div>
               <span className={cx(
-                'absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#080810]',
-                socketConectado ? 'bg-emerald-400' : 'bg-white/20'
-              )} />
+                'absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2',
+                socketConectado ? 'bg-emerald-400' : 'bg-zinc-500'
+              )} style={{ borderColor: 'var(--bg-surface)' }} />
             </div>
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-sm font-semibold text-white">Kamba AI</span>
-                <span className="text-violet-400"><IoSparklesOutline size={12} /></span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Kamba AI</span>
+                <span style={{ color: 'var(--accent)' }}><IoSparklesOutline size={12} /></span>
                 <span className={cx(
-                  'rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset',
+                  'rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider border',
                   socketConectado
-                    ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-400/20'
-                    : 'bg-white/[0.04] text-white/30 ring-white/10'
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                    : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
                 )}>
                   {socketConectado ? 'Online' : 'Offline'}
                 </span>
                 {fluxoAtivo && <FluxoBadge tipo={fluxoAtivo} />}
               </div>
-              <p className="text-[11px] text-white/30 truncate">Assistente Financeiro Angolano</p>
+              <p className="text-[11px] truncate" style={{ color: 'var(--text-faint)' }}>Assistente Financeiro Angolano</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex items-center gap-2 shrink-0">
             {SUGGESTIONS.slice(0, 2).map((s, i) => (
               <button key={i} onClick={() => handleSend(s.cmd)} disabled={isLoading || rateLimited}
-                className="hidden sm:flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-white/30 hover:bg-white/[0.06] hover:text-white/70 transition-colors disabled:opacity-30">
+                className="hidden sm:flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all disabled:opacity-30 border"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', backgroundColor: 'var(--bg-elevated)' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent-20)'; e.currentTarget.style.color = 'var(--accent)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
+              >
                 {s.icon}<span className="hidden lg:inline">{s.label}</span>
               </button>
             ))}
             {fluxoAtivo && (
               <button onClick={() => handleSend('cancelar')} disabled={isLoading}
-                className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30">
-                <IoCloseOutline size={13} /><span className="hidden sm:inline">Cancelar</span>
+                className="flex items-center gap-1 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-all disabled:opacity-30 border"
+                style={{ borderColor: 'rgba(239,68,68,0.2)', backgroundColor: 'rgba(239,68,68,0.05)', color: '#f87171' }}
+              >
+                <IoCloseOutline size={14} /><span className="hidden sm:inline">Cancelar</span>
               </button>
             )}
             <button onClick={() => setShowPanel(p => !p)}
-              className={cx(
-                'ml-1 rounded-lg p-1.5 transition-colors',
-                showPanel ? 'bg-white/[0.08] text-white/70' : 'text-white/30 hover:bg-white/[0.06] hover:text-white/60'
-              )}
+              className="ml-1 rounded-xl p-2 transition-all border shadow-sm"
+              style={{ 
+                backgroundColor: showPanel ? 'var(--accent)' : 'var(--bg-surface)', 
+                borderColor: showPanel ? 'var(--accent)' : 'var(--border)',
+                color: showPanel ? 'var(--accent-text)' : 'var(--text-muted)' 
+              }}
               title="Atalhos & Dicas">
-              <IoPersonOutline size={17} />
+              <IoPersonOutline size={18} />
             </button>
           </div>
         </div>
@@ -637,25 +692,26 @@ const KambaChat: React.FC = () => {
         <AnimatePresence>
           {rateLimited && (
             <motion.div
-              className="shrink-0 flex items-center gap-2 border-b border-amber-400/20 bg-amber-500/10 px-5 py-2.5"
+              className="shrink-0 flex items-center gap-3 border-b px-5 py-2.5"
+              style={{ backgroundColor: 'rgba(245,158,11,0.1)', borderColor: 'rgba(245,158,11,0.2)' }}
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
             >
-              <span className="text-amber-400 shrink-0"><IoWarningOutline size={14} /></span>
-              <p className="text-[12px] text-amber-300">
-                Calma, kamba! Muitas mensagens seguidas. Aguarda <strong>{retryIn}s</strong>.
+              <IoWarningOutline size={16} className="text-amber-500 shrink-0" />
+              <p className="text-[12px] font-medium text-amber-200">
+                Calma, kamba! Muitas mensagens seguidas. Aguarda <strong className="font-bold">{retryIn}s</strong>.
               </p>
             </motion.div>
           )}
         </AnimatePresence>
 
         {/* Mensagens */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(255,255,255,0.08) transparent' }}>
-          <div className="flex items-center gap-3 mb-4">
-            <div className="h-px flex-1 bg-white/[0.06]" />
-            <span className="text-[10px] font-medium text-white/20">Hoje</span>
-            <div className="h-px flex-1 bg-white/[0.06]" />
+        <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-6" style={{ scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
+          <div className="flex items-center gap-4 mb-6">
+            <div className="h-px flex-1" style={{ backgroundColor: 'var(--border)' }} />
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: 'var(--text-faint)' }}>Hoje</span>
+            <div className="h-px flex-1" style={{ backgroundColor: 'var(--border)' }} />
           </div>
 
           {messages.map((msg, idx) => {
@@ -666,57 +722,67 @@ const KambaChat: React.FC = () => {
             const isGrouped = prevFrom === msg.from;
 
             if (msg.from === 'system') return (
-              <div key={msg.id} className="my-3 flex items-center justify-center">
-                <span className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[10px] text-white/30">{msg.text}</span>
+              <div key={msg.id} className="my-4 flex items-center justify-center">
+                <span className="rounded-full border px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider" 
+                  style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-faint)' }}>{msg.text}</span>
               </div>
             );
 
             return (
               <motion.div
                 key={msg.id}
-                className={cx('flex', isUser ? 'justify-end' : 'justify-start', isGrouped ? 'mt-0.5' : 'mt-3')}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className={cx('flex', isUser ? 'justify-end' : 'justify-start', isGrouped ? 'mt-1' : 'mt-5')}
+                initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={springSmooth}
               >
                 {/* Avatar Kamba */}
                 {isKamba && (
-                  <div className="shrink-0 mr-2.5 mt-auto mb-0.5">
+                  <div className="shrink-0 mr-3 mt-auto mb-1">
                     {!isGrouped
-                      ? <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-violet-700 text-[10px] font-bold text-white shadow-md shadow-violet-500/20">✦</div>
-                      : <div className="w-7" />
+                      ? <motion.div 
+                          className="flex h-8 w-8 items-center justify-center rounded-xl font-bold shadow-lg"
+                          style={{ background: 'linear-gradient(135deg, var(--accent), var(--accent-dark))', color: 'var(--accent-text)' }}
+                          whileHover={{ scale: 1.1, rotate: 5 }}
+                        >✦</motion.div>
+                      : <div className="w-8" />
                     }
                   </div>
                 )}
 
                 <div className={cx(
-                  'max-w-[65%] rounded-2xl px-3.5 py-2.5',
+                  'max-w-[75%] md:max-w-[65%] rounded-2xl px-4 py-3 shadow-sm border transition-all',
                   isUser
-                    ? 'rounded-br-sm bg-violet-600/80 text-white backdrop-blur-sm border border-violet-500/30 shadow-lg shadow-violet-500/10'
-                    : 'rounded-bl-sm bg-white/[0.05] text-white/85 backdrop-blur-sm border border-white/[0.07] shadow-sm'
-                )}>
+                    ? 'rounded-br-sm text-white backdrop-blur-md'
+                    : 'rounded-bl-sm backdrop-blur-md'
+                )} style={{
+                  backgroundColor: isUser ? 'var(--accent)' : 'var(--bg-surface)',
+                  borderColor: isUser ? 'var(--accent-20)' : 'var(--border)',
+                  color: isUser ? 'var(--accent-text)' : 'var(--text-primary)'
+                }}>
                   {isKamba && !isGrouped && (
-                    <div className="flex items-center gap-1.5 mb-1.5">
-                      <span className="text-violet-400"><IoSparklesOutline size={10} /></span>
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400">Kamba AI</span>
-                      {msg.fromCache && <span className="text-[8px] text-white/25 italic">• cache</span>}
+                    <div className="flex items-center gap-2 mb-2">
+                      <span style={{ color: 'var(--accent)' }}><IoSparklesOutline size={12} /></span>
+                      <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">Kamba AI</span>
+                      {msg.fromCache && <span className="text-[9px] opacity-30 italic font-medium ml-1"># cache</span>}
                     </div>
                   )}
-                  <div className="text-[13px] leading-snug text-white/80">
+                  <div className="text-[14px] leading-relaxed font-medium opacity-90">
                     <RenderText text={msg.text} isUser={isUser} />
                   </div>
                   {card && <FinancialCardInline card={card} />}
                   {msg.fluxoConcluido && (
-                    <div className="mt-2 flex items-center gap-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5">
-                      <span className="text-emerald-400"><IoCheckmarkCircleOutline size={12} /></span>
-                      <span className="text-[10px] font-semibold text-emerald-400">Concluído</span>
+                    <div className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 border"
+                      style={{ backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.2)' }}>
+                      <IoCheckmarkCircleOutline size={16} className="text-emerald-400" />
+                      <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Acção Concluída</span>
                     </div>
                   )}
-                  <div className={cx('mt-1 flex items-center gap-1', isUser ? 'justify-end' : 'justify-start')}>
-                    <span className="text-[9px] text-white/25">{msg.time}</span>
+                  <div className={cx('mt-1.5 flex items-center gap-1.5', isUser ? 'justify-end' : 'justify-start')}>
+                    <span className="text-[9px] font-bold opacity-30 uppercase">{msg.time}</span>
                     {isUser && (msg.read
-                      ? <span className="text-violet-300/60"><IoCheckmarkDoneOutline size={10} /></span>
-                      : <span className="text-white/25"><IoCheckmarkOutline size={10} /></span>
+                      ? <span className="opacity-60" style={{ color: 'var(--accent-text)' }}><IoCheckmarkDoneOutline size={12} /></span>
+                      : <span className="opacity-30" style={{ color: 'var(--accent-text)' }}><IoCheckmarkOutline size={12} /></span>
                     )}
                   </div>
                 </div>
@@ -726,40 +792,42 @@ const KambaChat: React.FC = () => {
 
           {isLoading && (
             <motion.div
-              className="mt-3"
-              initial={{ opacity: 0, y: 4 }}
+              className="mt-5"
+              initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
             >
               <TypingDots />
             </motion.div>
           )}
-          <div ref={bottomRef} className="h-2" />
+          <div ref={bottomRef} className="h-4" />
         </div>
 
         {/* Chips de sugestão */}
         <AnimatePresence>
           {!fluxoAtivo && (
             <motion.div
-              className="shrink-0 border-t border-white/[0.06] bg-black/20 backdrop-blur-xl px-5 pt-2.5"
-              initial={{ opacity: 0, y: 8 }}
+              className="shrink-0 border-t backdrop-blur-2xl px-5 pt-3"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--bg-surface) 40%, transparent)' }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 8 }}
+              exit={{ opacity: 0, y: 10 }}
             >
-              <div className="flex gap-1.5 overflow-x-auto pb-2.5" style={{ scrollbarWidth: 'none' }}>
+              <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar" style={{ scrollbarWidth: 'none' }}>
                 {SUGGESTIONS.map((s, i) => (
                   <motion.button
                     key={i}
                     onClick={() => handleSend(s.cmd)}
                     disabled={isLoading || rateLimited}
-                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/40 transition-all hover:border-violet-500/30 hover:bg-violet-500/10 hover:text-violet-300 disabled:opacity-30"
-                    initial={{ opacity: 0, scale: 0.95 }}
+                    className="flex shrink-0 items-center gap-2 rounded-xl border px-4 py-2 text-[12px] font-bold transition-all disabled:opacity-30 shadow-sm"
+                    style={{ backgroundColor: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+                    initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.04 }}
-                    whileHover={{ scale: 1.03 }}
-                    whileTap={{ scale: 0.97 }}
+                    transition={{ delay: i * 0.05 }}
+                    whileHover={{ scale: 1.05, borderColor: 'var(--accent-30)', color: 'var(--accent)' }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    <span className="text-violet-400/70">{s.icon}</span>
+                    <span className="opacity-70">{s.icon}</span>
                     {s.label}
                   </motion.button>
                 ))}
@@ -770,25 +838,27 @@ const KambaChat: React.FC = () => {
 
         {/* Compose */}
         <div className={cx(
-          'shrink-0 border-t border-white/[0.06] bg-black/30 backdrop-blur-xl px-5 pb-5',
-          !fluxoAtivo ? 'pt-3' : 'pt-4'
-        )}>
+          'shrink-0 border-t backdrop-blur-3xl px-5 pb-6',
+          !fluxoAtivo ? 'pt-3' : 'pt-5'
+        )} style={{ borderColor: 'var(--border)', backgroundColor: 'color-mix(in srgb, var(--bg-surface) 60%, transparent)' }}>
           {/* Banner fluxo activo */}
           <AnimatePresence>
             {fluxoAtivo && (
               <motion.div
-                className="mb-3 flex items-center justify-between rounded-xl bg-violet-500/10 border border-violet-500/20 px-4 py-2"
+                className="mb-4 flex items-center justify-between rounded-xl border px-4 py-2.5 shadow-sm"
+                style={{ backgroundColor: 'var(--accent-10)', borderColor: 'var(--accent-20)' }}
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
               >
-                <div className="flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
-                  <span className="text-[12px] font-medium text-violet-300">Fluxo guiado activo — responde à pergunta acima</span>
+                <div className="flex items-center gap-3">
+                  <span className="h-2 w-2 rounded-full animate-pulse" style={{ backgroundColor: 'var(--accent)' }} />
+                  <span className="text-[12px] font-bold uppercase tracking-wider" style={{ color: 'var(--accent)' }}>Fluxo activo — aguardando a tua resposta</span>
                 </div>
                 <button onClick={() => handleSend('cancelar')} disabled={isLoading}
-                  className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-200 transition-colors disabled:opacity-30">
-                  <IoCloseOutline size={13} /> Cancelar
+                  className="flex items-center gap-1.5 text-[11px] font-bold transition-colors opacity-70 hover:opacity-100"
+                  style={{ color: 'var(--accent)' }}>
+                  <IoCloseOutline size={16} /> Cancelar
                 </button>
               </motion.div>
             )}
@@ -796,14 +866,17 @@ const KambaChat: React.FC = () => {
 
           {/* Input box */}
           <div className={cx(
-            'flex items-end gap-3 rounded-2xl border px-4 py-3 transition-all',
-            'backdrop-blur-xl',
+            'flex items-end gap-3 rounded-2xl border px-4 py-3.5 transition-all shadow-sm',
+            'backdrop-blur-2xl',
             rateLimited
-              ? 'border-amber-400/20 bg-amber-500/5'
+              ? 'border-amber-500/30 bg-amber-500/5'
               : inputFocused
-                ? 'border-violet-500/40 bg-white/[0.05] shadow-[0_0_0_3px_rgba(139,92,246,0.08)]'
-                : 'border-white/[0.08] bg-white/[0.03] hover:border-white/[0.12]'
-          )}>
+                ? 'shadow-[0_0_0_4px_var(--accent-10)]'
+                : 'hover:border-white/10'
+          )} style={{ 
+            borderColor: inputFocused ? 'var(--accent-40)' : 'var(--border)', 
+            backgroundColor: 'var(--bg-elevated)' 
+          }}>
             <textarea
               ref={textareaRef}
               value={input}
@@ -814,39 +887,42 @@ const KambaChat: React.FC = () => {
               rows={1}
               disabled={isLoading || rateLimited}
               placeholder={
-                rateLimited  ? `Aguarda ${retryIn}s antes de enviar...`
-                : fluxoAtivo ? 'Responde ao Kamba… (ou "cancelar" para sair)'
-                             : 'Pergunta sobre o teu saldo, gastos ou metas…'
+                rateLimited  ? `Aguarda ${retryIn}s…`
+                : fluxoAtivo ? 'Responde ao Kamba…'
+                             : 'Pergunta algo ao Kamba…'
               }
-              className="min-h-[22px] flex-1 resize-none bg-transparent text-[13px] leading-snug text-white/85 outline-none placeholder:text-white/20 disabled:opacity-40"
-              style={{ maxHeight: 120 }}
+              className="min-h-[24px] flex-1 resize-none bg-transparent text-[14px] leading-relaxed outline-none placeholder:text-white/10 disabled:opacity-40 font-medium"
+              style={{ maxHeight: 120, color: 'var(--text-primary)' }}
             />
             <div className="flex items-center gap-2 pb-0.5 shrink-0">
-              {/* Microfone / Enviar */}
               {input.trim() ? (
                 <motion.button
                   onClick={() => handleSend()}
                   disabled={isLoading || rateLimited}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg shadow-violet-500/30 hover:bg-violet-500 disabled:opacity-40 transition-all"
-                  whileHover={{ scale: 1.06 }}
-                  whileTap={{ scale: 0.94 }}
-                  aria-label="Enviar mensagem"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl shadow-lg transition-all disabled:opacity-40"
+                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
+                  whileHover={{ scale: 1.08, backgroundColor: 'var(--accent-hover)' }}
+                  whileTap={{ scale: 0.92 }}
+                  aria-label="Enviar"
                 >
-                  <IoPaperPlaneOutline size={14} />
+                  <IoPaperPlaneOutline size={16} />
                 </motion.button>
               ) : (
                 <button
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-white/25 hover:bg-white/[0.06] hover:text-white/50 transition-colors"
-                  aria-label="Usar microfone"
+                  className="flex h-9 w-9 items-center justify-center rounded-xl transition-all opacity-20 hover:opacity-50 hover:bg-white/5"
+                  style={{ color: 'var(--text-primary)' }}
+                  aria-label="Voz"
                 >
-                  <IoMicOutline size={17} />
+                  <IoMicOutline size={20} />
                 </button>
               )}
             </div>
           </div>
-          <p className="mt-2 text-center text-[9px] text-white/15">
-            IA financeira · Dados em tempo real · Kambapro
-          </p>
+          <div className="mt-3 flex items-center justify-center gap-3 opacity-20">
+            <div className="h-px w-8 bg-current" />
+            <p className="text-[9px] font-bold uppercase tracking-[0.3em] whitespace-nowrap">IA Financeira · KambaPro</p>
+            <div className="h-px w-8 bg-current" />
+          </div>
         </div>
       </div>
 

@@ -125,7 +125,7 @@ const NotificacoesDrawer: React.FC<NotificacoesDrawerProps> = ({
             <div>
               <h2 className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>Notificações</h2>
               <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
-                {totalNaoLidas > 0 ? `${totalNaoLidas} não lida${totalNaoLidas !== 1 ? 's' : ''}` : 'Tudo em dia 👊'}
+                {totalNaoLidas > 0 ? `${totalNaoLidas} não lida${totalNaoLidas !== 1 ? 's' : ''}` : 'Tudo em dia'}
               </p>
             </div>
           </div>
@@ -157,7 +157,9 @@ const NotificacoesDrawer: React.FC<NotificacoesDrawerProps> = ({
           {notificacoes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-4 px-8 text-center">
               <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl"
-                style={{ backgroundColor: 'var(--bg-elevated)' }}>🔔</div>
+                style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                <Bell size={32} className="opacity-20" style={{ color: 'var(--text-faint)' }} />
+              </div>
               <div>
                 <p className="font-bold text-sm" style={{ color: 'var(--text-primary)' }}>Sem notificações</p>
                 <p className="text-[11px] mt-1" style={{ color: 'var(--text-faint)' }}>Quando o Kamba tiver alertas para ti, aparecem aqui.</p>

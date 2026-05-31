@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeftRight, BarChart2, Bell, ChevronDown, ChevronRight, LayoutDashboard, LogOut, Menu, MessageCircle, Newspaper, Palette, Search, Tag, TrendingDown, TrendingUp, Trophy, User, Wallet, Wifi, WifiOff, X } from 'lucide-react';
-import api from '../services/api';
+import dashboardService from '../services/dashboardService';
 import { useTheme } from '../contexts/ThemeContext';
 import useSocket from '../hooks/useSocket';
 import useNotificacoes, { NotificacaoTempoReal } from '../hooks/useNotificacoes';
@@ -92,7 +92,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
   const fetchStats = useCallback(async () => {
     try {
       setStatsLoading(true);
-      const { data } = await api.get('/dashboard/resumo');
+      const data = await dashboardService.obterResumoDashboard();
       if (data.success) setHeaderStats({
         saldoTotal:   data.saldos?.total        ?? 0,
         receitasMes:  data.esteMes?.receitas     ?? 0,
@@ -656,7 +656,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
         </header>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
+        <div className={`flex-1 ${activePage === 'kamba' ? 'overflow-hidden' : 'overflow-y-auto p-4 md:p-6'} animate-in fade-in slide-in-from-bottom-4 duration-500`}
           style={{ backgroundColor: 'var(--bg-base)' }}>
           {children}
         </div>

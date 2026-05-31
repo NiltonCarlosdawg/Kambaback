@@ -1,14 +1,18 @@
 // services/memory/conversationService.js
 // Gestão de histórico, threads e sumarização de conversas
 
-const prisma = require('../../../../lib/prisma');
-const { summarizarConversa } = require('../ai/summarizationService');
-const { extrairPreferencias, atualizarPreferenciasUsuario, carregarPreferencias } = require('../core/userPreferences');
-const { gerarEStorage, buscarContextoRelevante } = require('./semanticMemory');
+const prisma = require("../../../../lib/prisma");
+const { summarizarConversa } = require("../ai/summarizationService");
+const {
+  extrairPreferencias,
+  atualizarPreferenciasUsuario,
+  carregarPreferencias,
+} = require("../core/userPreferences");
+const { gerarEStorage, buscarContextoRelevante } = require("./semanticMemory");
 
-const MAX_MENSAGENS = 20;       // Máximo de mensagens guardadas por thread
-const MAX_MENSAGENS_CTX = 15;   // Máximo enviado para o LLM
-const MENSAGENS_RESUMO = 10;    // Quantas mensagens sumarizar quando atingir limite
+const MAX_MENSAGENS = 20; // Máximo de mensagens guardadas por thread
+const MAX_MENSAGENS_CTX = 15; // Máximo enviado para o LLM
+const MENSAGENS_RESUMO = 10; // Quantas mensagens sumarizar quando atingir limite
 
 /**
  * Carrega o histórico de mensagens de uma thread
@@ -17,21 +21,25 @@ const MENSAGENS_RESUMO = 10;    // Quantas mensagens sumarizar quando atingir li
  * @param {number} limit - Máximo de mensagens
  * @returns {Promise<Array>} Array de mensagens {role, content}
  */
-const carregarMemoria = async (usuarioId, threadId = 'default', limit = MAX_MENSAGENS_CTX) => {
+const carregarMemoria = async (
+  usuarioId,
+  threadId = "default",
+  limit = MAX_MENSAGENS_CTX,
+) => {
   const mensagens = await prisma.kambaMemoria.findMany({
-    where: { 
+    where: {
       usuarioId,
-      threadId: threadId || 'default'
+      threadId: threadId || "default",
     },
-    orderBy: { criadoEm: 'asc' },
-    take: -limit // últimas N
+    orderBy: { criadoEm: "asc" },
+    take: -limit, // últimas N
   });
 
-  return mensagens.map(m => ({
+  return mensagens.map((m) => ({
     role: m.role,
     content: m.content,
     id: m.id,
-    contexto: m.contexto
+    contexto: m.contexto,
   }));
 };
 
@@ -43,15 +51,21 @@ const carregarMemoria = async (usuarioId, threadId = 'default', limit = MAX_MENS
  * @param {string} contexto - Contexto/tipo da mensagem
  * @param {string} threadId - ID da thread
  */
-const salvarMemoria = async (usuarioId, role, content, contexto = 'conversa', threadId = 'default') => {
+const salvarMemoria = async (
+  usuarioId,
+  role,
+  content,
+  contexto = "conversa",
+  threadId = "default",
+) => {
   await prisma.kambaMemoria.create({
     data: {
       usuarioId,
       role,
       content,
       contexto,
-      threadId: threadId || 'default'
-    }
+      threadId: threadId || "default",
+    },
   });
 
   // Armazenar embedding para memória semântica (fire-and-forget)
@@ -68,9 +82,9 @@ const salvarMemoria = async (usuarioId, role, content, contexto = 'conversa', th
  * @param {string} usuarioId - ID do utilizador
  * @param {string} threadId - ID da thread
  */
-const verificarESumarizar = async (usuarioId, threadId = 'default') => {
+const verificarESumarizar = async (usuarioId, threadId = "default") => {
   const count = await prisma.kambaMemoria.count({
-    where: { usuarioId, threadId: threadId || 'default' }
+    where: { usuarioId, threadId: threadId || "default" },
   });
 
   if (count > MAX_MENSAGENS) {
@@ -83,11 +97,11 @@ const verificarESumarizar = async (usuarioId, threadId = 'default') => {
  * @param {string} usuarioId - ID do utilizador
  * @param {string} threadId - ID da thread
  */
-const sumarizarConversa = async (usuarioId, threadId = 'default') => {
+const sumarizarConversa = async (usuarioId, threadId = "default") => {
   const mensagensAntigas = await prisma.kambaMemoria.findMany({
-    where: { usuarioId, threadId: threadId || 'default' },
-    orderBy: { criadoEm: 'asc' },
-    take: MENSAGENS_RESUMO
+    where: { usuarioId, threadId: threadId || "default" },
+    orderBy: { criadoEm: "asc" },
+    take: MENSAGENS_RESUMO,
   });
 
   if (mensagensAntigas.length < MENSAGENS_RESUMO) return;
@@ -97,10 +111,10 @@ const sumarizarConversa = async (usuarioId, threadId = 'default') => {
   await atualizarPreferenciasUsuario(usuarioId, preferencias);
 
   // Sumarizar com LLM
-  const ids = mensagensAntigas.map(m => m.id);
-  const mensagensFormatadas = mensagensAntigas.map(m => ({
+  const ids = mensagensAntigas.map((m) => m.id);
+  const mensagensFormatadas = mensagensAntigas.map((m) => ({
     role: m.role,
-    content: m.content
+    content: m.content,
   }));
 
   // Usar LLM para sumarização inteligente
@@ -108,28 +122,30 @@ const sumarizarConversa = async (usuarioId, threadId = 'default') => {
   try {
     sumario = await summarizarConversa(mensagensFormatadas);
   } catch (err) {
-    console.warn('[CONVERSATION] Falha na sumarização LLM, usando fallback');
-    const temas = [...new Set(mensagensAntigas.map(m => m.contexto))];
-    sumario = `[Sumário: ${mensagensAntigas.length} mensagens sobre: ${temas.join(', ')}]`;
+    console.warn("[CONVERSATION] Falha na sumarização LLM, usando fallback");
+    const temas = [...new Set(mensagensAntigas.map((m) => m.contexto))];
+    sumario = `[Sumário: ${mensagensAntigas.length} mensagens sobre: ${temas.join(", ")}]`;
   }
 
   // Apagar mensagens antigas
   await prisma.kambaMemoria.deleteMany({
-    where: { id: { in: ids } }
+    where: { id: { in: ids } },
   });
 
   // Guardar sumário
   await prisma.kambaMemoria.create({
     data: {
       usuarioId,
-      role: 'system',
+      role: "system",
       content: `[Sumário anterior] ${sumario}`,
-      contexto: 'sumario',
-      threadId: threadId || 'default'
-    }
+      contexto: "sumario",
+      threadId: threadId || "default",
+    },
   });
 
-  console.log(`[CONVERSATION] Conversa sumarizada para ${usuarioId}/${threadId}`);
+  console.log(
+    `[CONVERSATION] Conversa sumarizada para ${usuarioId}/${threadId}`,
+  );
 };
 
 /**
@@ -138,13 +154,13 @@ const sumarizarConversa = async (usuarioId, threadId = 'default') => {
  * @param {string} nome - Nome da thread
  * @returns {Promise<string>} ID da thread criada
  */
-const criarThread = async (usuarioId, nome = 'Nova Conversa') => {
+const criarThread = async (usuarioId, nome = "Nova Conversa") => {
   const thread = await prisma.kambaThread.create({
     data: {
       usuarioId,
       nome,
-      ativa: true
-    }
+      ativa: true,
+    },
   });
   return thread.id;
 };
@@ -157,7 +173,7 @@ const criarThread = async (usuarioId, nome = 'Nova Conversa') => {
 const listarThreads = async (usuarioId) => {
   return await prisma.kambaThread.findMany({
     where: { usuarioId, ativa: true },
-    orderBy: { atualizadoEm: 'desc' }
+    orderBy: { atualizadoEm: "desc" },
   });
 };
 
@@ -168,7 +184,7 @@ const listarThreads = async (usuarioId) => {
 const arquivarThread = async (threadId) => {
   await prisma.kambaThread.update({
     where: { id: threadId },
-    data: { ativa: false }
+    data: { ativa: false },
   });
 };
 
@@ -180,45 +196,63 @@ const arquivarThread = async (threadId) => {
  * @param {number} limit - Máximo de mensagens do histórico
  * @returns {Promise<Array>} Array de mensagens {role, content}
  */
-const carregarMemoriaComContexto = async (usuarioId, mensagemActual, threadId = 'default', limit = MAX_MENSAGENS_CTX) => {
+const carregarMemoriaComContexto = async (
+  usuarioId,
+  mensagemActual,
+  threadId = "default",
+  limit = MAX_MENSAGENS_CTX,
+) => {
   const [historico, contextoRelevante] = await Promise.all([
     prisma.kambaMemoria.findMany({
       where: {
         usuarioId,
-        threadId: threadId || 'default'
+        threadId: threadId || "default",
       },
-      orderBy: { criadoEm: 'asc' },
-      take: -limit
+      orderBy: { criadoEm: "asc" },
+      take: -limit,
     }),
-    buscarContextoRelevante(usuarioId, mensagemActual, 3)
+    buscarContextoRelevante(usuarioId, mensagemActual, 3),
   ]);
 
-let mensagens = historico.map(m => ({
+  let mensagens = historico.map((m) => ({
     role: m.role,
-    content: m.content || '',
+    content: m.content || "",
     id: m.id,
-    contexto: m.contexto
-}));
+    contexto: m.contexto,
+  }));
 
   // Inserir contexto semântico antes das mensagens recentes
   if (contextoRelevante.length > 0) {
-    const contextoFormatado = contextoRelevante
-      .filter(ctx => ctx.content && ctx.content.trim().length > 0)
-      .map(ctx =>
-        `[Contexto relevante anterior - ${new Date(ctx.criadoEm).toLocaleDateString('pt-AO')}] ${ctx.content}`
-      ).join('\n');
+    const historicoContents = new Set(
+      historico.map((m) => m.content?.trim().substring(0, 100)),
+    );
 
-    if (contextoFormatado.trim().length > 0) {
-      const jaTemContexto = mensagens.some(m =>
-        m.content?.startsWith('[Contexto relevante')
-      );
+    const contextosNovos = contextoRelevante.filter((ctx) => {
+      if (!ctx.content || ctx.content.trim().length === 0) return false;
+      const preview = ctx.content.trim().substring(0, 100);
+      return !historicoContents.has(preview);
+    });
 
-      if (!jaTemContexto) {
-        mensagens.unshift({
-          role: 'system',
-          content: contextoFormatado,
-          contexto: 'memoria_semantica'
-        });
+    if (contextosNovos.length > 0) {
+      const contextoFormatado = contextosNovos
+        .map(
+          (ctx) =>
+            `[Contexto relevante anterior - ${new Date(ctx.criadoEm).toLocaleDateString("pt-AO")}] ${ctx.content}`,
+        )
+        .join("\n");
+
+      if (contextoFormatado.trim().length > 0) {
+        const jaTemContexto = mensagens.some((m) =>
+          m.content?.startsWith("[Contexto relevante"),
+        );
+
+        if (!jaTemContexto) {
+          mensagens.unshift({
+            role: "system",
+            content: contextoFormatado,
+            contexto: "memoria_semantica",
+          });
+        }
       }
     }
   }
@@ -236,7 +270,9 @@ const limparMemoria = async (usuarioId, threadId = null) => {
   if (threadId) where.threadId = threadId;
 
   await prisma.kambaMemoria.deleteMany({ where });
-  console.log(`[CONVERSATION] Memória limpa para ${usuarioId}${threadId ? `/${threadId}` : ''}`);
+  console.log(
+    `[CONVERSATION] Memória limpa para ${usuarioId}${threadId ? `/${threadId}` : ""}`,
+  );
 };
 
 /**
@@ -245,18 +281,22 @@ const limparMemoria = async (usuarioId, threadId = null) => {
  * @returns {Promise<Object>} Estatísticas
  */
 const getEstatisticas = async (usuarioId) => {
-  const totalMensagens = await prisma.kambaMemoria.count({ where: { usuarioId } });
-  const totalThreads = await prisma.kambaThread.count({ where: { usuarioId, ativa: true } });
-  
+  const totalMensagens = await prisma.kambaMemoria.count({
+    where: { usuarioId },
+  });
+  const totalThreads = await prisma.kambaThread.count({
+    where: { usuarioId, ativa: true },
+  });
+
   const ultimaMensagem = await prisma.kambaMemoria.findFirst({
     where: { usuarioId },
-    orderBy: { criadoEm: 'desc' }
+    orderBy: { criadoEm: "desc" },
   });
 
   return {
     totalMensagens,
     totalThreads,
-    ultimaInteracao: ultimaMensagem?.criadoEm || null
+    ultimaInteracao: ultimaMensagem?.criadoEm || null,
   };
 };
 
@@ -272,5 +312,5 @@ module.exports = {
   limparMemoria,
   getEstatisticas,
   MAX_MENSAGENS,
-  MAX_MENSAGENS_CTX
+  MAX_MENSAGENS_CTX,
 };

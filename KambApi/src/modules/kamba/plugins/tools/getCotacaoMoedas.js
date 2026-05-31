@@ -8,6 +8,7 @@ const cacheMemoria = new Map();
 const COTACOES_FIXAS = {
   USD: { oficial: 835.5, paralelo: 980.0, variacao: "estável" },
   EUR: { oficial: 905.2, paralelo: 1060.0, variacao: "estável" },
+  _referenciaData: "2024-12",
 };
 
 const buscarCotacaoOnline = async () => {
@@ -90,11 +91,21 @@ const handler = async () => {
     };
   }
 
+  const refDate = new Date("2024-12-01");
+  const mesesPassados = Math.round(
+    (Date.now() - refDate.getTime()) / (30 * 24 * 60 * 60 * 1000),
+  );
+  const aviso =
+    mesesPassados > 2
+      ? `⚠️ Valores de referência com ~${mesesPassados} meses. Consulte o banco para valores actuais.`
+      : "Cotações de referência (offline). Consulte o banco para valores exactos.";
+
   return {
     data: new Date().toISOString(),
-    cotacoes: COTACOES_FIXAS,
-    nota: "Cotações de referência (offline). Consulte o banco para valores exactos.",
+    cotacoes: { USD: COTACOES_FIXAS.USD, EUR: COTACOES_FIXAS.EUR },
+    nota: aviso,
     fonte: "fallback",
+    desactualizado: mesesPassados > 2,
   };
 };
 

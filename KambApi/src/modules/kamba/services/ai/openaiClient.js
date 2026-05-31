@@ -1,3 +1,4 @@
+// Cliente principal do LLM. Anteriormente havia groqClient.js (fetch raw) — consolidado aqui.
 const OpenAI = require("openai");
 
 const API_KEY = process.env.KAMBA_AI_API_KEY;

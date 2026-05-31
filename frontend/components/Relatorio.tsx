@@ -9,7 +9,7 @@ import {
   RefreshCw, Calendar, Layers, AlertCircle, Loader2,
   ArrowUpRight, ArrowDownRight, Award, Flame
 } from 'lucide-react';
-import api from '../services/api';
+import dashboardService from '../services/dashboardService';
 
 // ==========================================
 // Types
@@ -42,21 +42,6 @@ interface DashboardData {
   saldos?: { total: number; disponivel: number; reservado: number };
 }
 
-interface HistoricoResponse {
-  success: boolean;
-  periodo: Periodo;
-  dataInicio: string;
-  dataFim: string;
-  resumo: {
-    totalReceitas: number;
-    totalDespesas: number;
-    totalPoupanca: number;
-    taxaPoupancaMedia: number;
-    totalMeses: number;
-  };
-  historico: PeriodoItem[];
-}
-
 // ==========================================
 // Configuração dos Períodos
 // ==========================================
@@ -77,7 +62,7 @@ const fmt = (v: number) => {
   return `${v.toFixed(0)} Kz`;
 };
 
-  const fmtFull = (v: number) =>
+const fmtFull = (v: number) =>
   v?.toLocaleString('pt-AO', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' Kz';
 
 const CORES = ['#cbfb46', '#3b82f6', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6', '#06b6d4', '#ec4899'];
@@ -143,25 +128,25 @@ const Relatorio: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [periodo, setPeriodo] = useState<Periodo>('semestre');
-  const [resumoPeriodo, setResumoPeriodo] = useState<HistoricoResponse['resumo'] | null>(null);
+  const [resumoPeriodo, setResumoPeriodo] = useState<any>(null);
 
   const fetchTudo = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     setError('');
     try {
-      const [resHistorico, resTop, resDash] = await Promise.all([
-        api.get<HistoricoResponse>(`/insights/historico?periodo=${periodo}`),
-        api.get('/insights/top-categorias'),
-        api.get('/dashboard/resumo'),
+      const [dataHistorico, dataTop, dataDash] = await Promise.all([
+        dashboardService.obterHistorico(periodo),
+        dashboardService.obterTopCategorias(),
+        dashboardService.obterResumoDashboard(),
       ]);
 
-      if (resHistorico.data.success) {
-        setHistorico(resHistorico.data.historico || []);
-        setResumoPeriodo(resHistorico.data.resumo);
+      if (dataHistorico.success) {
+        setHistorico(dataHistorico.historico || []);
+        setResumoPeriodo(dataHistorico.resumo);
       }
-      if (resTop.data.success) setTopCategorias(resTop.data.top || []);
-      if (resDash.data.success) setDashData(resDash.data);
+      if (dataTop.success) setTopCategorias(dataTop.top || []);
+      if (dataDash.success) setDashData(dataDash);
     } catch (e: any) {
       setError('Erro ao carregar relatório. Verifica a ligação.');
     } finally {

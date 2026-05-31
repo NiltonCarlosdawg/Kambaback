@@ -834,4 +834,7 @@ module.exports = {
   detectarIntencaoFluxo,
   listarFluxos,
   FLUXOS,
+  getEstado,
+  setEstado,
+  verificarRecuperacao,
 };

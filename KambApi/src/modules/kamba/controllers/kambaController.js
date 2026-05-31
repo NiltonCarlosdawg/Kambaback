@@ -12,6 +12,7 @@ const {
   kambaRes,
   getFallback,
   getRespostaOffline,
+  getPrefixoEmpatia,
 } = require("../services/core/responseFormatter");
 const analytics = require("../services/core/analyticsService");
 const contentModerator = require("../services/ai/contentModerator");
@@ -100,6 +101,8 @@ const prepararMensagens = (
   contextoFormatado,
   memoriaDB,
   msg,
+  contextoFinanceiro = null,
+  opcoesSessao = {},
 ) => {
   const memoriaLimpa = memoriaDB.map(sanitizarMsg);
   const primeiroNaoSystem = memoriaLimpa.find((m) => m.role !== "system");
@@ -118,6 +121,8 @@ const prepararMensagens = (
           perfil,
           idade,
           contextoFormatado,
+          contextoFinanceiro,
+          opcoesSessao,
         ),
       },
       ...memoriaLimpa.slice(-10),
@@ -145,14 +150,293 @@ const escreverEventoSSE = (res, tipo, dados = {}) => {
   res.write(`data: ${JSON.stringify({ type: tipo, ...dados })}\n\n`);
 };
 
+/**
+ * Detecta se a pergunta actual já foi respondida antes (loop detector)
+ * Retorna string descritiva para o prompt ou 'nenhum'
+ */
+const detectarContextoPendente = async (usuarioId, msgLower, memoriaDB) => {
+  try {
+    const {
+      detectarPerguntaRepetida,
+    } = require("../services/ai/intentClassifier");
+    const repetida = detectarPerguntaRepetida(msgLower, memoriaDB);
+
+    if (repetida) {
+      const ultimaResposta = [...memoriaDB]
+        .reverse()
+        .find((m) => m.role === "assistant" && m.content?.length > 20);
+
+      if (ultimaResposta) {
+        const preview = ultimaResposta.content
+          .substring(0, 80)
+          .replace(/\n/g, " ");
+        return `pergunta_repetida — última resposta: "${preview}..."`;
+      }
+      return "pergunta_repetida";
+    }
+    return "nenhum";
+  } catch {
+    return "nenhum";
+  }
+};
+
+/**
+ * Verifica se é a primeira mensagem desta sessão (últimos 30 min sem actividade)
+ * e retorna contexto relevante da sessão anterior se existir
+ */
+const getContextoSessaoAnterior = async (usuarioId, memoriaDB) => {
+  if (memoriaDB.length === 0) return null;
+
+  const ultimaMensagem = memoriaDB[memoriaDB.length - 1];
+  const tempoDecorrido =
+    Date.now() - new Date(ultimaMensagem.criadoEm || 0).getTime();
+  const SESSAO_TIMEOUT = 30 * 60 * 1000; // 30 minutos
+
+  if (tempoDecorrido > SESSAO_TIMEOUT) {
+    const {
+      buscarContextoRelevante,
+    } = require("../services/memory/semanticMemory");
+    const contextosRelevantes = await buscarContextoRelevante(
+      usuarioId,
+      "resumo financeiro objectivos gastos",
+      2,
+    );
+
+    if (contextosRelevantes.length > 0) {
+      return contextosRelevantes
+        .map((c) => c.content?.substring(0, 100))
+        .filter(Boolean)
+        .join(" | ");
+    }
+  }
+  return null;
+};
+
+// ==========================================
+// ROTAS RÁPIDAS (partilhadas entre normal e stream)
+// ==========================================
+
+const processarRotasRapidas = async (
+  usuarioId,
+  msg,
+  msgLower,
+  mensagem,
+  res,
+  isStream,
+) => {
+  const responder = (texto, extra = {}) => {
+    if (isStream) {
+      if (!res.writableEnded) {
+        escreverEventoSSE(res, "chunk", { content: texto });
+        escreverEventoSSE(res, "done", extra);
+        res.end();
+      }
+    } else {
+      kambaRes(res, texto, extra);
+    }
+    return { handled: true };
+  };
+
+  // 1. MODERAÇÃO DE INPUT
+  const moderacao = await contentModerator.moderarInput(msg);
+  if (moderacao.bloqueado) {
+    const resp = contentModerator.getRespostaBloqueio(moderacao.categoria);
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      msg,
+      "bloqueado",
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      resp,
+      "bloqueado",
+    );
+    return responder(resp, { moderado: true });
+  }
+
+  // 2. VERIFICAR FLUXO GUIADO ATIVO
+  if (await Wizard.temFluxoAtivo(usuarioId)) {
+    if (msgLower === "cancelar" || msgLower === "sair") {
+      const resp = await Wizard.cancelarFluxo(usuarioId);
+      await conversationService.salvarMemoria(
+        usuarioId,
+        "user",
+        mensagem,
+        "fluxo_cancelado",
+      );
+      await conversationService.salvarMemoria(
+        usuarioId,
+        "assistant",
+        resp,
+        "fluxo_cancelado",
+      );
+      return responder(resp, { fluxoCancelado: true });
+    }
+    const resultado = await Wizard.processarRespostaFluxo(usuarioId, msg);
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      mensagem,
+      `fluxo_${resultado.fluxoTipo || "ativo"}`,
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      resultado.mensagem,
+      `fluxo_${resultado.fluxoTipo || "ativo"}`,
+    );
+    return responder(resultado.mensagem, {
+      fluxoAtivo: resultado.continuar,
+      fluxoConcluido: resultado.concluido,
+    });
+  }
+
+  // 3. DETECTAR INTENÇÃO DE FLUXO GUIADO
+  const intencaoFluxo = Wizard.detectarIntencaoFluxo(msgLower);
+  if (intencaoFluxo) {
+    const resultadoInicio = await Wizard.iniciarFluxo(
+      usuarioId,
+      intencaoFluxo.tipo,
+      intencaoFluxo.dadosIniciais,
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      mensagem,
+      "inicio_fluxo",
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      resultadoInicio.mensagem,
+      "inicio_fluxo",
+    );
+    return responder(resultadoInicio.mensagem, {
+      fluxoAtivo: !resultadoInicio.concluido,
+      fluxoConcluido: resultadoInicio.concluido,
+      fluxoTipo: intencaoFluxo.tipo,
+    });
+  }
+
+  // 4. RECUPERAÇÃO PROATIVA DE FLUXO ABANDONADO
+  const recuperacao = await Wizard.verificarRecuperacao(usuarioId);
+  if (recuperacao) {
+    if (/^(sim|bora|quero|pode ser|yha|ok|vambora)$/.test(msgLower)) {
+      const estado = await Wizard.getEstado(usuarioId);
+      const fluxo = Wizard.FLUXOS[estado.fluxo];
+      const pergunta = fluxo.passos[estado.passoAtual].pergunta;
+      await Wizard.setEstado(usuarioId, estado);
+      const resp = `Boa, kamba! Vamos continuar com o registo de *${recuperacao.fluxoNome}*.\n\n${pergunta}`;
+      return responder(resp, { fluxoAtivo: true });
+    }
+    if (/^(não|nao|nops|cancelar|esquece)$/.test(msgLower)) {
+      await Wizard.cancelarFluxo(usuarioId);
+    } else {
+      const resp = `Kamba, notei que deixaste o registo de *${recuperacao.fluxoNome}* a meio. Queres continuar de onde paramos? (Responde *Sim* para continuar ou faz outra pergunta)`;
+      return responder(resp, { sugestaoRecuperacao: true });
+    }
+  }
+
+  // 5. SAUDAÇÕES
+  const isSaudacao =
+    /^(oi|ol[aá]|hey|hi|hello|bom dia|boa tarde|boa noite|kom[eé]|salve|maka|e a[ií]|eai|tudo (bem|bom|fixe|certo|ok)|como (vais|vai|est[aá]s)|boas|que tal|massa|fixe|top|legal)\??[!.]*$/.test(
+      msgLower,
+    );
+  if (isSaudacao) {
+    const nomeUser = await prisma.user
+      .findUnique({ where: { id: usuarioId }, select: { nome: true } })
+      .then((u) => u?.nome || "kamba")
+      .catch(() => "kamba");
+    const variantes = [
+      `Komé, ${nomeUser}! 🙌 Em que posso ajudar hoje?`,
+      `Boas, ${nomeUser}! Tudo bem por aí? O que precisas?`,
+      `Boa, ${nomeUser}! Tô aqui. O que precisas?`,
+    ];
+    const resp = variantes[Math.floor(Math.random() * variantes.length)];
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      mensagem,
+      "saudacao",
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      resp,
+      "saudacao",
+    );
+    return responder(resp, { intencao: "saudacao" });
+  }
+
+  // 6. REACÇÕES CASUAIS
+  const isReacaoCasual =
+    /^(ok(ay)?|sim|n[aã]o|certo|entendi|claro|show|valeu|obrigad[ao]|exato|exacto|correto|tudo (fixe|bem|bom|certo|top|ok)|massa|top|incrível|perfeito)\s*[!.?]*$/.test(
+      msgLower,
+    );
+  if (isReacaoCasual) {
+    const respostas = [
+      "Boa! Se precisares de alguma coisa, é só dizer. 👍",
+      "Fixe! Qualquer coisa estou aqui.",
+      "Ok, kamba! Precisas de mais alguma coisa?",
+    ];
+    const resp = respostas[Math.floor(Math.random() * respostas.length)];
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      mensagem,
+      "reacao_casual",
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      resp,
+      "reacao_casual",
+    );
+    return responder(resp, { intencao: "reacao_casual" });
+  }
+
+  // 7. AJUDA
+  if (msgLower === "ajuda" || msgLower === "help") {
+    const ajuda = `🤖 *Comandos do Kamba:*\n\n📊 *Consultas Rápidas:*\n• "Qual o meu saldo?"\n• "Quanto gastei este mês?"\n• "Como vão meus objetivos?"\n• "Preço do dólar?"\n\n🎯 *Fluxos Guiados:*\n• "Criar meta"\n• "Registar gasto"\n• "Registar cartão"\n\n💬 *Conversa livre:*\n• "Como poupar mais?"\n• "Tenho 100 mil, quero começar um negócio"\n• "Devo comprar dólar?"\n\nDigita *"cancelar"* para sair de qualquer fluxo`;
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "user",
+      mensagem,
+      "ajuda",
+    );
+    await conversationService.salvarMemoria(
+      usuarioId,
+      "assistant",
+      ajuda,
+      "ajuda",
+    );
+    return responder(ajuda, { intencao: "ajuda" });
+  }
+
+  // 8. VERIFICAR CACHE
+  const NAO_CACHEAR =
+    /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
+  if (!NAO_CACHEAR.test(msgLower)) {
+    const respostaCache = await cacheService.verificar(usuarioId, msgLower);
+    if (respostaCache) {
+      return responder(respostaCache, { fromCache: true });
+    }
+  }
+
+  return { handled: false };
+};
+
 // ==========================================
 // CONTROLLER PRINCIPAL
 // ==========================================
 
 const conversarComKamba = async (req, res, next) => {
   const inicio = Date.now();
-  const { mensagem } = req.body;
+  const { mensagem, threadId: threadIdReq } = req.body;
   const usuarioId = req.user.id;
+  const threadId = threadIdReq || "default";
 
   try {
     // 1. VALIDAÇÃO
@@ -174,328 +458,82 @@ const conversarComKamba = async (req, res, next) => {
 
     const msgLower = msg.toLowerCase();
 
-    // 2. MODERAÇÃO DE INPUT
-    const moderacao = await contentModerator.moderarInput(msg);
-    if (moderacao.bloqueado) {
-      const resp = contentModerator.getRespostaBloqueio(moderacao.categoria);
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        msg,
-        "bloqueado",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "bloqueado",
-      );
-      return kambaRes(res, resp);
-    }
-
-    // 3. VERIFICAR FLUXO GUIADO ATIVO (Janela de 15 min)
-    if (await Wizard.temFluxoAtivo(usuarioId)) {
-      if (msgLower === "cancelar" || msgLower === "sair") {
-        const resp = await Wizard.cancelarFluxo(usuarioId);
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "user",
-          mensagem,
-          "fluxo_cancelado",
-        );
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "assistant",
-          resp,
-          "fluxo_cancelado",
-        );
-        return kambaRes(res, resp);
-      }
-
-      const resultado = await Wizard.processarRespostaFluxo(usuarioId, msg);
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        `fluxo_${resultado.fluxoTipo || "ativo"}`,
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resultado.mensagem,
-        `fluxo_${resultado.fluxoTipo || "ativo"}`,
-      );
-
-      return kambaRes(res, resultado.mensagem, {
-        fluxoAtivo: resultado.continuar,
-        fluxoConcluido: resultado.concluido,
-      });
-    }
-
-    // 4. DETECTAR INTENÇÃO DE FLUXO GUIADO (HIJACKING)
-    const intencaoFluxo = Wizard.detectarIntencaoFluxo(msgLower);
-    if (intencaoFluxo) {
-      const resultadoInicio = await Wizard.iniciarFluxo(
-        usuarioId,
-        intencaoFluxo.tipo,
-        intencaoFluxo.dadosIniciais,
-      );
-
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "inicio_fluxo",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resultadoInicio.mensagem,
-        "inicio_fluxo",
-      );
-
-      return kambaRes(res, resultadoInicio.mensagem, {
-        fluxoAtivo: !resultadoInicio.concluido,
-        fluxoConcluido: resultadoInicio.concluido,
-        fluxoTipo: intencaoFluxo.tipo,
-      });
-    }
-
-    // 4.1 RECUPERAÇÃO PROATIVA DE FLUXO ABANDONADO (> 15 min)
-    const recuperacao = await Wizard.verificarRecuperacao(usuarioId);
-    if (recuperacao) {
-      if (/^(sim|bora|quero|pode ser|yha|ok|vambora)$/.test(msgLower)) {
-        const estado = await Wizard.getEstado(usuarioId);
-        const fluxo = Wizard.FLUXOS[estado.fluxo];
-        const pergunta = fluxo.passos[estado.passoAtual].pergunta;
-        await Wizard.setEstado(usuarioId, estado);
-        const resp = `Boa, kamba! Vamos continuar com o registo de *${recuperacao.fluxoNome}*.\n\n${pergunta}`;
-        return kambaRes(res, resp, { fluxoAtivo: true });
-      }
-
-      if (/^(não|nao|nops|cancelar|esquece)$/.test(msgLower)) {
-        await Wizard.cancelarFluxo(usuarioId);
-      } else {
-        const resp = `Kamba, notei que deixaste o registo de *${recuperacao.fluxoNome}* a meio. Queres continuar de onde paramos? (Responde *Sim* para continuar ou faz outra pergunta)`;
-        return kambaRes(res, resp, { sugestaoRecuperacao: true });
-      }
-    }
-
-    // 5. SAUDAÇÕES E CONVERSA CASUAL
-    const isSaudacao =
-      /^(oi|ol[aá]|hey|hi|hello|bom dia|boa tarde|boa noite|kom[eé]|salve|maka|e a[ií]|eai|tudo (bem|bom|fixe|certo|ok)|como (vais|vai|est[aá]s)|boas|que tal|massa|fixe|top|legal)\??[!.]*$/.test(
-        msgLower,
-      );
-
-    const isReacaoCasual =
-      /^(ok(ay)?|sim|n[aã]o|certo|entendi|claro|show|valeu|obrigad[ao]|exato|exacto|correto|tudo (fixe|bem|bom|certo|top|ok)|massa|top|incrível|perfeito)\s*[!.?]*$/.test(
-        msgLower,
-      );
-
-    if (isSaudacao) {
-      const nomeUser = await prisma.user
-        .findUnique({
-          where: { id: usuarioId },
-          select: { nome: true },
-        })
-        .then((u) => u?.nome || "kamba")
-        .catch(() => "kamba");
-
-      const variantes = [
-        `Komé, ${nomeUser}! 🙌 Em que posso ajudar hoje?`,
-        `Boas, ${nomeUser}! Tudo bem por aí? O que precisas?`,
-        `Boa, ${nomeUser}! Tô aqui. O que precisas?`,
-      ];
-      const resp = variantes[Math.floor(Math.random() * variantes.length)];
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "saudacao",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "saudacao",
-      );
-      return kambaRes(res, resp);
-    }
-
-    if (isReacaoCasual) {
-      const respostas = [
-        "Boa! Se precisares de alguma coisa, é só dizer. 👍",
-        "Fixe! Qualquer coisa estou aqui.",
-        "Ok, kamba! Precisas de mais alguma coisa?",
-      ];
-      const resp = respostas[Math.floor(Math.random() * respostas.length)];
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "reacao_casual",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "reacao_casual",
-      );
-      return kambaRes(res, resp);
-    }
-
-    if (msgLower === "ajuda" || msgLower === "help") {
-      const ajuda = `🤖 *Comandos do Kamba:*
-
-📊 *Consultas Rápidas:*
-• "Qual o meu saldo?"
-• "Quanto gastei este mês?"
-• "Como vão meus objetivos?"
-• "Preço do dólar?"
-
-🎯 *Fluxos Guiados:*
-• "Criar meta"
-• "Registar gasto"
-• "Registar cartão"
-
-💬 *Conversa livre:*
-• "Como poupar mais?"
-• "Tenho 100 mil, quero começar um negócio"
-• "Devo comprar dólar?"
-
-Digita *"cancelar"* para sair de qualquer fluxo`;
-
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "ajuda",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        ajuda,
-        "ajuda",
-      );
-      return kambaRes(res, ajuda);
-    }
-
-    // 6. VERIFICAR CACHE
-    const NAO_CACHEAR =
-      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
-    if (!NAO_CACHEAR.test(msgLower)) {
-      const respostaCache = await cacheService.verificar(usuarioId, msgLower);
-      if (respostaCache) {
-        return kambaRes(res, respostaCache, { fromCache: true });
-      }
-    }
-
-    // 7. BUSCAR PERFIL
-    const perfil = await prisma.user.findUnique({
-      where: { id: usuarioId },
-      select: {
-        nome: true,
-        morada: true,
-        dataNascimento: true,
-        rendaMensalMedia: true,
-        perfilDeRisco: true,
-      },
-    });
-
-    const idade = perfil?.dataNascimento
-      ? new Date().getFullYear() - new Date(perfil.dataNascimento).getFullYear()
-      : "não informada";
-
-    // 8. AGREGAR CONTEXTO FINANCEIRO REAL (omnisciência)
-    const contextoFinanceiro = await agregarContexto(usuarioId);
-    const contextoFormatado = formatarContextoFinanceiro(contextoFinanceiro);
-
-    // 9. CLASSIFICAR INTENÇÃO (com contexto semântico)
-    const memoriaDB = await conversationService.carregarMemoriaComContexto(
+    // 2. ROTAS RÁPIDAS (moderação, wizard, saudações, cache, etc.)
+    const resultadoRapido = await processarRotasRapidas(
       usuarioId,
       msg,
-    );
-    const classificacao = intentClassifier.classificarIntencao(
       msgLower,
-      memoriaDB,
+      mensagem,
+      res,
+      false,
     );
-    const { sentimento, intensidade: sentimentoIntensidade } =
-      intentClassifier.detectarSentimento(msgLower);
-    const idioma = intentClassifier.detectarIdioma(msgLower);
+    if (resultadoRapido.handled) return;
+
+    // 3. PREPARAR CONTEXTO (única chamada — elimina duplicação)
+    const {
+      perfil,
+      idade,
+      contextoFormatado,
+      memoriaDB,
+      classificacao,
+      sentimento,
+      sentimentoIntensidade,
+      idioma,
+      contextoFinanceiro,
+    } = await prepararContexto(usuarioId, msg, msgLower);
 
     console.log(
       `[KAMBA] Intenção: ${classificacao.intencao} | Tools: ${classificacao.precisaTools} | Confiança: ${classificacao.confianca} | Sentimento: ${sentimento} (${sentimentoIntensidade}) | Idioma: ${idioma}`,
     );
 
-    // 9. PREPARAR MENSAGENS PARA O LLM
-    let messages;
-    const threadId = "default"; // Futuro: suportar múltiplas threads
+    // 3.1 DETECTAR CONTEXTO PENDENTE E SESSÃO
+    const contextoPendente = await detectarContextoPendente(
+      usuarioId,
+      msgLower,
+      memoriaDB,
+    );
+    const contextoSessao = await getContextoSessaoAnterior(
+      usuarioId,
+      memoriaDB,
+    );
 
-    // Sanitizar: APENAS role + content (remove id, contexto, etc.)
-    const sanitizarMsg = (m) => {
-      const content =
-        m.content && typeof m.content === "string" ? m.content.trim() : "";
-      return {
-        role:
-          m.role === "system" || m.role === "user" || m.role === "assistant"
-            ? m.role
-            : "user",
-        content:
-          content.length > 0
-            ? content
-            : m.role === "assistant"
-              ? "[...]"
-              : m.role === "system"
-                ? "(sem contexto)"
-                : "",
-      };
+    const opcoesSessao = {
+      sentimento,
+      sentimentoIntensidade,
+      contextoPendente,
     };
-    const memoriaLimpa = memoriaDB.map(sanitizarMsg);
 
-    // Garantir que a primeira mensagem após system é user (exigência da API Groq)
-    const primeiroNaoSystem = memoriaLimpa.find((m) => m.role !== "system");
-    if (primeiroNaoSystem && primeiroNaoSystem.role === "assistant") {
-      memoriaLimpa.unshift({
-        role: "user",
-        content: "[continuação da conversa]",
-      });
+    // 4. PREPARAR MENSAGENS PARA O LLM
+    const messages = prepararMensagens(
+      classificacao,
+      perfil,
+      idade,
+      contextoFormatado,
+      memoriaDB,
+      msg,
+      contextoFinanceiro,
+      opcoesSessao,
+    );
+
+    // 5. VERIFICAR A/B TESTING
+    let promptVersaoActiva = null;
+    try {
+      const testeActivo = await analytics.getPromptVersao(usuarioId);
+      if (testeActivo && classificacao.precisaTools) {
+        const idxSystem = messages.findIndex((m) => m.role === "system");
+        if (idxSystem !== -1 && testeActivo.promptContent) {
+          messages[idxSystem] = {
+            role: "system",
+            content: testeActivo.promptContent,
+          };
+          promptVersaoActiva = testeActivo.versao;
+        }
+      }
+    } catch (err) {
+      console.warn("[AB_TEST] Erro ao obter versão de prompt:", err.message);
     }
 
-    if (classificacao.precisaTools) {
-      // Query financeira: contexto completo + tools
-      messages = [
-        {
-          role: "system",
-          content: promptBuilder.gerarSystemPrompt(
-            perfil,
-            idade,
-            contextoFormatado,
-          ),
-        },
-        ...memoriaLimpa.slice(-10),
-        { role: "user", content: msg },
-      ];
-    } else {
-      // Query conversacional: contexto mínimo
-      const historicoMinimo = memoriaLimpa.slice(-4).map((m) => {
-        if (m.role !== "assistant") return m;
-        const temDados =
-          /\d{3,}[\s.]?\d{3}.*aoa|multicaixa|conta bai|bfa|bic|fundo de emergência|ativos|negócio de revenda|\d+%.*renda|kwanza|saldo.*aoa/i.test(
-            m.content,
-          );
-        return temDados
-          ? { ...m, content: "[dados financeiros anteriores]" }
-          : m;
-      });
-
-      messages = [
-        { role: "system", content: promptBuilder.gerarPromptMinimal(perfil) },
-        ...historicoMinimo,
-        { role: "user", content: msg },
-      ];
-    }
-
-    // 10. CHAMAR API
+    // 6. CHAMAR API
     if (!groqClient.isConfigured()) {
       const resp = getRespostaOffline(msgLower);
       return kambaRes(res, resp, { offline: true });
@@ -514,7 +552,6 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
     } catch (err) {
       console.error("[KAMBA ERROR] API Error:", err.message);
 
-      // Fallback offline para erros específicos
       if (
         err.message?.includes("401") ||
         err.message?.includes("Invalid API Key")
@@ -525,12 +562,14 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
           "user",
           msg,
           "conversa_ia",
+          threadId,
         );
         await conversationService.salvarMemoria(
           usuarioId,
           "assistant",
           resp,
           "conversa_ia",
+          threadId,
         );
         return kambaRes(res, resp, { offline: true, error: "api_key_invalid" });
       }
@@ -538,11 +577,10 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
       throw err;
     }
 
-    // 11. PROCESSAR RESPOSTA
+    // 7. PROCESSAR RESPOSTA
     let finalContent;
     const primeiraMsg = data.choices?.[0]?.message;
 
-    // Processar tool calls
     if (primeiraMsg?.tool_calls?.length > 0) {
       const toolCalls = primeiraMsg.tool_calls.map((tc) => ({
         name: tc.function.name,
@@ -550,12 +588,10 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
         id: tc.id,
       }));
 
-      // Executar ferramentas
       const resultados = await toolRegistry.executeMultiple(toolCalls, {
         usuarioId,
       });
 
-      // Adicionar resposta do assistente (sanitizada: content nunca null)
       messages.push({
         role: "assistant",
         content: primeiraMsg.content || "",
@@ -569,7 +605,6 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
         });
       });
 
-      // Segunda chamada para gerar resposta final
       const secondData = await groqClient.chamarGroq(messages, false);
       finalContent = secondData.choices?.[0]?.message?.content;
     } else {
@@ -580,13 +615,78 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
       finalContent = getFallback("erro_generico");
     }
 
-    // 12. ADICIONAR LEMBRETES PROATIVOS
+    // 8. ADICIONAR LEMBRETES PROATIVOS
     finalContent = await Proatividade.adicionarLembretesNaResposta(
       usuarioId,
       finalContent,
     );
 
-    // 13. SALVAR MEMÓRIA
+    // 8.1 PREFIXO DE EMPATIA (se sentimento negativo/intenso)
+    const prefixoEmpatia = getPrefixoEmpatia(sentimento, sentimentoIntensidade);
+    if (prefixoEmpatia && !finalContent.startsWith(prefixoEmpatia)) {
+      finalContent = `${prefixoEmpatia}\n\n${finalContent}`;
+    }
+
+    // 8.2 BRIDGE LLM → WIZARD
+    const WIZARD_PATTERN = /\[WIZARD:([a-z_]+):(\{.*?\})\]/s;
+    const wizardMatch = finalContent.match(WIZARD_PATTERN);
+
+    if (wizardMatch) {
+      const [fullMatch, tipoFluxo, dadosJson] = wizardMatch;
+      finalContent = finalContent.replace(fullMatch, "").trim();
+
+      try {
+        const dadosIniciais = JSON.parse(dadosJson);
+        const fluxoExiste = Wizard.FLUXOS[tipoFluxo];
+
+        if (fluxoExiste && !(await Wizard.temFluxoAtivo(usuarioId))) {
+          const resultadoInicio = await Wizard.iniciarFluxo(
+            usuarioId,
+            tipoFluxo,
+            dadosIniciais,
+          );
+
+          if (resultadoInicio && !resultadoInicio.concluido) {
+            finalContent = `${finalContent}\n\n${resultadoInicio.mensagem}`;
+
+            await conversationService.salvarMemoria(
+              usuarioId,
+              "user",
+              msg,
+              "conversa_ia",
+              threadId,
+            );
+            await conversationService.salvarMemoria(
+              usuarioId,
+              "assistant",
+              finalContent,
+              `inicio_fluxo_${tipoFluxo}`,
+              threadId,
+            );
+
+            return kambaRes(res, finalContent, {
+              fluxoAtivo: true,
+              fluxoTipo: tipoFluxo,
+              fluxoIniciado: true,
+              latencia: `${Date.now() - inicio}ms`,
+              intencao: classificacao.intencao,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("[BRIDGE] Erro ao parsear dados do wizard:", err.message);
+      }
+    }
+
+    // 9. MODERAÇÃO DE OUTPUT
+    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
+    if (moderacaoOutput.bloqueado) {
+      finalContent = contentModerator.getRespostaBloqueio(
+        moderacaoOutput.categoria,
+      );
+    }
+
+    // 10. SALVAR MEMÓRIA
     await conversationService.salvarMemoria(
       usuarioId,
       "user",
@@ -602,12 +702,14 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
       threadId,
     );
 
-    // 14. CACHE (apenas para respostas não financeiras)
+    // 11. CACHE
+    const NAO_CACHEAR =
+      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
     if (!NAO_CACHEAR.test(msgLower)) {
       await cacheService.guardar(usuarioId, msgLower, finalContent);
     }
 
-    // 15. LOG DE PERFORMANCE (fire-and-forget)
+    // 12. LOG DE PERFORMANCE
     const latencia = Date.now() - inicio;
     const tokensUsados = data.usage?.total_tokens || 0;
     const ferramentasUsadas =
@@ -626,14 +728,8 @@ Digita *"cancelar"* para sair de qualquer fluxo`;
       sentimento,
       confianca: classificacao.confianca,
       ferramentas: ferramentasUsadas.length > 0 ? ferramentasUsadas : null,
+      promptVersao: promptVersaoActiva,
     });
-
-    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
-    if (moderacaoOutput.bloqueado) {
-      finalContent = contentModerator.getRespostaBloqueio(
-        moderacaoOutput.categoria,
-      );
-    }
 
     return kambaRes(res, finalContent, {
       latencia: `${latencia}ms`,
@@ -679,7 +775,6 @@ const enviarFeedback = async (req, res, next) => {
       return res.status(400).json({ success: false, message: result.error });
     }
 
-    // Registar no A/B testing se veio de um teste de prompt
     if (promptVersao) {
       analytics.registarRespostaTeste(promptVersao, parseInt(avaliacao));
     }
@@ -699,8 +794,9 @@ const enviarFeedback = async (req, res, next) => {
 
 const conversarComKambaStream = async (req, res, next) => {
   const inicio = Date.now();
-  const { mensagem } = req.body;
+  const { mensagem, threadId: threadIdReq } = req.body;
   const usuarioId = req.user.id;
+  const threadId = threadIdReq || "default";
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -733,188 +829,18 @@ const conversarComKambaStream = async (req, res, next) => {
 
     const msgLower = msg.toLowerCase();
 
-    const moderacao = await contentModerator.moderarInput(msg);
-    if (moderacao.bloqueado) {
-      const resp = contentModerator.getRespostaBloqueio(moderacao.categoria);
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        msg,
-        "bloqueado",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "bloqueado",
-      );
-      escreverEventoSSE(res, "chunk", { content: resp });
-      escreverEventoSSE(res, "done", { moderado: true });
-      return res.end();
-    }
+    // Rotas rápidas
+    const resultadoRapido = await processarRotasRapidas(
+      usuarioId,
+      msg,
+      msgLower,
+      mensagem,
+      res,
+      true,
+    );
+    if (resultadoRapido.handled) return;
 
-    if (await Wizard.temFluxoAtivo(usuarioId)) {
-      if (msgLower === "cancelar" || msgLower === "sair") {
-        const resp = await Wizard.cancelarFluxo(usuarioId);
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "user",
-          mensagem,
-          "fluxo_cancelado",
-        );
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "assistant",
-          resp,
-          "fluxo_cancelado",
-        );
-        escreverEventoSSE(res, "chunk", { content: resp });
-        escreverEventoSSE(res, "done", { fluxoCancelado: true });
-        return res.end();
-      }
-
-      const resultado = await Wizard.processarRespostaFluxo(usuarioId, msg);
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        `fluxo_${resultado.fluxoTipo || "ativo"}`,
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resultado.mensagem,
-        `fluxo_${resultado.fluxoTipo || "ativo"}`,
-      );
-      escreverEventoSSE(res, "chunk", { content: resultado.mensagem });
-      escreverEventoSSE(res, "done", {
-        fluxoAtivo: resultado.continuar,
-        fluxoConcluido: resultado.concluido,
-      });
-      return res.end();
-    }
-
-    const intencaoFluxo = Wizard.detectarIntencaoFluxo(msgLower);
-    if (intencaoFluxo) {
-      const resultadoInicio = await Wizard.iniciarFluxo(
-        usuarioId,
-        intencaoFluxo.tipo,
-        intencaoFluxo.dadosIniciais,
-      );
-
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "inicio_fluxo",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resultadoInicio.mensagem,
-        "inicio_fluxo",
-      );
-
-      escreverEventoSSE(res, "chunk", { content: resultadoInicio.mensagem });
-      escreverEventoSSE(res, "done", {
-        fluxoAtivo: !resultadoInicio.concluido,
-        fluxoConcluido: resultadoInicio.concluido,
-        fluxoTipo: intencaoFluxo.tipo,
-      });
-      return res.end();
-    }
-
-    const isSaudacao =
-      /^(oi|ol[aá]|hey|hi|hello|bom dia|boa tarde|boa noite|kom[eé]|salve|maka|e a[ií]|eai|tudo (bem|bom|fixe|certo|ok)|como (vais|vai|est[aá]s)|boas|que tal|massa|fixe|top|legal)\??[!.]*$/.test(
-        msgLower,
-      );
-    const isReacaoCasual =
-      /^(ok(ay)?|sim|n[aã]o|certo|entendi|claro|show|valeu|obrigad[ao]|exato|exacto|correto|tudo (fixe|bem|bom|certo|top|ok)|massa|top|incrível|perfeito)\s*[!.?]*$/.test(
-        msgLower,
-      );
-
-    if (isSaudacao) {
-      const nomeUser = await prisma.user
-        .findUnique({ where: { id: usuarioId }, select: { nome: true } })
-        .then((u) => u?.nome || "kamba")
-        .catch(() => "kamba");
-      const variantes = [
-        `Komé, ${nomeUser}! 🙌 Em que posso ajudar hoje?`,
-        `Boas, ${nomeUser}! Tudo bem por aí? O que precisas?`,
-        `Boa, ${nomeUser}! Tô aqui. O que precisas?`,
-      ];
-      const resp = variantes[Math.floor(Math.random() * variantes.length)];
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "saudacao",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "saudacao",
-      );
-      escreverEventoSSE(res, "chunk", { content: resp });
-      escreverEventoSSE(res, "done", { intencao: "saudacao" });
-      return res.end();
-    }
-
-    if (isReacaoCasual) {
-      const respostas = [
-        "Boa! Se precisares de alguma coisa, é só dizer. 👍",
-        "Fixe! Qualquer coisa estou aqui.",
-        "Ok, kamba! Precisas de mais alguma coisa?",
-      ];
-      const resp = respostas[Math.floor(Math.random() * respostas.length)];
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "reacao_casual",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "reacao_casual",
-      );
-      escreverEventoSSE(res, "chunk", { content: resp });
-      escreverEventoSSE(res, "done", { intencao: "reacao_casual" });
-      return res.end();
-    }
-
-    if (msgLower === "ajuda" || msgLower === "help") {
-      const ajuda = `🤖 *Comandos do Kamba:*\n\n📊 *Consultas Rápidas:*\n• "Qual o meu saldo?"\n• "Quanto gastei este mês?"\n• "Como vão meus objetivos?"\n• "Preço do dólar?"\n\n🎯 *Fluxos Guiados:*\n• "Criar meta"\n• "Registar gasto"\n\n💬 *Conversa livre:*\n• "Como poupar mais?"\n• "Tenho 100 mil, quero começar um negócio"\n• "Devo comprar dólar?"\n\nDigita *"cancelar"* para sair de qualquer fluxo`;
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        mensagem,
-        "ajuda",
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        ajuda,
-        "ajuda",
-      );
-      escreverEventoSSE(res, "chunk", { content: ajuda });
-      escreverEventoSSE(res, "done", { intencao: "ajuda" });
-      return res.end();
-    }
-
-    const NAO_CACHEAR =
-      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
-    if (!NAO_CACHEAR.test(msgLower)) {
-      const respostaCache = await cacheService.verificar(usuarioId, msgLower);
-      if (respostaCache) {
-        escreverEventoSSE(res, "chunk", { content: respostaCache });
-        escreverEventoSSE(res, "done", { fromCache: true });
-        return res.end();
-      }
-    }
-
+    // Preparar contexto
     const {
       perfil,
       idade,
@@ -922,8 +848,21 @@ const conversarComKambaStream = async (req, res, next) => {
       memoriaDB,
       classificacao,
       sentimento,
-      idioma,
+      sentimentoIntensidade,
+      contextoFinanceiro,
     } = await prepararContexto(usuarioId, msg, msgLower);
+
+    // Detectar contexto pendente e sessão
+    const contextoPendenteStream = await detectarContextoPendente(
+      usuarioId,
+      msgLower,
+      memoriaDB,
+    );
+    const opcoesSessaoStream = {
+      sentimento,
+      sentimentoIntensidade,
+      contextoPendente: contextoPendenteStream,
+    };
 
     if (!groqClient.isConfigured()) {
       const resp = getRespostaOffline(msgLower);
@@ -932,12 +871,14 @@ const conversarComKambaStream = async (req, res, next) => {
         "user",
         msg,
         "conversa_ia",
+        threadId,
       );
       await conversationService.salvarMemoria(
         usuarioId,
         "assistant",
         resp,
         "conversa_ia",
+        threadId,
       );
       escreverEventoSSE(res, "chunk", { content: resp });
       escreverEventoSSE(res, "done", { offline: true });
@@ -954,6 +895,8 @@ const conversarComKambaStream = async (req, res, next) => {
       contextoFormatado,
       memoriaDB,
       msg,
+      contextoFinanceiro,
+      opcoesSessaoStream,
     );
 
     let finalContent = "";
@@ -1034,28 +977,94 @@ const conversarComKambaStream = async (req, res, next) => {
       finalContent,
     );
 
+    // Prefixo de empatia no stream
+    const prefixoEmpatiaStream = getPrefixoEmpatia(
+      sentimento,
+      sentimentoIntensidade,
+    );
+    if (
+      prefixoEmpatiaStream &&
+      !finalContent.startsWith(prefixoEmpatiaStream)
+    ) {
+      finalContent = `${prefixoEmpatiaStream}\n\n${finalContent}`;
+    }
+
+    // BRIDGE LLM → WIZARD no stream
+    const WIZARD_PATTERN_STREAM = /\[WIZARD:([a-z_]+):(\{.*?\})\]/s;
+    const wizardMatchStream = finalContent.match(WIZARD_PATTERN_STREAM);
+
+    if (wizardMatchStream && !clientDisconnected) {
+      const [fullMatch, tipoFluxo, dadosJson] = wizardMatchStream;
+      finalContent = finalContent.replace(fullMatch, "").trim();
+
+      try {
+        const dadosIniciais = JSON.parse(dadosJson);
+        const fluxoExiste = Wizard.FLUXOS[tipoFluxo];
+
+        if (fluxoExiste && !(await Wizard.temFluxoAtivo(usuarioId))) {
+          const resultadoInicio = await Wizard.iniciarFluxo(
+            usuarioId,
+            tipoFluxo,
+            dadosIniciais,
+          );
+
+          if (resultadoInicio && !resultadoInicio.concluido) {
+            if (!clientDisconnected) {
+              escreverEventoSSE(res, "chunk", {
+                content: `\n\n${resultadoInicio.mensagem}`,
+              });
+              escreverEventoSSE(res, "done", {
+                fluxoAtivo: true,
+                fluxoTipo: tipoFluxo,
+                fluxoIniciado: true,
+              });
+            }
+            return res.end();
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[BRIDGE] Erro ao parsear dados do wizard no stream:",
+          err.message,
+        );
+      }
+    }
+
+    // MODERAÇÃO DE OUTPUT NO STREAM
+    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
+    if (moderacaoOutput.bloqueado) {
+      console.warn(
+        `[MODERACAO] Output bloqueado no streaming (user ${usuarioId}): ${moderacaoOutput.categoria}`,
+      );
+      if (!clientDisconnected) {
+        escreverEventoSSE(res, "moderated", {
+          mensagem: contentModerator.getRespostaBloqueio(
+            moderacaoOutput.categoria,
+          ),
+        });
+      }
+      return res.end();
+    }
+
     await conversationService.salvarMemoria(
       usuarioId,
       "user",
       msg,
       "conversa_ia",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       finalContent,
       "conversa_ia",
+      threadId,
     );
 
+    const NAO_CACHEAR =
+      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
     if (!NAO_CACHEAR.test(msgLower)) {
       await cacheService.guardar(usuarioId, msgLower, finalContent);
-    }
-
-    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
-    if (moderacaoOutput.bloqueado) {
-      console.warn(
-        `[MODERACAO] Output bloqueado no streaming (user ${usuarioId}): ${moderacaoOutput.categoria}`,
-      );
     }
 
     const latencia = Date.now() - inicio;

@@ -1,237 +1,115 @@
 // src/components/News.tsx
 import React, { useEffect, useState } from 'react';
 import { Calendar, Cpu, ExternalLink, Globe, Landmark, MapPin, Newspaper, RefreshCw } from 'lucide-react';
-import api from '../services/api';
+import newsService, { Artigo } from '../services/newsService';
 import { useTheme } from '../contexts/ThemeContext';
 
-interface Artigo {
-  titulo: string; descricao: string; fonte: string;
-  url: string; imagem: string; publicadoEm: string;
-}
-
-// ─── Shared inline components ────────────────────────────────────────────────
-const Card: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties; onClick?: () => void }> = ({ children, className = '', style, onClick }) => (
-  <div className={`rounded-2xl border shadow-sm ${className}`}
-    style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', ...style }}
-    onClick={onClick}>
+const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
+  <div className={`rounded-3xl border ${className}`} style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
     {children}
   </div>
 );
 
-const SectionHeader: React.FC<{ title: string; subtitle?: string; right?: React.ReactNode }> = ({ title, subtitle, right }) => (
-  <div className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
-    <div>
-      {subtitle && <p className="text-[10px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>{subtitle}</p>}
-      <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{title}</h3>
-    </div>
-    {right}
-  </div>
-);
+const CATEGORIES = [
+  { id: 'geral',   label: 'Geral',      icon: Globe },
+  { id: 'angola',  label: 'Angola',     icon: MapPin },
+  { id: 'financas',label: 'Finanças',   icon: Landmark },
+  { id: 'tech',    label: 'Tecnologia', icon: Cpu },
+];
 
-// ─── Component ────────────────────────────────────────────────────────────────
 const News: React.FC = () => {
   const { formatDate } = useTheme();
-  const [artigos,    setArtigos]    = useState<Artigo[]>([]);
-  const [resumo,      setResumo]      = useState<string | null>(null);
-  const [resumoOffline, setResumoOffline] = useState(false);
-  const [artigosUsados, setArtigosUsados] = useState(0);
-  const [loading,    setLoading]    = useState(true);
-  const [loadingResumo, setLoadingResumo] = useState(false);
-  const [categoria,  setCategoria]  = useState('angola');
-  const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [artigos, setArtigos] = useState<Artigo[]>([]);
+  const [resumo,  setResumo]  = useState('');
+  const [loading, setLoading] = useState(true);
+  const [cat,      setCat]      = useState('geral');
 
-  useEffect(() => { 
-    fetchNoticias();
-    fetchResumo();
-  }, [categoria]);
-
-  const fetchNoticias = async () => {
+  const fetchNews = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get(`/noticias?categoria=${categoria}`);
-      const noticiasData = data.data || {};
-      setArtigos(noticiasData.artigos || []);
-      if (noticiasData.atualizadoEm) setLastUpdate(new Date(noticiasData.atualizadoEm).toLocaleTimeString('pt-AO', { hour: '2-digit', minute: '2-digit' }));
-    } catch (err) {
-      console.error('Erro ao buscar notícias:', err);
-      setArtigos([]);
-    }
+      const [newsRes, resRes] = await Promise.all([
+        newsService.obterNoticias(cat),
+        newsService.obterResumo(cat).catch(() => null)
+      ]);
+      setArtigos(newsRes.data?.artigos || []);
+      setResumo(resRes?.data?.resumo || '');
+    } catch { /* silent */ }
     finally { setLoading(false); }
   };
 
-  const fetchResumo = async () => {
-    try {
-      setLoadingResumo(true);
-      const { data } = await api.get(`/noticias/resumo?categoria=${categoria}`);
-      const resumoData = data.data || {};
-      setResumo(resumoData.resumo || null);
-      setResumoOffline(resumoData.offline || false);
-      setArtigosUsados(resumoData.artigosUsados || 0);
-    } catch (err) {
-      console.error('Erro ao buscar resumo:', err);
-      setResumo(null);
-      setResumoOffline(false);
-      setArtigosUsados(0);
-    } finally {
-      setLoadingResumo(false);
-    }
-  };
-
-  const categorias = [
-    { id: 'angola',  label: 'Angola',      Icon: MapPin     },
-    { id: 'global',  label: 'Economia Global', Icon: Globe      },
-    { id: 'mercados', label: 'Mercados',    Icon: Landmark   },
-  ];
+  useEffect(() => { fetchNews(); }, [cat]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-
-      {/* Page header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+    <div className="max-w-6xl mx-auto space-y-8 pb-12">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: 'var(--text-faint)', opacity: 0.6 }}>Feed</p>
-          <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2.5" style={{ color: 'var(--text-primary)' }}>
-            <Newspaper size={28} style={{ color: 'var(--accent)' }} />
-            Notícias & Insights
-          </h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-faint)' }}>
-            Angola, economia global e mercados financeiros {lastUpdate && `· Atualizado às ${lastUpdate}`}
-          </p>
+          <h2 className="text-3xl font-black tracking-tight" style={{ color: 'var(--text-primary)' }}>Notícias do Mercado</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-faint)' }}>Mantém-te informado sobre economia e tecnologia.</p>
         </div>
-
-        {/* Category tabs */}
-        <Card style={{ padding: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-          {categorias.map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => setCategoria(id)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
-              style={{
-                backgroundColor: categoria === id ? 'var(--accent)' : 'transparent',
-                color: categoria === id ? 'var(--accent-text)' : 'var(--text-muted)',
-              }}>
-              <Icon size={14} />
-              {label}
-            </button>
-          ))}
-          <div className="w-px h-5 mx-1" style={{ backgroundColor: 'var(--border)' }} />
-          <button onClick={() => { fetchNoticias(); fetchResumo(); }} title="Atualizar"
-            className="w-8 h-8 flex items-center justify-center rounded-xl transition-all"
-            style={{ color: 'var(--text-faint)' }}
-            onMouseEnter={e => { (e.currentTarget).style.color = 'var(--accent)'; (e.currentTarget).style.backgroundColor = 'var(--bg-elevated)'; }}
-            onMouseLeave={e => { (e.currentTarget).style.color = 'var(--text-faint)'; (e.currentTarget).style.backgroundColor = 'transparent'; }}>
-            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </Card>
+        <button onClick={fetchNews} className="p-2 rounded-xl border hover:bg-white/5 transition-colors" style={{ borderColor: 'var(--border)', color: 'var(--text-faint)' }}>
+          <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      {/* AI Summary Section */}
-      {(loadingResumo || resumo) && (
-        <Card className="p-0 overflow-hidden" style={{ 
-          backgroundColor: 'var(--bg-elevated)', 
-          border: '1px solid var(--border)',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.08)'
-        }}>
-          <div className="px-6 py-5">
-            <div className="flex items-center gap-2.5 mb-4">
-              <div className="p-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent)', opacity: 0.15 }}>
-                <Cpu size={16} style={{ color: 'var(--accent)' }} />
-              </div>
-              <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Análise Económica · Kamba AI</span>
-            </div>
-            
-            {loadingResumo ? (
-              <div className="space-y-2">
-                <div className="h-4 rounded w-3/4 animate-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
-                <div className="h-4 rounded w-1/2 animate-pulse" style={{ backgroundColor: 'var(--bg-surface)' }} />
-              </div>
-            ) : (
-              <>
-                <div className="text-sm leading-relaxed whitespace-pre-line font-medium italic" style={{ color: 'var(--text-primary)' }}>
-                  "{resumo}"
-                </div>
-                <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-                  {resumoOffline ? (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--bg-surface)', color: 'var(--text-faint)' }}>
-                      ⚠️ Dados offline
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: 'var(--accent)', opacity: 0.15, color: 'var(--accent)' }}>
-                      {artigosUsados} notícias analisadas
-                    </span>
-                  )}
-                </div>
-              </>
-            )}
+      <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+        {CATEGORIES.map(c => (
+          <button key={c.id} onClick={() => setCat(c.id)}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-xs transition-all shrink-0 border ${cat === c.id ? '' : 'hover:bg-white/5'}`}
+            style={{ 
+              backgroundColor: cat === c.id ? 'var(--accent)' : 'var(--bg-surface)', 
+              borderColor: cat === c.id ? 'var(--accent)' : 'var(--border)',
+              color: cat === c.id ? 'var(--accent-text)' : 'var(--text-muted)'
+            }}>
+            <c.icon size={14} />
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {resumo && !loading && (
+        <Card className="p-6 border-l-4 border-l-accent" style={{ borderColor: 'var(--accent)' }}>
+          <div className="flex items-center gap-3 mb-4">
+            <Newspaper size={20} style={{ color: 'var(--accent)' }} />
+            <h3 className="font-bold uppercase tracking-widest text-[10px]" style={{ color: 'var(--text-faint)' }}>Resumo da IA</h3>
           </div>
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-primary)' }}>{resumo}</p>
         </Card>
       )}
 
-      {/* Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {[1,2,3,4,5,6].map(i => (
-            <Card key={i} className="overflow-hidden">
-              <div className="h-44 animate-pulse" style={{ backgroundColor: 'var(--bg-elevated)' }} />
-              <div className="p-4 space-y-2.5">
-                <div className="h-3 rounded-full w-3/4 animate-pulse" style={{ backgroundColor: 'var(--bg-elevated)' }} />
-                <div className="h-3 rounded-full w-1/2 animate-pulse" style={{ backgroundColor: 'var(--bg-elevated)' }} />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {[1,2,3,4,5,6].map(i => <div key={i} className="h-64 rounded-3xl animate-pulse bg-white/[0.03]" />)}
+        </div>
+      ) : artigos.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {artigos.map((a, i) => (
+            <Card key={i} className="group overflow-hidden flex flex-col hover:border-accent/40 transition-colors">
+              {a.imagem && (
+                <div className="h-40 overflow-hidden bg-white/[0.02]">
+                  <img src={a.imagem} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                </div>
+              )}
+              <div className="p-6 flex-1 flex flex-col gap-3">
+                <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                  <span>{a.fonte}</span>
+                  <span className="flex items-center gap-1"><Calendar size={10} /> {formatDate(a.publicadoEm)}</span>
+                </div>
+                <h4 className="font-bold leading-tight group-hover:text-accent transition-colors" style={{ color: 'var(--text-primary)' }}>{a.titulo}</h4>
+                <p className="text-xs line-clamp-3 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{a.descricao}</p>
+                <div className="pt-2 mt-auto">
+                  <a href={a.url} target="_blank" rel="noopener noreferrer" 
+                    className="inline-flex items-center gap-1.5 text-xs font-bold transition-all hover:gap-2" style={{ color: 'var(--accent)' }}>
+                    Ler artigo completo <ExternalLink size={12} />
+                  </a>
+                </div>
               </div>
             </Card>
           ))}
         </div>
-      ) : artigos.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {artigos.map((a, i) => (
-            <article key={i} className="flex flex-col h-full group transition-all"
-              style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid var(--border)', backgroundColor: 'var(--bg-surface)', cursor: 'pointer' }}
-              onMouseEnter={e => { (e.currentTarget).style.borderColor = 'var(--border-strong)'; (e.currentTarget).style.boxShadow = '0 4px 24px rgba(0,0,0,0.12)'; }}
-              onMouseLeave={e => { (e.currentTarget).style.borderColor = 'var(--border)'; (e.currentTarget).style.boxShadow = 'none'; }}>
-
-              {/* Image */}
-              <a href={a.url} target="_blank" rel="noopener noreferrer" className="relative h-44 overflow-hidden block flex-shrink-0">
-                <img src={a.imagem} alt={a.titulo}
-                  onError={e => { (e.currentTarget as HTMLImageElement).src = 'https://placehold.co/600x400/111/333?text=KambaPro'; }}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
-                {/* Source badge */}
-                <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full text-[10px] font-bold shadow-sm ring-1 ring-inset"
-                  style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', ringColor: 'rgba(255,255,255,0.2)' }}>
-                  {a.fonte}
-                </div>
-              </a>
-
-              {/* Content */}
-              <div className="p-4 flex flex-col flex-grow">
-                <div className="flex items-center gap-1.5 text-[11px] mb-2.5 font-medium" style={{ color: 'var(--text-faint)' }}>
-                  <Calendar size={12} />
-                  <span>{formatDate(a.publicadoEm)}</span>
-                </div>
-                <h3 className="text-sm font-bold mb-2 line-clamp-2 transition-colors" style={{ color: 'var(--text-primary)' }}>
-                  <a href={a.url} target="_blank" rel="noopener noreferrer"
-                    onMouseEnter={e => { (e.currentTarget).style.color = 'var(--accent)'; }}
-                    onMouseLeave={e => { (e.currentTarget).style.color = 'var(--text-primary)'; }}>
-                    {a.titulo}
-                  </a>
-                </h3>
-                <p className="text-[12px] line-clamp-3 mb-4 flex-grow leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                  {a.descricao}
-                </p>
-                <div className="pt-3 mt-auto border-t" style={{ borderColor: 'var(--border)' }}>
-                  <a href={a.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-[11px] font-bold transition-colors group/link"
-                    style={{ color: 'var(--accent)' }}>
-                    Ler artigo completo
-                    <ExternalLink size={13} className="group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5 transition-transform" />
-                  </a>
-                </div>
-              </div>
-            </article>
-          ))}
-        </div>
       ) : (
-        <Card style={{ padding: '80px 24px', textAlign: 'center', border: '2px dashed var(--border)' }}>
-          <Newspaper size={40} className="mx-auto mb-3" style={{ color: 'var(--text-faint)' }} />
-          <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Sem notícias no momento</h3>
+        <Card className="py-20 text-center">
+          <Newspaper size={48} className="mx-auto mb-4 opacity-10" />
+          <h3 className="font-bold" style={{ color: 'var(--text-primary)' }}>Sem notícias no momento</h3>
           <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>Tenta mudar de categoria ou atualizar.</p>
         </Card>
       )}

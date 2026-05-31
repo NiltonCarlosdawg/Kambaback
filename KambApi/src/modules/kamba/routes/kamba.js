@@ -8,26 +8,44 @@ const {
 } = require("../controllers/kambaController");
 const Wizard = require("../controllers/kambaWizardController");
 const Proatividade = require("../services/kambaProatividadeService");
+const rateLimiter = require("../services/core/rateLimiter");
 
 router.use(protegerRota);
+
+// Middleware de rate limiting para rotas de conversa
+const rateLimiterMiddleware = async (req, res, next) => {
+  const usuarioId = req.user?.id;
+  if (!usuarioId) return next();
+
+  const { bloqueado, tentarEm } = await rateLimiter.verificar(usuarioId);
+  if (bloqueado) {
+    return res.status(429).json({
+      success: false,
+      kamba: true,
+      mensagem: `Eish, kamba! Estás a enviar mensagens muito rápido. Aguarda ${tentarEm} segundos. 🐢`,
+      tentarEm,
+    });
+  }
+  next();
+};
 
 /**
  * POST /kamba
  * Conversa principal com o Kamba
  */
-router.post("/", conversarComKamba);
+router.post("/", rateLimiterMiddleware, conversarComKamba);
 
 /**
  * POST /kamba/conversar
  * Alias da rota principal (compatibilidade)
  */
-router.post("/conversar", conversarComKamba);
+router.post("/conversar", rateLimiterMiddleware, conversarComKamba);
 
 /**
  * POST /kamba/stream
  * Conversa com streaming (SSE) - resposta em tempo real
  */
-router.post("/stream", conversarComKambaStream);
+router.post("/stream", rateLimiterMiddleware, conversarComKambaStream);
 
 // ==========================================
 // ROTAS DE FEEDBACK
@@ -128,7 +146,7 @@ router.get("/lembretes", async (req, res, next) => {
 router.post("/lembretes/:id/marcar-lido", async (req, res, next) => {
   try {
     const { id } = req.params;
-    await Proatividade.marcarLembreteLido(id); // CORRIGIDO: função específica para lido
+    await Proatividade.marcarLembreteLido(id, req.user.id);
 
     return res.json({
       success: true,
@@ -146,7 +164,7 @@ router.post("/lembretes/:id/marcar-lido", async (req, res, next) => {
 router.post("/lembretes/:id/marcar-enviado", async (req, res, next) => {
   try {
     const { id } = req.params;
-    await Proatividade.marcarLembreteEnviado(id);
+    await Proatividade.marcarLembreteEnviado(id, req.user.id);
 
     return res.json({
       success: true,

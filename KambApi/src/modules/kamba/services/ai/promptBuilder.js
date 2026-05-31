@@ -1,10 +1,10 @@
 // services/ai/promptBuilder.js
 // Builder de prompts com templates versionados para o Kamba
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
-const PROMPTS_DIR = path.join(__dirname, '../../plugins/prompts');
+const PROMPTS_DIR = path.join(__dirname, "../../plugins/prompts");
 
 /**
  * Carrega um template de ficheiro ou usa fallback
@@ -14,72 +14,155 @@ const PROMPTS_DIR = path.join(__dirname, '../../plugins/prompts');
 const carregarTemplate = (name) => {
   const filePath = path.join(PROMPTS_DIR, `${name}.md`);
   if (fs.existsSync(filePath)) {
-    return fs.readFileSync(filePath, 'utf-8');
+    return fs.readFileSync(filePath, "utf-8");
   }
   return null;
 };
 
 /**
- * Gera o system prompt principal para queries financeiras (com tools)
- * @param {Object} perfil - Dados do utilizador
- * @param {number|string} idade - Idade do utilizador
- * @param {string} contextoFinanceiro - Contexto financeiro opcional
- * @returns {string} System prompt completo
+ * Gera instruções operacionais de perfil de risco
  */
-const gerarSystemPrompt = (perfil, idade, contextoFinanceiro = '') => {
-  const hoje = new Date().toLocaleDateString('pt-AO', { weekday: 'long', day: 'numeric', month: 'long' });
+const gerarInstrucoesRisco = (perfilDeRisco) => {
+  const instrucoes = {
+    CONSERVADOR: `Perfil CONSERVADOR:
+- Prioriza SEMPRE a segurança do capital sobre o retorno.
+- Menciona o risco ANTES do retorno potencial em qualquer sugestão.
+- Recomenda: depósitos a prazo, certificados do tesouro, fundo de emergência robusto.
+- NUNCA sugeres: cripto, acções, negócios de alto risco, empréstimos para investir.
+- Quando perguntado "devo arriscar?", a resposta base é não — explica porquê.`,
 
-  // Tentar carregar template externo
-  const templateExterno = carregarTemplate('v1_system');
-  if (templateExterno) {
-    return templateExterno
-      .replace('{{NOME}}', perfil.nome || 'Utilizador')
-      .replace('{{MORADA}}', perfil.morada || 'Luanda')
-      .replace('{{IDADE}}', idade)
-      .replace('{{RENDA}}', perfil.rendaMensalMedia ? perfil.rendaMensalMedia.toLocaleString('pt-AO') + ' AOA' : 'não informada')
-      .replace('{{RISCO}}', perfil.perfilDeRisco || 'Moderado')
-      .replace('{{DATA}}', hoje)
-      .replace('{{CONTEXTO_FINANCEIRO}}', contextoFinanceiro || '');
-  }
+    MODERADO: `Perfil MODERADO:
+- Equilibra segurança e crescimento.
+- Podes sugerir diversificação (70% seguro, 30% crescimento).
+- Recomenda: mix de depósitos a prazo + pequena posição em dólar + fundo de emergência.
+- Aceita algum risco calculado se o utilizador tiver fundo de emergência constituído.`,
 
-  // Fallback para prompt inline (manter compatibilidade)
-  return `Tu és o KAMBA, o teu consultor financeiro angolano na aplicação KambaPro.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- DADOS DO UTILIZADOR (Contexto Primário)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Nome: ${perfil.nome || 'Utilizador'} | Local: ${perfil.morada || 'Luanda'} | Idade: ${idade}
-- Renda: ${perfil.rendaMensalMedia ? perfil.rendaMensalMedia.toLocaleString('pt-AO') + ' AOA' : 'não informada'}
-- Perfil: ${perfil.perfilDeRisco || 'Moderado'} | Data: ${hoje}
-
-${contextoFinanceiro ? `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- DADOS FINANCEIROS REAIS (BD)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-${contextoFinanceiro}
-` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- FILOSOFIA DE RESPOSTA (Estilo Gemini CLI)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. **Foco na Intenção**: Identifica o que o utilizador realmente precisa. Sê directo para perguntas simples e detalhado para pedidos complexos ou pedagógicos.
-2. **Sem Hallucinação de Tutoriais**: NUNCA inventes passos manuais para acções que o sistema pode fazer (ex: adicionar cartões, registar gastos). Se não houver ferramenta para a acção, sê honesto.
-3. **Sinal-Ruído Elevado**: Prioriza informação útil e técnica sobre preâmbulos ou conversas fiadas. Evita "knowledge dumping" de factos não solicitados.
-4. **Tom Profissional-Casual**: Mantém a identidade angolana ("kamba", "mano", "yha") mas com a clareza e precisão de um especialista financeiro.
-5. **Contextualização Inteligente**: Usa os dados financeiros reais (BD) e o contexto de Angola apenas para fundamentar as tuas respostas, sem repetir o que o utilizador já sabe.
-6. **Estrutura Limpa**: Usa listas se ajudar na clareza, mas prefere parágrafos fluidos e bem articulados. Não há limite rígido de frases, mas a brevidade estratégica é a tua regra de ouro.
-
-7. **Ação Próxima**: Termina com uma sugestão prática ou pergunta de seguimento que avance a resolução do problema do utilizador.`;
+    AGRESSIVO: `Perfil AGRESSIVO:
+- O utilizador aceita volatilidade por retorno maior.
+- Podes discutir alternativas de maior risco: negócios, imobiliário, mercado paralelo.
+- Mas SEMPRE com a condição: fundo de emergência intacto antes de qualquer investimento.
+- Apresenta cenários pessimistas e optimistas — nunca só o cenário optimista.`,
+  };
+  return instrucoes[perfilDeRisco] || instrucoes["MODERADO"];
 };
 
 /**
- * Gera prompt minimal para conversas casuais (sem tools)
- * @param {Object} perfil - Dados do utilizador
- * @returns {string} Prompt minimal
+ * Gera instrução de tom baseada na idade
+ */
+const gerarInstrucaoIdade = (idade) => {
+  if (!idade || idade === "não informada") return "";
+  const idadeNum = parseInt(idade);
+  if (idadeNum < 25)
+    return "Utilizador jovem (< 25 anos): horizonte longo, foca em hábitos e educação financeira. Pode assumir mais risco de longo prazo. Usa referências culturais da geração Z angolana.";
+  if (idadeNum < 35)
+    return "Utilizador em início de carreira (25-34): foca em construir base (fundo de emergência, primeiro investimento). Equilibra curto e longo prazo.";
+  if (idadeNum < 50)
+    return "Utilizador em fase produtiva (35-49): foca em crescimento e protecção de activos. Planeamento de médio prazo relevante.";
+  return "Utilizador sénior (50+): prioriza protecção e rendimento estável. Horizonte mais curto — evita riscos desnecessários.";
+};
+
+/**
+ * Detecta dados em falta para onboarding
+ */
+const detectarDadosEmFalta = (perfil, contextoFinanceiro) => {
+  const emFalta = [];
+  if (!perfil?.rendaMensalMedia || perfil.rendaMensalMedia === 0)
+    emFalta.push("renda mensal");
+  if (contextoFinanceiro?.numContas === 0) emFalta.push("conta ou cartão");
+  if (contextoFinanceiro?.gastosEsteMes?.numTransacoes === 0)
+    emFalta.push("gastos registados");
+  return emFalta;
+};
+
+/**
+ * Selecciona e preenche o template correcto baseado na situação
+ */
+const gerarSystemPrompt = (
+  perfil,
+  idade,
+  contextoFormatado = "",
+  contextoFinanceiro = null,
+  opcoes = {},
+) => {
+  const hoje = new Date().toLocaleDateString("pt-AO", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+  const {
+    sentimento = "neutro",
+    sentimentoIntensidade = 0.5,
+    contextoPendente = "nenhum",
+  } = opcoes;
+
+  const situacao = contextoFinanceiro?.situacaoFinanceira;
+  const dadosEmFalta = detectarDadosEmFalta(perfil, contextoFinanceiro);
+
+  // Seleccionar template
+  let templateNome = "v1_system";
+  if (
+    dadosEmFalta.length >= 2 ||
+    (dadosEmFalta.includes("renda mensal") &&
+      dadosEmFalta.includes("conta ou cartão"))
+  ) {
+    templateNome = "v1_system_novo_user";
+  } else if (situacao?.codigo === "critica") {
+    templateNome = "v1_system_critico";
+  }
+
+  const template =
+    carregarTemplate(templateNome) || carregarTemplate("v1_system");
+  if (!template) {
+    // Fallback hardcoded mínimo
+    return `És o Kamba, consultor financeiro angolano. Nome do utilizador: ${perfil?.nome || "kamba"}. Data: ${hoje}. Responde em português de Angola, tom casual e directo.`;
+  }
+
+  // Preencher variáveis comuns
+  let prompt = template
+    .replace(/{{NOME}}/g, perfil?.nome || "kamba")
+    .replace(/{{MORADA}}/g, perfil?.morada || "Luanda")
+    .replace(/{{IDADE}}/g, idade || "não informada")
+    .replace(
+      /{{RENDA}}/g,
+      perfil?.rendaMensalMedia
+        ? `${Number(perfil.rendaMensalMedia).toLocaleString("pt-AO")} AOA/mês`
+        : "não configurada — pedir ao utilizador",
+    )
+    .replace(/{{RISCO}}/g, perfil?.perfilDeRisco || "MODERADO")
+    .replace(/{{DATA}}/g, hoje)
+    .replace(/{{CONTEXTO_FINANCEIRO}}/g, contextoFormatado || "")
+    .replace(/{{SENTIMENTO}}/g, sentimento)
+    .replace(
+      /{{SENTIMENTO_INTENSIDADE}}/g,
+      sentimentoIntensidade >= 0.8
+        ? "alta"
+        : sentimentoIntensidade >= 0.5
+          ? "média"
+          : "baixa",
+    )
+    .replace(/{{SITUACAO_FINANCEIRA}}/g, situacao?.codigo || "desconhecida")
+    .replace(/{{SITUACAO_FINANCEIRA_DETALHE}}/g, situacao?.detalhe || "")
+    .replace(/{{CONTEXTO_PENDENTE}}/g, contextoPendente)
+    .replace(
+      /{{INSTRUCOES_RISCO}}/g,
+      gerarInstrucoesRisco(perfil?.perfilDeRisco),
+    )
+    .replace(/{{INSTRUCAO_IDADE}}/g, gerarInstrucaoIdade(idade))
+    .replace(/{{DADOS_EM_FALTA}}/g, dadosEmFalta.join(", ") || "nenhum");
+
+  return prompt;
+};
+
+/**
+ * Gera prompt minimal para conversas casuais — agora usa template externo
  */
 const gerarPromptMinimal = (perfil) => {
-  return `És o Kamba, o bró financeiro angolano. 
-Nome: ${perfil?.nome || 'kamba'}.
-REGRA: Responde de forma casual e super curta (máx 15 palavras). NÃO fales de finanças se não te perguntarem.`;
+  const template = carregarTemplate("v1_minimal");
+  if (template) {
+    return template.replace(/{{NOME}}/g, perfil?.nome || "kamba");
+  }
+  // Fallback
+  return `És o Kamba, bró financeiro angolano. Utilizador: ${perfil?.nome || "kamba"}. Responde de forma casual e curta (máx 2 frases). Tom: quente, angolano.`;
 };
 
 /**
@@ -88,7 +171,7 @@ REGRA: Responde de forma casual e super curta (máx 15 palavras). NÃO fales de 
  * @returns {string} Prompt de sumarização
  */
 const gerarPromptSumarizacao = (mensagens) => {
-  const texto = mensagens.map(m => `${m.role}: ${m.content}`).join('\n');
+  const texto = mensagens.map((m) => `${m.role}: ${m.content}`).join("\n");
   return `Resume a seguinte conversa em 2-3 frases curtas, mantendo os pontos financeiros importantes:\n\n${texto}\n\nSumário:`;
 };
 
@@ -106,5 +189,7 @@ module.exports = {
   gerarPromptMinimal,
   gerarPromptSumarizacao,
   gerarPromptClassificacao,
-  carregarTemplate
+  carregarTemplate,
+  gerarInstrucoesRisco,
+  detectarDadosEmFalta,
 };

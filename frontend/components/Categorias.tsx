@@ -1,6 +1,6 @@
 // src/components/Categorias.tsx
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import categoriesService, { Categoria as ServiceCategoria } from '../services/categoriesService';
 import { useTheme } from '../contexts/ThemeContext';
 
 type TipoCategoria = 'ESSENCIAL' | 'FLEXIVEL' | 'POUPANCA' | 'RENDIMENTO';
@@ -60,8 +60,8 @@ const Categorias: React.FC = () => {
   const fetchCategorias = async () => {
     try {
       setLoading(true); setError('');
-      const { data } = await api.get('/categorias');
-      setCategorias(data.categorias || []);
+      const data = await categoriesService.listar();
+      setCategorias(data.categorias as Categoria[] || []);
     } catch (err: any) { setError(err.response?.data?.mensagemAmigavel || err.response?.data?.message || 'Erro ao carregar categorias'); }
     finally { setLoading(false); }
   };
@@ -84,15 +84,15 @@ const Categorias: React.FC = () => {
     try {
       let cor = formData.cor.startsWith('#') ? formData.cor : `#${formData.cor}`;
       cor = cor.toLowerCase();
-      if (editMode && currentId) { await api.patch(`/categorias/${currentId}`, { nome: formData.nome.trim(), cor, icone: formData.icone }); }
-      else { await api.post('/categorias', { nome: formData.nome.trim(), tipo: formData.tipo, cor, icone: formData.icone }); }
+      if (editMode && currentId) { await categoriesService.atualizar(currentId, { nome: formData.nome.trim(), cor, icone: formData.icone }); }
+      else { await categoriesService.criar({ nome: formData.nome.trim(), tipo: formData.tipo, cor, icone: formData.icone }); }
       setShowModal(false); fetchCategorias();
     } catch (err: any) { setError(err.response?.data?.mensagemAmigavel || err.response?.data?.message || 'Erro ao salvar'); }
   };
 
   const handleDelete = async (id: string, nome: string) => {
     if (!window.confirm(`Remover "${nome}"?`)) return;
-    try { await api.delete(`/categorias/${id}`); fetchCategorias(); }
+    try { await categoriesService.remover(id); fetchCategorias(); }
     catch (err: any) { alert(err.response?.data?.message || 'Erro ao eliminar'); }
   };
 
@@ -242,61 +242,53 @@ const Categorias: React.FC = () => {
           <div className="relative z-10 w-full max-w-md rounded-2xl shadow-2xl" style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-strong)' }}>
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{editMode ? 'Editar' : 'Nova'} Categoria</h3>
-                <button onClick={() => setShowModal(false)} className="p-2 rounded-lg transition-colors" style={{ color: 'var(--text-faint)' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}>
+                <h3 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{editMode ? 'Editar Categoria' : 'Nova Categoria'}</h3>
+                <button onClick={() => setShowModal(false)} className="p-2 rounded-lg hover:bg-white/5" style={{ color: 'var(--text-faint)' }}>
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
-              {error && <div className="mb-4 p-3 rounded-lg text-sm text-red-400 bg-red-900/20 border border-red-500/30 flex items-center gap-2">{error}</div>}
 
               <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Tipo display */}
-                <div>
-                  <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Tipo</label>
-                  <div className="p-3 rounded-xl flex items-center gap-3" style={{ backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white flex-shrink-0" style={{ backgroundColor: TIPO_CONFIG[formData.tipo].cor }}>
-                      {renderIcon(TIPO_CONFIG[formData.tipo].iconePadrao, 'w-4 h-4')}
-                    </div>
-                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{TIPO_CONFIG[formData.tipo].label}</span>
-                    {editMode && <span className="text-xs ml-auto" style={{ color: 'var(--text-faint)' }}>(não editável)</span>}
-                  </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Nome</label>
+                  <input type="text" required placeholder="Ex: Mercado, Netflix..." value={formData.nome} onChange={e => setFormData({ ...formData, nome: e.target.value })} style={inp} onFocus={fa} onBlur={fb} />
                 </div>
-                {/* Nome */}
-                <div>
-                  <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Nome *</label>
-                  <input type="text" required placeholder="Ex: Supermercado, Netflix…" maxLength={40} value={formData.nome} onChange={e => setFormData({ ...formData, nome: e.target.value })} style={inp} onFocus={fa} onBlur={fb} />
-                </div>
-                {/* Cor + Ícone */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Cor</label>
-                    <div className="flex items-center gap-2">
-                      <input type="color" value={formData.cor} onChange={e => setFormData({ ...formData, cor: e.target.value })}
-                        className="w-12 h-12 rounded-lg cursor-pointer" style={{ backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)' }} />
-                      <span className="text-xs font-mono" style={{ color: 'var(--text-muted)' }}>{formData.cor.toUpperCase()}</span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium mb-2 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Ícone</label>
-                    <select value={formData.icone} onChange={e => setFormData({ ...formData, icone: e.target.value })} style={sel} onFocus={fa} onBlur={fb}>
-                      {Object.keys(ICONES_SVG).map(n => <option key={n} value={n}>{n}</option>)}
+
+                {!editMode && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Tipo</label>
+                    <select value={formData.tipo} onChange={e => handleTipoChange(e.target.value as TipoCategoria)} style={sel} onFocus={fa} onBlur={fb}>
+                      <option value="ESSENCIAL">Essencial</option>
+                      <option value="FLEXIVEL">Flexível</option>
+                      <option value="POUPANCA">Poupança</option>
+                      <option value="RENDIMENTO">Rendimento</option>
                     </select>
                   </div>
-                </div>
-                {/* Preview */}
-                <div className="p-4 rounded-xl" style={{ backgroundColor: 'var(--bg-base)', border: '1px solid var(--border)' }}>
-                  <p className="text-xs uppercase tracking-wider mb-3" style={{ color: 'var(--text-faint)' }}>Pré-visualização:</p>
+                )}
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Cor</label>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white shadow-lg" style={{ backgroundColor: formData.cor }}>
-                      {renderIcon(formData.icone)}
-                    </div>
-                    <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{formData.nome || 'Nome da categoria'}</span>
+                    <input type="color" value={formData.cor} onChange={e => setFormData({ ...formData, cor: e.target.value })} className="w-12 h-12 rounded-xl bg-transparent border-none cursor-pointer" />
+                    <span className="text-xs font-mono opacity-40">{formData.cor.toUpperCase()}</span>
                   </div>
                 </div>
-                {/* Botões */}
-                <div className="flex gap-3 pt-4">
-                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 h-12 rounded-xl font-medium transition-colors" style={{ color: 'var(--text-muted)' }} onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'rgba(255,255,255,0.05)'; }} onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.backgroundColor = 'transparent'; }}>Cancelar</button>
-                  <button type="submit" className="flex-1 h-12 rounded-xl font-bold transition-all" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)', boxShadow: 'none' }}>{editMode ? 'Guardar' : 'Criar'}</button>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Ícone</label>
+                  <div className="grid grid-cols-6 gap-2 max-h-40 overflow-y-auto p-2 rounded-xl bg-white/[0.03] border border-white/5">
+                    {Object.keys(ICONES_SVG).map(iconName => (
+                      <button key={iconName} type="button" onClick={() => setFormData({ ...formData, icone: iconName })}
+                        className={`p-2 rounded-lg flex items-center justify-center transition-all ${formData.icone === iconName ? 'bg-accent text-accent-text' : 'hover:bg-white/5 text-text-faint'}`}>
+                        {renderIcon(iconName, 'w-5 h-5')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-4 flex gap-3">
+                  <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-3 rounded-xl font-bold border border-white/10" style={{ color: 'var(--text-faint)' }}>Cancelar</button>
+                  <button type="submit" className="flex-2 py-3 rounded-xl font-bold" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>{editMode ? 'Guardar Alterações' : 'Criar Categoria'}</button>
                 </div>
               </form>
             </div>

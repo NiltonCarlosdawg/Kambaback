@@ -1,7 +1,8 @@
 // src/components/Goals.tsx
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import api from '../services/api';
+import goalsService from '../services/goalsService';
+import transactionsService from '../services/transactionsService';
 import { Objetivo } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
@@ -95,8 +96,10 @@ const Goals: React.FC = () => {
   const fetchGoals = async () => {
     try {
       setLoading(true);
-      const { data } = await api.get('/objetivos');
-      setObjetivos(data.objetivos || []); setConcluidos(data.concluidos || []); setResumo(data.resumo);
+      const data = await goalsService.listar();
+      setObjetivos(data.objetivos || []); 
+      setConcluidos(data.concluidos || []); 
+      setResumo(data.resumo);
     } catch { setError('Falha ao carregar objetivos'); }
     finally { setLoading(false); }
   };
@@ -117,15 +120,15 @@ const Goals: React.FC = () => {
     e.preventDefault();
     try {
       const payload = { ...formData, valorAlvo: Number(formData.valorAlvo), valorAtual: Number(formData.valorAtual), porcentagemDistribuicao: Number(formData.porcentagemDistribuicao), dataPrevista: formData.dataPrevista };
-      if (editMode && selectedGoal) { await api.put(`/objetivos/${selectedGoal.id}`, payload); }
-      else { await api.post('/objetivos', payload); }
+      if (editMode && selectedGoal) { await goalsService.atualizar(selectedGoal.id, payload); }
+      else { await goalsService.criar(payload); }
       setShowModal(false); fetchGoals();
     } catch (err: any) { setError(err.response?.data?.message || 'Erro ao salvar'); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Tens certeza que queres remover este objetivo?')) return;
-    try { await api.delete(`/objetivos/${id}`); fetchGoals(); }
+    try { await goalsService.remover(id); fetchGoals(); }
     catch (err: any) { setError(err.response?.data?.message || 'Erro ao remover'); }
   };
 
@@ -133,7 +136,7 @@ const Goals: React.FC = () => {
     e.preventDefault();
     if (!selectedGoal || !depositAmount) return;
     try {
-      await api.post('/gastos', { descricao: `Depósito manual: ${selectedGoal.titulo}`, valor: Number(depositAmount), tipo: 'DESPESA', cartaoId: '', categoriaId: '', objetivoId: selectedGoal.id, data: new Date().toISOString() });
+      await transactionsService.criar({ descricao: `Depósito manual: ${selectedGoal.titulo}`, valor: Number(depositAmount), tipo: 'DESPESA', cartaoId: '', categoriaId: '', objetivoId: selectedGoal.id, data: new Date().toISOString() });
       setShowDepositModal(false); setDepositAmount(''); fetchGoals();
     } catch (err: any) { setError(err.response?.data?.message || 'Erro ao depositar'); }
   };

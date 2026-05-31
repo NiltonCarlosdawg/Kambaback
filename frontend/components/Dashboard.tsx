@@ -2,18 +2,14 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { AlertCircle, ArrowDown, ArrowLeftRight, ArrowUp, CheckCircle, Info, LayoutDashboard, Lock, Plus, RefreshCw, TrendingDown, TrendingUp, Trophy, Wallet } from 'lucide-react';
-import api from '../services/api';
+import dashboardService, { DashboardData, HistoricoData } from '../services/dashboardService';
+import goalsService from '../services/goalsService';
+import transactionsService from '../services/transactionsService';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
 import { RuixenStatsChart } from './ui/ruixen-stats';
 import { SkeletonCard, SkeletonChart, SkeletonRow } from './ui/Skeleton';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Objetivo { id: string; titulo: string; valorAtual: number | string; valorAlvo: number | string; cor?: string; porcentagemDistribuicao?: number; dataPrevista?: string; }
-interface Gasto { id: string; tipo: 'DESPESA' | 'RECEITA'; valor: number | string; descricao: string; data: string; excluido: boolean; distribuicaoAutomatica?: boolean; categoria?: { nome: string }; cartao?: { nome: string }; objetivo?: { titulo: string }; }
-interface Alerta { tipo: 'perigo' | 'aviso' | 'info'; titulo: string; mensagem: string; valor?: number; }
-interface DashboardData { success?: boolean; saldos?: { total: number; disponivel: number; reservado: number }; esteMes: { receitas: number; despesas: number; poupancaLiquida: number; taxaPoupanca?: number }; resumo?: { totalAlvo?: number; totalAtual?: number; progressoGeral?: number }; objetivos?: Objetivo[]; fundoEmergencia?: { mesesCobertos: number; percentualAtingido: number }; alertas: Alerta[]; cached?: boolean; }
-interface HistoricoData { success?: boolean; historico?: { periodo: string; receitas: number; despesas: number; poupancaLiquida: number; taxaPoupanca: number }[]; resumo?: { totalReceitas: number; totalDespesas: number; totalPoupanca: number; taxaPoupancaMedia: number }; }
+import { Objetivo, Gasto } from '../types';
 
 // ─── Modern Card Components (Based on 21st.dev patterns) ───────────────────────────────────────────────────────────────────
 const Card: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style }) => (
@@ -279,21 +275,26 @@ const Dashboard: React.FC = () => {
     setRefreshing(true); setError('');
     try {
       const [dashRes, objRes, transRes, histRes] = await Promise.all([
-        api.get('/insights/resumo').catch(() => ({ data: null })),
-        api.get('/objetivos'),
-        api.get('/gastos?limite=5'),
-        api.get(`/insights/historico?periodo=${periodo}`).catch(() => ({ data: null })),
+        dashboardService.obterResumo().catch(() => null),
+        goalsService.listar().catch(() => null),
+        transactionsService.listar(5).catch(() => null),
+        dashboardService.obterHistorico(periodo).catch(() => null),
       ]);
-      const objetivosData = objRes.data?.objetivos || objRes.data || [];
+      
+      const objetivosData = objRes?.objetivos || [];
       setObjetivos(objetivosData.slice(0, 3));
-      setUltimasTransacoes((transRes.data?.gastos || transRes.data?.transacoes || []).slice(0, 5));
-      if (histRes.data?.success) {
-        setHistorico(histRes.data);
+      setUltimasTransacoes((transRes?.gastos || transRes?.transacoes || []).slice(0, 5));
+      
+      if (histRes?.success) {
+        setHistorico(histRes);
       }
-      const dadosDashboard = dashRes.data?.success ? dashRes.data : dashRes.data;
-      if (!dadosDashboard) { await fetchFallbackData(objetivosData); return; }
-      setData(dadosDashboard); calcularValores(dadosDashboard, objetivosData);
-    } catch { setError('Falha ao carregar dados.'); try { await fetchFallbackData(); } catch { /* silent */ } }
+      
+      const dadosDashboard = dashRes?.success ? dashRes : null;
+      if (!dadosDashboard) { setError('Falha ao carregar insights.'); return; }
+      
+      setData(dadosDashboard); 
+      calcularValores(dadosDashboard, objetivosData);
+    } catch { setError('Falha ao carregar dados.'); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -301,23 +302,6 @@ const Dashboard: React.FC = () => {
     const emCartoes = dashData.saldos?.total || 0;
     const emObjetivos = objs.reduce((a, o) => a + Number(o.valorAtual || 0), 0);
     setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel: dashData.saldos?.disponivel || 0, saldoReservado: dashData.saldos?.reservado || 0, emObjetivos, emCartoes });
-  };
-
-  const fetchFallbackData = async (objsData?: Objetivo[]) => {
-    const [cartoesRes, gastosRes, objRes] = await Promise.all([api.get('/cartoes'), api.get('/gastos'), !objsData ? api.get('/objetivos') : Promise.resolve({ data: { objetivos: objsData } })]);
-    const cartoes = cartoesRes.data?.cartoes || [], gastos = gastosRes.data?.gastos || [], objs = objRes.data?.objetivos || objRes.data || [];
-    const emCartoes = cartoes.reduce((a: number, c: any) => a + Number(c.saldoAtual || 0), 0);
-    const saldoDisponivel = cartoes.reduce((a: number, c: any) => a + Number(c.saldoDisponivel || c.saldoAtual || 0), 0);
-    const saldoReservado  = cartoes.reduce((a: number, c: any) => a + Number(c.saldoReservado || 0), 0);
-    const emObjetivos = objs.reduce((a: number, o: any) => a + Number(o.valorAtual || 0), 0);
-    const hoje = new Date(), primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-    const gastosDoMes = gastos.filter((g: Gasto) => !g.excluido && new Date(g.data) >= primeiroDia);
-    const receitas = gastosDoMes.filter((g: Gasto) => g.tipo === 'RECEITA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
-    const despesas = gastosDoMes.filter((g: Gasto) => g.tipo === 'DESPESA').reduce((a: number, g: Gasto) => a + Number(g.valor), 0);
-    const poupancaLiquida = receitas - despesas;
-    setData({ saldos: { total: emCartoes, disponivel: saldoDisponivel, reservado: saldoReservado }, esteMes: { receitas, despesas, poupancaLiquida, taxaPoupanca: receitas > 0 ? (poupancaLiquida / receitas) * 100 : 0 }, resumo: { totalAlvo: objs.reduce((a: number, o: any) => a + Number(o.valorAlvo || 0), 0), totalAtual: emObjetivos }, objetivos: objs, alertas: despesas > receitas * 0.8 ? [{ tipo: 'perigo', titulo: 'Gastos Elevados', mensagem: 'Já gastaste mais de 80% das tuas receitas!' }] : [] });
-    setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel, saldoReservado, emObjetivos, emCartoes });
-    setObjetivos(objs.slice(0, 3)); setUltimasTransacoes(gastos.slice(0, 5));
   };
 
   useEffect(() => {
@@ -386,7 +370,6 @@ const Dashboard: React.FC = () => {
 
   const { patrimonioTotal, saldoDisponivel, saldoReservado, emObjetivos, emCartoes } = valoresCalculados;
   const taxaPoupanca = data.esteMes.taxaPoupanca ?? (data.esteMes.receitas > 0 ? (data.esteMes.poupancaLiquida / data.esteMes.receitas) * 100 : 0);
-  const temInvestimentos = emObjetivos > 1000;
   
   // Use historical data for chart if available, otherwise fall back to current month
   // Each point represents the value for that specific month
