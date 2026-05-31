@@ -22,6 +22,7 @@ const agregarContexto = async (usuarioId) => {
     objetivos,
     preferencias,
     gastos3Meses,
+    perfilRenda,
   ] = await Promise.all([
     prisma.cartao.findMany({
       where: { usuarioId, ativo: true, excluido: false },
@@ -65,6 +66,10 @@ const agregarContexto = async (usuarioId) => {
         tipo: "DESPESA",
       },
       include: { categoria: { select: { nome: true } } },
+    }),
+    prisma.user.findUnique({
+      where: { id: usuarioId },
+      select: { rendaMensalMedia: true },
     }),
   ]);
 
@@ -178,12 +183,9 @@ const agregarContexto = async (usuarioId) => {
     return { codigo: "estavel", detalhe: "Situação sob controlo." };
   };
 
-  // Buscar renda do perfil
-  const perfil = await prisma.user.findUnique({
-    where: { id: usuarioId },
-    select: { rendaMensalMedia: true },
-  });
-  const renda = perfil?.rendaMensalMedia ? Number(perfil.rendaMensalMedia) : 0;
+  const renda = perfilRenda?.rendaMensalMedia
+    ? Number(perfilRenda.rendaMensalMedia)
+    : 0;
   const situacaoFinanceira = calcularSituacao(
     saldoTotal,
     totalGastos,

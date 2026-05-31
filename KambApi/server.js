@@ -5,8 +5,10 @@ validateEnvironment();
 
 const http = require("http");
 const rateLimit = require("express-rate-limit");
+const cron = require("node-cron");
 const { inicializarSocket } = require("./src/websocket/socketConfig");
 const { iniciarCronJobs } = require("./src/jobs/kambaCronJobs");
+const Proatividade = require("./src/modules/kamba/services/kambaProatividadeService");
 
 const express = require("express");
 const cors = require("cors");
@@ -67,6 +69,7 @@ const {
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3001;
+let cronJobsBootstrap = [];
 
 // ==========================================
 // 6. MIDDLEWARES DE SEGURANÇA
@@ -235,11 +238,37 @@ const startServer = async () => {
       logger.info("Rate limiting: GLOBAL + /api/auth");
       logger.info("Notificações em tempo real: ATIVAS");
       logger.info(`Documentação Swagger em http://localhost:${PORT}/api-docs`);
+
+      // O job diário já é iniciado em src/jobs/kambaCronJobs.js.
+      // Aqui ligamos apenas o balanço semanal no bootstrap.
+      const balancoSemanal = cron.schedule(
+        "0 8 * * 1",
+        async () => {
+          logger.info("[CRON] A iniciar balanço semanal...");
+          try {
+            await Proatividade.executarAnaliseDiaria();
+          } catch (err) {
+            logger.error({ err }, "[CRON] Erro no balanço semanal");
+          }
+        },
+        {
+          scheduled: true,
+          timezone: "Africa/Luanda",
+        },
+      );
+
+      cronJobsBootstrap = [balancoSemanal];
+      logger.info(
+        "[CRON] Tarefa bootstrap agendada: balanço semanal (seg 09h Luanda)",
+      );
     });
 
     // Graceful shutdown
     const shutdown = async (signal) => {
       console.log(`\n ${signal} recebido. Encerrando graciosamente...`);
+
+      cronJobsBootstrap.forEach((task) => task.stop());
+      cronJobsBootstrap = [];
 
       try {
         const io = require("./src/websocket/socketConfig").getIO();

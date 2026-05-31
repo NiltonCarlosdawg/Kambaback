@@ -337,7 +337,7 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
     for (const lembrete of lembretes) {
       respostaComLembretes += `\n${lembrete.titulo}\n${lembrete.mensagem}\n`;
       // Marca como enviado de forma assíncrona (não bloqueia a resposta)
-      marcarLembreteEnviado(lembrete.id).catch(() => {});
+      marcarLembreteEnviado(lembrete.id, usuarioId).catch(() => {});
     }
 
     return respostaComLembretes;

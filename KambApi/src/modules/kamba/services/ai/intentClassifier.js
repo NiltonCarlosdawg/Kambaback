@@ -1,6 +1,10 @@
 const {
   buscarPorSimilaridade,
 } = require("../../plugins/intents/intentDataset");
+const {
+  gerarEmbedding,
+  calcularSimilaridade,
+} = require("../../services/ai/embeddingService");
 
 const CONFIANCA_REGEX_EXATO = 0.95;
 const CONFIANCA_REGEX_ALTA = 0.9;
@@ -362,10 +366,6 @@ const detectarPerguntaRepetida = (msgLower, historico = []) => {
   if (mensagensUser.length < 2) return false;
 
   try {
-    const {
-      gerarEmbedding,
-      calcularSimilaridade,
-    } = require("../../services/ai/embeddingService");
     const embeddingActual = gerarEmbedding(msgLower);
 
     for (const msgAnterior of mensagensUser.slice(0, -1)) {

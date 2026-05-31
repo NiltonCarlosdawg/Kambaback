@@ -156,10 +156,10 @@ const escreverEventoSSE = (res, tipo, dados = {}) => {
  */
 const detectarContextoPendente = async (usuarioId, msgLower, memoriaDB) => {
   try {
-    const {
-      detectarPerguntaRepetida,
-    } = require("../services/ai/intentClassifier");
-    const repetida = detectarPerguntaRepetida(msgLower, memoriaDB);
+    const repetida = intentClassifier.detectarPerguntaRepetida(
+      msgLower,
+      memoriaDB,
+    );
 
     if (repetida) {
       const ultimaResposta = [...memoriaDB]
@@ -633,7 +633,11 @@ const conversarComKamba = async (req, res, next) => {
 
     if (wizardMatch) {
       const [fullMatch, tipoFluxo, dadosJson] = wizardMatch;
-      finalContent = finalContent.replace(fullMatch, "").trim();
+      finalContent = finalContent
+        .replace(fullMatch, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 
       try {
         const dadosIniciais = JSON.parse(dadosJson);
@@ -995,7 +999,11 @@ const conversarComKambaStream = async (req, res, next) => {
 
     if (wizardMatchStream && !clientDisconnected) {
       const [fullMatch, tipoFluxo, dadosJson] = wizardMatchStream;
-      finalContent = finalContent.replace(fullMatch, "").trim();
+      finalContent = finalContent
+        .replace(fullMatch, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 
       try {
         const dadosIniciais = JSON.parse(dadosJson);
