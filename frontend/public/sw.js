@@ -1,18 +1,7 @@
-const CACHE_NAME = 'kambapro-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/index.css',
-  '/index.tsx'
-];
+const CACHE_NAME = 'kambapro-v2';
 
 // Install: cache static assets
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
   self.skipWaiting();
 });
 
@@ -30,7 +19,8 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: cache-first strategy for static assets, network-first for API
+// Fetch: network-first for everything so the app does not keep serving an
+// offline shell from cache when the local server is stopped.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -38,35 +28,35 @@ self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (request.method !== 'GET') return;
 
-  // API requests: network first, fallback to cache
+  // API requests: network first, no stale cache fallback
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(request, clone);
-          });
-          return response;
-        })
-        .catch(() => {
-          return caches.match(request);
-        })
+        .catch(() => new Response(JSON.stringify({
+          success: false,
+          message: 'Offline',
+        }), {
+          status: 503,
+          headers: { 'Content-Type': 'application/json' },
+        }))
     );
     return;
   }
 
-  // Static assets: cache first, fallback to network
+  // Everything else: network first, fallback only to a simple offline response
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(request, clone);
-        });
-        return response;
-      });
+    fetch(request).catch(() => {
+      if (request.mode === 'navigate') {
+        return new Response(
+          '<!doctype html><html><body><h1>Offline</h1><p>O servidor local não está disponível.</p></body></html>',
+          {
+            status: 503,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          },
+        );
+      }
+
+      return caches.match(request);
     })
   );
 });

@@ -3,6 +3,44 @@ const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
 
+const arredondarDinheiro = (valor) =>
+  Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
+
+const calcularTotalDistribuicao = async (usuarioId, objetivoIdIgnorado = null) => {
+  const objetivos = await prisma.objetivo.findMany({
+    where: {
+      usuarioId,
+      excluido: false,
+      concluido: false,
+      ...(objetivoIdIgnorado && { id: { not: objetivoIdIgnorado } })
+    },
+    select: {
+      porcentagemDistribuicao: true
+    }
+  });
+
+  return objetivos.reduce(
+    (acc, obj) => acc + Number(obj.porcentagemDistribuicao || 0),
+    0,
+  );
+};
+
+const validarDistribuicaoObjetivos = async (
+  usuarioId,
+  novaPercentagem,
+  objetivoIdIgnorado = null,
+) => {
+  const totalActual = await calcularTotalDistribuicao(usuarioId, objetivoIdIgnorado);
+  const totalComNovoValor = totalActual + Number(novaPercentagem || 0);
+
+  if (totalComNovoValor > 100) {
+    throw new AppError(
+      'A soma das percentagens de distribuição dos objetivos não pode ultrapassar 100%',
+      400,
+    );
+  }
+};
+
 /**
  * LISTAR OBJETIVOS
  */
@@ -52,18 +90,34 @@ const criarObjetivo = async (req, res, next) => {
     return next(new AppError('Título, valor alvo e data prevista são obrigatórios', 400));
   }
 
+  const valorAlvoNum = parseFloat(valorAlvo);
+  const porcentagemNum = parseFloat(porcentagemDistribuicao || 0);
+
+  if (Number.isNaN(valorAlvoNum) || valorAlvoNum <= 0) {
+    return next(new AppError('Valor alvo inválido', 400));
+  }
+
+  if (Number.isNaN(porcentagemNum) || porcentagemNum < 0 || porcentagemNum > 100) {
+    return next(new AppError('A percentagem de distribuição deve estar entre 0 e 100', 400));
+  }
+
   try {
+    await validarDistribuicaoObjetivos(
+      req.user.id,
+      porcentagemNum,
+    );
+
     const objetivo = await prisma.objetivo.create({
       data: {
         usuarioId: req.user.id,
         titulo: titulo.trim(),
-        valorAlvo: parseFloat(valorAlvo),
+        valorAlvo: valorAlvoNum,
         dataPrevista: new Date(dataPrevista),
         categoria: categoria || 'Geral',
         prioridade: prioridade || 'MEDIA',
         icone: icone || 'target',
         cor: cor || '#10b981',
-        porcentagemDistribuicao: parseFloat(porcentagemDistribuicao || 0),
+        porcentagemDistribuicao: porcentagemNum,
         valorAtual: 0,
         concluido: false,
         excluido: false
@@ -114,6 +168,29 @@ const atualizarObjetivo = async (req, res, next) => {
 
     if (!objetivoExistente) return next(new AppError('Objetivo não encontrado', 404));
 
+    if (dadosSanitizados.valorAlvo !== undefined && Number.isNaN(dadosSanitizados.valorAlvo)) {
+      return next(new AppError('Valor alvo inválido', 400));
+    }
+    if (dadosSanitizados.valorAtual !== undefined && Number.isNaN(dadosSanitizados.valorAtual)) {
+      return next(new AppError('Valor actual inválido', 400));
+    }
+    if (
+      dadosSanitizados.porcentagemDistribuicao !== undefined &&
+      (Number.isNaN(dadosSanitizados.porcentagemDistribuicao) ||
+        dadosSanitizados.porcentagemDistribuicao < 0 ||
+        dadosSanitizados.porcentagemDistribuicao > 100)
+    ) {
+      return next(new AppError('A percentagem de distribuição deve estar entre 0 e 100', 400));
+    }
+
+    if (dadosSanitizados.porcentagemDistribuicao !== undefined) {
+      await validarDistribuicaoObjetivos(
+        req.user.id,
+        dadosSanitizados.porcentagemDistribuicao,
+        id,
+      );
+    }
+
     const atualizado = await prisma.objetivo.update({
       where: { id },
       data: dadosSanitizados
@@ -154,23 +231,101 @@ const deletarObjetivo = async (req, res, next) => {
  * DISTRIBUIR POUPANÇA
  */
 const distribuirPoupancaAutomatica = async (req, res, next) => {
-  const { valorTotal } = req.body;
-  if (!valorTotal || valorTotal <= 0) return next(new AppError('Valor inválido', 400));
+  const { valorTotal, cartaoId } = req.body;
+  const valorNum = parseFloat(valorTotal);
+  if (Number.isNaN(valorNum) || valorNum <= 0) return next(new AppError('Valor inválido', 400));
+  if (!cartaoId) return next(new AppError('Cartão de origem é obrigatório', 400));
 
   try {
-    const objetivos = await prisma.objetivo.findMany({
-      where: { usuarioId: req.user.id, excluido: false, concluido: false, porcentagemDistribuicao: { gt: 0 } }
+    const usuarioId = req.user.id;
+
+    const cardBase = await prisma.cartao.findFirst({
+      where: {
+        id: cartaoId,
+        usuarioId,
+        ativo: true,
+        excluido: false
+      },
+      orderBy: { atualizadoEm: 'desc' }
     });
 
-    await prisma.$transaction(
-      objetivos.map(obj => prisma.objetivo.update({
-        where: { id: obj.id },
-        data: { valorAtual: { increment: (valorTotal * (obj.porcentagemDistribuicao / 100)) } }
-      }))
+    if (!cardBase) {
+      return next(new AppError('Cartão de origem não encontrado ou inactivo', 404));
+    }
+
+    const percentualPoupanca = Number(cardBase.percentualDistribuicaoPoupanca || 0);
+    if (percentualPoupanca <= 0) {
+      return next(new AppError('O cartão seleccionado não tem percentagem de distribuição de poupança configurada', 400));
+    }
+
+    const objetivos = await prisma.objetivo.findMany({
+      where: {
+        usuarioId,
+        excluido: false,
+        concluido: false,
+        porcentagemDistribuicao: { gt: 0 }
+      }
+    });
+
+    const totalPercentagem = objetivos.reduce(
+      (acc, obj) => acc + Number(obj.porcentagemDistribuicao || 0),
+      0,
     );
 
-    await invalidarCacheUsuario(req.user.id);
-    res.json({ success: true, message: 'Poupança distribuída!' });
+    if (totalPercentagem <= 0) {
+      return next(new AppError('Não existem objetivos configurados para distribuição', 400));
+    }
+
+    if (Math.abs(totalPercentagem - 100) > 0.01) {
+      return next(new AppError('A soma das percentagens de distribuição dos objetivos deve ser exactamente 100%', 400));
+    }
+
+    const poolDistribuicao = arredondarDinheiro(
+      (valorNum * percentualPoupanca) / 100,
+    );
+
+    const distribuicoes = objetivos.map((obj) => ({
+      id: obj.id,
+      valor: arredondarDinheiro(
+        (poolDistribuicao * Number(obj.porcentagemDistribuicao)) / 100,
+      )
+    }));
+
+    const totalDistribuido = distribuicoes.reduce(
+      (acc, dist) => acc + dist.valor,
+      0,
+    );
+
+    if (Number(cardBase.saldoDisponivel) < totalDistribuido) {
+      return next(new AppError('Saldo disponível insuficiente no cartão seleccionado', 400));
+    }
+
+    await prisma.$transaction(async (tx) => {
+      for (const dist of distribuicoes) {
+        await tx.objetivo.update({
+          where: { id: dist.id },
+          data: { valorAtual: { increment: dist.valor } }
+        });
+      }
+
+      await tx.cartao.update({
+        where: { id: cardBase.id },
+        data: {
+          saldoDisponivel: { decrement: totalDistribuido },
+          saldoReservado: { increment: totalDistribuido }
+        }
+      });
+    });
+
+    await invalidarCacheUsuario(usuarioId);
+    res.json({
+      success: true,
+      message: 'Poupança distribuída e reservada no cartão',
+      cartaoId: cardBase.id,
+      valorReservado: totalDistribuido,
+      valorNaoDistribuido: Math.max(0, valorNum - totalDistribuido),
+      percentualDistribuicaoPoupanca: percentualPoupanca
+    });
   } catch (err) {
     next(err);
   }

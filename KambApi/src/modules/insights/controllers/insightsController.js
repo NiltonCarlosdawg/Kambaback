@@ -73,14 +73,11 @@ const getResumoObjetivos = async (usuarioId) => {
     const cached = await getCache(cacheKey);
     if (cached) return cached;
 
-    const hoje = new Date();
-
-  
     const objetivos = await prisma.objetivo.findMany({
       where: {
         usuarioId,
         concluido: false,
-        dataPrevista: { gte: hoje }  
+        excluido: false
       },
       select: {
         id: true,
@@ -102,10 +99,11 @@ const getResumoObjetivos = async (usuarioId) => {
     const resultado = objetivos.map(obj => {
       const { valorAlvo, valorAtual, dataPrevista } = obj;  // CORRIGIDO
       const restante = Number(valorAlvo) - Number(valorAtual);
-      
-      
-      const meses = (dataPrevista.getFullYear() - hoje.getFullYear()) * 12 
-                    + (dataPrevista.getMonth() - hoje.getMonth());
+      const hoje = new Date();
+      const meses = dataPrevista
+        ? (dataPrevista.getFullYear() - hoje.getFullYear()) * 12
+          + (dataPrevista.getMonth() - hoje.getMonth())
+        : 0;
       
       const poupancaMensalNecessaria = meses > 0 ? restante / meses : restante;
 
@@ -126,6 +124,260 @@ const getResumoObjetivos = async (usuarioId) => {
   } catch (error) {
     console.error("Erro no Insight (Objetivos):", error.message);
     return [];
+  }
+};
+
+const getCartoesStatus = async (usuarioId) => {
+  try {
+    const cacheKey = `cartoes-status:${usuarioId}`;
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const cartoes = await prisma.cartao.findMany({
+      where: {
+        usuarioId,
+        ativo: true,
+        excluido: false,
+      },
+      select: {
+        id: true,
+        nome: true,
+        banco: true,
+        tipo: true,
+        saldoAtual: true,
+        saldoDisponivel: true,
+        saldoReservado: true,
+        isFundoEmergencia: true,
+        fundoAtivo: true,
+      },
+      orderBy: { criadoEm: "desc" },
+    });
+
+    const saldoTotal = cartoes.reduce(
+      (acc, cartao) => acc + Number(cartao.saldoAtual || 0),
+      0,
+    );
+    const saldoDisponivelTotal = cartoes.reduce(
+      (acc, cartao) => acc + Number(cartao.saldoDisponivel || 0),
+      0,
+    );
+    const saldoReservadoTotal = cartoes.reduce(
+      (acc, cartao) => acc + Number(cartao.saldoReservado || 0),
+      0,
+    );
+
+    const resultado = {
+      success: true,
+      totalCartoes: cartoes.length,
+      saldoTotal: Math.round(saldoTotal),
+      saldoDisponivelTotal: Math.round(saldoDisponivelTotal),
+      saldoReservadoTotal: Math.round(saldoReservadoTotal),
+      cartoes: cartoes.map((cartao) => ({
+        ...cartao,
+        saldoAtual: Number(cartao.saldoAtual),
+        saldoDisponivel: Number(cartao.saldoDisponivel),
+        saldoReservado: Number(cartao.saldoReservado),
+      })),
+    };
+
+    await setCache(cacheKey, resultado, 300);
+    return resultado;
+  } catch (error) {
+    console.error("[INSIGHTS] Erro em getCartoesStatus:", error.message);
+    return { erro: "Estado dos cartões indisponível" };
+  }
+};
+
+const getComparacaoMensal = async (usuarioId) => {
+  try {
+    const agora = new Date();
+    const mesAtual = await getFluxoCaixaMensal(
+      usuarioId,
+      agora.getFullYear(),
+      agora.getMonth(),
+    );
+
+    const mesAnteriorDate = new Date(agora.getFullYear(), agora.getMonth() - 1, 1);
+    const mesAnterior = await getFluxoCaixaMensal(
+      usuarioId,
+      mesAnteriorDate.getFullYear(),
+      mesAnteriorDate.getMonth(),
+    );
+
+    const deltaReceitas = mesAtual.receitas - mesAnterior.receitas;
+    const deltaDespesas = mesAtual.despesas - mesAnterior.despesas;
+    const deltaPoupanca = mesAtual.poupancaLiquida - mesAnterior.poupancaLiquida;
+
+    return {
+      success: true,
+      actual: mesAtual,
+      anterior: mesAnterior,
+      variacao: {
+        receitas: deltaReceitas,
+        despesas: deltaDespesas,
+        poupancaLiquida: deltaPoupanca,
+        taxaPoupanca: mesAtual.taxaPoupanca - mesAnterior.taxaPoupanca,
+      },
+    };
+  } catch (error) {
+    console.error("[INSIGHTS] Erro em getComparacaoMensal:", error.message);
+    return { erro: "Comparação mensal indisponível" };
+  }
+};
+
+const getFundoEmergenciaStatus = async (usuarioId) => {
+  try {
+    const cacheKey = `fundo-status:${usuarioId}`;
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const [fundo, metricas, cartoes] = await Promise.all([
+      prisma.cartao.findFirst({
+        where: {
+          usuarioId,
+          isFundoEmergencia: true,
+          excluido: false,
+        },
+        select: {
+          id: true,
+          nome: true,
+          saldoAtual: true,
+          saldoDisponivel: true,
+          fundoAtivo: true,
+          cor: true,
+          icone: true,
+        },
+      }),
+      (async () => {
+        const seisMesesAtras = new Date();
+        seisMesesAtras.setMonth(seisMesesAtras.getMonth() - 6);
+
+        const despesasAgg = await prisma.gasto.aggregate({
+          _sum: { valor: true },
+          where: {
+            usuarioId,
+            tipo: "DESPESA",
+            excluido: false,
+            data: { gte: seisMesesAtras },
+          },
+        });
+
+        return Number(despesasAgg._sum.valor) || 0;
+      })(),
+      prisma.gasto.aggregate({
+        _sum: { valor: true },
+        where: {
+          usuarioId,
+          tipo: "DESPESA",
+          excluido: false,
+        },
+      }),
+    ]);
+
+    if (!fundo) {
+      const resultadoSemFundo = {
+        success: true,
+        existe: false,
+        ativo: false,
+        mensagem: "Nenhum fundo de emergência configurado.",
+      };
+      await setCache(cacheKey, resultadoSemFundo, 300);
+      return resultadoSemFundo;
+    }
+
+    const totalDespesas6M = metricas;
+    const despesaMediaMensal = totalDespesas6M / 6;
+    const saldoAtual = Number(fundo.saldoAtual) || 0;
+    const mesesCobertos = despesaMediaMensal > 0 ? saldoAtual / despesaMediaMensal : 0;
+    const alvoEmergencia = despesaMediaMensal * 6;
+    const percentualAtingido = alvoEmergencia > 0
+      ? Math.min(100, Math.round((saldoAtual / alvoEmergencia) * 100))
+      : 0;
+
+    const resultado = {
+      success: true,
+      existe: true,
+      ativo: fundo.fundoAtivo,
+      fundo: {
+        ...fundo,
+        saldoAtual,
+        saldoDisponivel: Number(fundo.saldoDisponivel) || 0,
+      },
+      metricas: {
+        despesaMediaMensal,
+        alvoEmergencia,
+        mesesCobertos: Math.round(mesesCobertos * 10) / 10,
+        percentualAtingido,
+        mesesRecomendados: 6,
+      },
+      totalDespesas: Number(cartoes._sum.valor) || 0,
+    };
+
+    await setCache(cacheKey, resultado, 300);
+    return resultado;
+  } catch (error) {
+    console.error("[INSIGHTS] Erro em getFundoEmergenciaStatus:", error.message);
+    return { erro: "Estado do fundo de emergência indisponível" };
+  }
+};
+
+const getGastosPorCategoria = async (usuarioId) => {
+  try {
+    const cacheKey = `gastos-por-categoria:${usuarioId}`;
+    const cached = await getCache(cacheKey);
+    if (cached) return cached;
+
+    const inicioMes = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+    const stats = await prisma.gasto.groupBy({
+      by: ["categoriaId"],
+      where: {
+        usuarioId,
+        tipo: "DESPESA",
+        excluido: false,
+        data: { gte: inicioMes },
+      },
+      _sum: { valor: true },
+      _count: { id: true },
+    });
+
+    const categoriasIds = stats.map((s) => s.categoriaId).filter(Boolean);
+    const categorias = categoriasIds.length > 0
+      ? await prisma.categoria.findMany({
+          where: { id: { in: categoriasIds } },
+          select: { id: true, nome: true, cor: true },
+        })
+      : [];
+
+    const totalGeral = stats.reduce(
+      (acc, s) => acc + Number(s._sum.valor || 0),
+      0,
+    );
+
+    const resultado = {
+      success: true,
+      totalGeral,
+      categorias: stats
+        .map((s) => {
+          const categoria = categorias.find((c) => c.id === s.categoriaId);
+          const total = Number(s._sum.valor) || 0;
+          return {
+            categoriaId: s.categoriaId,
+            categoria: categoria?.nome || "Outros",
+            cor: categoria?.cor || "#9E9E9E",
+            total,
+            quantidade: s._count.id,
+            porcentagem: totalGeral > 0 ? Math.round((total / totalGeral) * 100) : 0,
+          };
+        })
+        .sort((a, b) => b.total - a.total),
+    };
+
+    await setCache(cacheKey, resultado, 300);
+    return resultado;
+  } catch (error) {
+    console.error("[INSIGHTS] Erro em getGastosPorCategoria:", error.message);
+    return { erro: "Distribuição por categoria indisponível" };
   }
 };
 /**
@@ -410,8 +662,12 @@ const invalidarCacheUsuario = async (usuarioId) => {
     `fluxo:${usuarioId}:*`,
     `objetivos:${usuarioId}`,
     `fundo:${usuarioId}`,
+    `cartoes-status:${usuarioId}`,
+    `fundo-status:${usuarioId}`,
+    `gastos-por-categoria:${usuarioId}`,
     `historico:${usuarioId}:*`,
-    `top-categorias:${usuarioId}`
+    `top-categorias:${usuarioId}`,
+    `comparacao:${usuarioId}:*`,
   ];
 
   for (const key of keys) {
@@ -428,5 +684,9 @@ module.exports = {
   topCategorias,
   getFluxoCaixaMensal,
   getResumoObjetivos,
+  getCartoesStatus,
+  getComparacaoMensal,
+  getFundoEmergenciaStatus,
+  getGastosPorCategoria,
   invalidarCacheUsuario
 };

@@ -2,6 +2,72 @@ const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
 
+const arredondarDinheiro = (valor) =>
+  Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
+
+const distribuirPoolPorPesos = (objetivos, pool) => {
+  const totalPesos = objetivos.reduce(
+    (acc, objetivo) => acc + Number(objetivo.porcentagemDistribuicao || 0),
+    0,
+  );
+
+  if (Math.abs(totalPesos - 100) > 0.01) {
+    throw new AppError(
+      'A soma das percentagens dos objetivos deve ser exactamente 100%',
+      400,
+    );
+  }
+
+  let acumulado = 0;
+  return objetivos.map((objetivo, index) => {
+    const peso = Number(objetivo.porcentagemDistribuicao || 0);
+    const valor =
+      index === objetivos.length - 1
+        ? arredondarDinheiro(pool - acumulado)
+        : arredondarDinheiro((pool * peso) / 100);
+    acumulado += valor;
+    return { objetivo, valor };
+  });
+};
+
+const obterCategoriaAjusteSaldo = async (tx, usuarioId) => {
+  const categoriaUsuario = await tx.categoria.findFirst({
+    where: {
+      usuarioId,
+      excluido: false,
+      nome: { contains: 'Ajuste', mode: 'insensitive' }
+    },
+    orderBy: { nome: 'asc' }
+  });
+
+  if (categoriaUsuario) return categoriaUsuario;
+
+  const categoriaPadrao = await tx.categoria.findFirst({
+    where: {
+      padrao: true,
+      excluido: false,
+      nome: { contains: 'Ajuste', mode: 'insensitive' }
+    },
+    orderBy: { nome: 'asc' }
+  });
+
+  if (categoriaPadrao) return categoriaPadrao;
+
+  return tx.categoria.create({
+    data: {
+      usuarioId,
+      nome: 'Ajuste de Saldo',
+      tipo: 'ESSENCIAL',
+      cor: '#64748b',
+      icone: 'sliders-horizontal',
+      padrao: false,
+      ordem: 999,
+      excluido: false,
+      ativa: true
+    }
+  });
+};
+
 /**
  * ==========================================
  * LISTAR TODOS OS CARTÕES DO USUÁRIO
@@ -62,7 +128,8 @@ const criarCartao = async (req, res, next) => {
     diaVencimento,
     cor = '#6366f1',
     icone = 'credit-card',
-    distribuirParaObjetivos = false
+    distribuirParaObjetivos = false,
+    percentualDistribuicaoPoupanca = 0
   } = req.body;
 
   const tiposValidos = ['DEBITO', 'CREDITO', 'POUPANCA'];
@@ -116,6 +183,9 @@ const criarCartao = async (req, res, next) => {
         cor,
         icone,
         distribuirParaObjetivos: !!distribuirParaObjetivos,
+        percentualDistribuicaoPoupanca: distribuirParaObjetivos
+          ? parseFloat(percentualDistribuicaoPoupanca) || 0
+          : 0,
         ativo: true,
         excluido: false
       }
@@ -148,7 +218,8 @@ const atualizarCartao = async (req, res, next) => {
   const camposPermitidos = [
     'nome', 'banco', 'cor', 'icone', 'ativo', 
     'distribuirParaObjetivos', 'limiteCredito',
-    'diaFechamento', 'diaVencimento'
+    'diaFechamento', 'diaVencimento',
+    'percentualDistribuicaoPoupanca'
   ];
   
   const dados = {};
@@ -188,6 +259,18 @@ const atualizarCartao = async (req, res, next) => {
     if (dados.limiteCredito !== undefined && cartaoExistente.tipo === 'CREDITO') {
       const diferencaLimite = dados.limiteCredito - Number(cartaoExistente.limiteCredito);
       dados.saldoDisponivel = Number(cartaoExistente.saldoDisponivel) + diferencaLimite;
+    }
+
+    if (dados.distribuirParaObjetivos === false) {
+      dados.percentualDistribuicaoPoupanca = 0;
+    }
+
+    if (
+      dados.distribuirParaObjetivos === true &&
+      dados.percentualDistribuicaoPoupanca === undefined &&
+      Number(cartaoExistente.percentualDistribuicaoPoupanca || 0) <= 0
+    ) {
+      return next(new AppError('Define a percentagem de distribuição da poupança antes de activar a distribuição automática', 400));
     }
 
     const cartao = await prisma.cartao.update({
@@ -241,6 +324,7 @@ const atualizarSaldo = async (req, res, next) => {
       const saldoAtual = Number(cartao.saldoAtual);
       const saldoDisponivel = Number(cartao.saldoDisponivel);
       const saldoReservado = Number(cartao.saldoReservado);
+      const percentualPoupanca = Number(cartao.percentualDistribuicaoPoupanca || 0);
 
       let novoSaldoAtual = saldoAtual;
       let novoSaldoDisponivel = saldoDisponivel;
@@ -262,7 +346,7 @@ const atualizarSaldo = async (req, res, next) => {
         }
 
        
-        if (cartao.distribuirParaObjetivos) {
+        if (cartao.distribuirParaObjetivos && percentualPoupanca > 0) {
           const objetivos = await tx.objetivo.findMany({
             where: {
               usuarioId: req.user.id,
@@ -273,38 +357,48 @@ const atualizarSaldo = async (req, res, next) => {
             orderBy: { prioridade: 'desc' }
           });
 
-          if (objetivos.length > 0) {
-            let totalDistribuido = 0;
+          if (objetivos.length === 0) {
+            throw new AppError(
+              'A distribuição automática está activa, mas não existem objetivos configurados',
+              400,
+            );
+          }
 
-            for (const objetivo of objetivos) {
-              const porcentagem = Number(objetivo.porcentagemDistribuicao);
-              const valorObjetivo = (valorNum * porcentagem) / 100;
-              
-            
-              const objetivoAtualizado = await tx.objetivo.update({
-                where: { id: objetivo.id },
-                data: {
-                  valorAtual: {
-                    increment: valorObjetivo
-                  }
+          const poolDistribuicao = arredondarDinheiro(
+            (valorNum * percentualPoupanca) / 100,
+          );
+          const distribuicoesPool = distribuirPoolPorPesos(
+            objetivos,
+            poolDistribuicao,
+          );
+
+          let totalDistribuido = 0;
+
+          for (const item of distribuicoesPool) {
+            const { objetivo, valor } = item;
+            const objetivoAtualizado = await tx.objetivo.update({
+              where: { id: objetivo.id },
+              data: {
+                valorAtual: {
+                  increment: valor
                 }
-              });
+              }
+            });
 
-              totalDistribuido += valorObjetivo;
-              distribuicoes.push({
-                objetivoId: objetivo.id,
-                titulo: objetivo.titulo,
-                porcentagem,
-                valor: valorObjetivo,
-                novoValorAtual: Number(objetivoAtualizado.valorAtual)
-              });
-            }
+            totalDistribuido += valor;
+            distribuicoes.push({
+              objetivoId: objetivo.id,
+              titulo: objetivo.titulo,
+              porcentagem: Number(objetivo.porcentagemDistribuicao),
+              valor,
+              novoValorAtual: Number(objetivoAtualizado.valorAtual)
+            });
+          }
 
-            
-            if (totalDistribuido > 0) {
-              novoSaldoDisponivel -= totalDistribuido;
-              novoSaldoReservado += totalDistribuido;
-            }
+
+          if (totalDistribuido > 0) {
+            novoSaldoDisponivel -= totalDistribuido;
+            novoSaldoReservado += totalDistribuido;
           }
         }
       }
@@ -344,6 +438,27 @@ const atualizarSaldo = async (req, res, next) => {
           saldoAtual: novoSaldoAtual,
           saldoDisponivel: novoSaldoDisponivel,
           saldoReservado: novoSaldoReservado
+        }
+      });
+
+      const categoriaAjuste = await obterCategoriaAjusteSaldo(tx, req.user.id);
+
+      await tx.gasto.create({
+        data: {
+          usuarioId: req.user.id,
+          cartaoId: id,
+          categoriaId: categoriaAjuste.id,
+          tipo: tipoTransacao,
+          valor: valorNum,
+          descricao: `Ajuste manual de saldo - ${tipoTransacao}`,
+          data: new Date(),
+          local: null,
+          parcelado: false,
+          totalParcelas: 1,
+          parcelaAtual: 1,
+          tags: ['ajuste-saldo'],
+          excluido: false,
+          distribuicaoAutomatica: false
         }
       });
 

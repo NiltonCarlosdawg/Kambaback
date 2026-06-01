@@ -1,9 +1,10 @@
 
-const { 
-  emitirNotificacao, 
+const {
+  emitirNotificacao,
   emitirLembrete,
   emitirAlertaGasto,
   emitirProgressoObjetivo,
+  emitirAtualizacaoSaldo,
   isUsuarioOnline 
 } = require('../../../websocket/socketConfig');
 
@@ -228,9 +229,7 @@ const notificarDistribuicaoPoupanca = async (usuarioId, valorTotal, distribuicoe
  * Notifica atualização de saldo de cartão
  */
 const notificarAtualizacaoSaldo = async (usuarioId, cartao, tipoTransacao, valor) => {
-  const io = require('../../../websocket/socketConfig');
-  
-  io.emitirAtualizacaoSaldo(usuarioId, {
+  emitirAtualizacaoSaldo(usuarioId, {
     cartaoId: cartao.id,
     nome: cartao.nome,
     tipo: tipoTransacao,

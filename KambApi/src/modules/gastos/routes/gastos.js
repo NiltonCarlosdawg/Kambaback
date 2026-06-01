@@ -7,6 +7,7 @@ const {
   criarGasto,
   listarGastos,
   gastosPorCategoria,
+  atualizarGasto,
   deletarGasto
 } = require('../controllers/gastosController');
 
@@ -73,6 +74,22 @@ const listarGastosQuerySchema = validar(
   'query'
 );
 
+const atualizarGastoSchema = validar(
+  Joi.object({
+    descricao: Joi.string().max(500).trim().optional(),
+    categoriaId: Joi.string().optional().allow(null, ''),
+    data: Joi.alternatives().try(
+      Joi.date().iso(),
+      Joi.string().isoDate()
+    ).optional(),
+    local: Joi.string().max(200).allow('', null).optional(),
+    tags: Joi.array()
+      .items(Joi.string().max(50))
+      .max(20)
+      .optional(),
+  }).min(1)
+);
+
 // ==========================================
 // ROTAS
 // ==========================================
@@ -81,6 +98,7 @@ router.use(protegerRota);
 router.post('/', criarGastoSchema, criarGasto);
 router.get('/', listarGastosQuerySchema, listarGastos);
 router.get('/por-categoria', gastosPorCategoria);
+router.patch('/:id', atualizarGastoSchema, atualizarGasto);
 router.delete('/:id', deletarGasto);
 
 module.exports = router;

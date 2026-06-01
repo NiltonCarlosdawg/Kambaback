@@ -94,7 +94,17 @@ const criarCartaoSchema = validar(
     icone: Joi.string().max(50).default('credit-card'),
     
     // Distribuição automática de receitas para objetivos
-    distribuirParaObjetivos: Joi.boolean().default(false)
+    distribuirParaObjetivos: Joi.boolean().default(false),
+    percentualDistribuicaoPoupanca: Joi.when('distribuirParaObjetivos', {
+      is: true,
+      then: Joi.number().positive().max(100).required().messages({
+        'any.required': 'A percentagem de distribuição da poupança é obrigatória quando a distribuição automática está activa',
+        'number.positive': 'A percentagem deve ser positiva',
+        'number.max': 'A percentagem não pode exceder 100%'
+      }),
+      otherwise: Joi.number().min(0).max(100).default(0)
+        .messages({ 'number.max': 'A percentagem não pode exceder 100%' })
+    })
   })
 );
 
@@ -134,6 +144,9 @@ const atualizarCartaoSchema = validar(
       }),
     
     distribuirParaObjetivos: Joi.boolean().optional()
+      ,
+    percentualDistribuicaoPoupanca: Joi.number().min(0).max(100).optional()
+      .messages({ 'number.max': 'A percentagem não pode exceder 100%' })
   })
   .min(1)
   .messages({ 'object.min': 'Pelo menos um campo deve ser enviado para atualização' })

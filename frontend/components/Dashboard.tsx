@@ -1,10 +1,11 @@
 // src/components/Dashboard.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { AlertCircle, ArrowDown, ArrowLeftRight, ArrowUp, CheckCircle, Info, LayoutDashboard, Lock, Plus, RefreshCw, TrendingDown, TrendingUp, Trophy, Wallet } from 'lucide-react';
 import dashboardService, { DashboardData, HistoricoData } from '../services/dashboardService';
 import goalsService from '../services/goalsService';
 import transactionsService from '../services/transactionsService';
+import useSocket from '../hooks/useSocket';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
 import { RuixenStatsChart } from './ui/ruixen-stats';
@@ -269,8 +270,16 @@ const Dashboard: React.FC = () => {
   const [error,              setError]              = useState('');
   const [valoresCalculados,  setValoresCalculados]  = useState({ patrimonioTotal: 0, saldoDisponivel: 0, saldoReservado: 0, emObjetivos: 0, emCartoes: 0 });
   const [chartPeriodo,      setChartPeriodo]        = useState<'31dias' | 'trimestre' | 'semestre'>('semestre');
+  const initialLoadRef = useRef(true);
+  const refreshTimerRef = useRef<number | null>(null);
 
-  const fetchData = async (showLoading = true, periodo = chartPeriodo) => {
+  const calcularValores = useCallback((dashData: DashboardData, objs: Objetivo[]) => {
+    const emCartoes = dashData.saldos?.total || 0;
+    const emObjetivos = objs.reduce((a, o) => a + Number(o.valorAtual || 0), 0);
+    setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel: dashData.saldos?.disponivel || 0, saldoReservado: dashData.saldos?.reservado || 0, emObjetivos, emCartoes });
+  }, []);
+
+  const fetchData = useCallback(async (showLoading = true, periodo = chartPeriodo) => {
     if (showLoading) setLoading(true);
     setRefreshing(true); setError('');
     try {
@@ -296,25 +305,53 @@ const Dashboard: React.FC = () => {
       calcularValores(dadosDashboard, objetivosData);
     } catch { setError('Falha ao carregar dados.'); }
     finally { setLoading(false); setRefreshing(false); }
-  };
-
-  const calcularValores = (dashData: DashboardData, objs: Objetivo[]) => {
-    const emCartoes = dashData.saldos?.total || 0;
-    const emObjetivos = objs.reduce((a, o) => a + Number(o.valorAtual || 0), 0);
-    setValoresCalculados({ patrimonioTotal: emCartoes + emObjetivos, saldoDisponivel: dashData.saldos?.disponivel || 0, saldoReservado: dashData.saldos?.reservado || 0, emObjetivos, emCartoes });
-  };
+  }, [chartPeriodo, calcularValores]);
 
   useEffect(() => {
-    fetchData(loading, chartPeriodo);
-  }, [chartPeriodo]);
+    fetchData(initialLoadRef.current, chartPeriodo);
+    initialLoadRef.current = false;
+  }, [chartPeriodo, fetchData]);
+
+  const scheduleSilentRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+
+    refreshTimerRef.current = window.setTimeout(() => {
+      fetchData(false, chartPeriodo);
+    }, 250);
+  }, [chartPeriodo, fetchData]);
+
+  useSocket({
+    onAtualizacaoSaldo: scheduleSilentRefresh,
+    onProgressoObjetivo: scheduleSilentRefresh,
+    onLembrete: scheduleSilentRefresh,
+    onNotificacaoSistema: scheduleSilentRefresh,
+  });
 
   useEffect(() => {
-    const i = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchData(false, chartPeriodo);
-    }, 30000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        scheduleSilentRefresh();
+      }
+    };
 
-    return () => clearInterval(i);
-  }, [chartPeriodo]);
+    window.addEventListener('focus', handleVisibility);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('focus', handleVisibility);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [scheduleSilentRefresh]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
   const getDiasRestantes = (d?: string) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
 

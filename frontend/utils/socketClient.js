@@ -14,7 +14,7 @@ class SocketClient {
     
     this.socket = io(import.meta.env.VITE_API_URL, {
       auth: { token },
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
       reconnectionDelay: 1000,

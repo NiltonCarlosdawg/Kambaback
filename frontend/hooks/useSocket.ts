@@ -26,7 +26,7 @@ const createSocket = (token: string): Socket => {
 
   globalSocket = io(baseURL, {
     auth: { token },
-    transports: ['websocket', 'polling'],
+    transports: ['websocket'],
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1000,

@@ -8,7 +8,16 @@ module.exports = {
   description: 'Busca as notícias económicas e financeiras mais recentes de Angola. Útil para responder sobre inflação, BNA, taxas de câmbio e mambo do mercado.',
   handler: async ({ categoria = 'business' }) => {
     try {
-      const resultado = await noticiaService.buscarNoticias(categoria);
+      const categoriaMapeada = {
+        business: 'angola',
+        general: 'global',
+        technology: 'mercados',
+        science: 'global',
+        health: 'angola',
+        sports: 'angola'
+      };
+      const categoriaServico = categoriaMapeada[categoria] || 'angola';
+      const resultado = await noticiaService.buscarNoticias(categoriaServico);
       
       if (!resultado.artigos || resultado.artigos.length === 0) {
         return { mensagem: 'Não encontrei notícias recentes sobre este tema, kamba.' };
@@ -20,10 +29,15 @@ module.exports = {
       ).join('\n\n');
 
       return {
-        contexto: `Últimas notícias em Angola (${categoria}):`,
+        contexto: `Últimas notícias em Angola (${categoriaServico}):`,
         noticias: sumario,
         total: resultado.total,
-        offline: resultado.offline || false
+        offline: resultado.offline || false,
+        aviso: resultado.offline
+          ? 'Dados estáticos de fallback. As fontes em tempo real não estavam disponíveis.'
+          : undefined,
+        categoriaOriginal: categoria,
+        categoriaServico
       };
 
     } catch (err) {

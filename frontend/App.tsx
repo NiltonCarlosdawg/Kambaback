@@ -17,34 +17,65 @@ import Relatorio from './components/Relatorio';
 import News from './components/News';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
+const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
+  dashboard: Dashboard,
+  transactions: Transactions,
+  cards: Wallet,
+  goals: Goals,
+  kamba: KambaChat,
+  categorias: Categorias,
+  news: News,
+  perfil: Perfil,
+  personalizacao: Personalizacao,
+  relatorio: Relatorio,
+};
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser]                       = useState<any>(null);
   const [activePage, setActivePage]           = useState('dashboard');
   const [loading, setLoading]                 = useState(true);
   const [isRegistering, setIsRegistering]     = useState(false);
+  const [visitedPages, setVisitedPages]       = useState<string[]>(['dashboard']);
 
   useEffect(() => {
     const handleLogout = () => {
       setUser(null);
       setIsAuthenticated(false);
       setActivePage('dashboard');
+      setVisitedPages(['dashboard']);
     };
     window.addEventListener('auth:logout', handleLogout);
     return () => window.removeEventListener('auth:logout', handleLogout);
   }, []);
 
   useEffect(() => {
-    // Register service worker for PWA
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          console.log('SW registered:', registration.scope);
-        })
-        .catch((error) => {
-          console.log('SW registration failed:', error);
+    if (!('serviceWorker' in navigator)) return;
+
+    // Em desenvolvimento, desregista o SW para não servir UI em cache
+    // quando o servidor local estiver desligado.
+    if (import.meta.env.DEV) {
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        registrations.forEach((registration) => registration.unregister());
+      });
+
+      if ('caches' in window) {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => caches.delete(key));
         });
+      }
+
+      return;
     }
+
+    // Register service worker for PWA only in production
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => {
+        console.log('SW registered:', registration.scope);
+      })
+      .catch((error) => {
+        console.log('SW registration failed:', error);
+      });
   }, []);
 
   useEffect(() => {
@@ -65,6 +96,12 @@ const App: React.FC = () => {
     };
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    setVisitedPages((current) => (
+      current.includes(activePage) ? current : [...current, activePage]
+    ));
+  }, [activePage]);
 
   const handleLoginSuccess = (u: any) => {
     setUser(u);
@@ -133,27 +170,31 @@ const App: React.FC = () => {
   }
 
   // ── Page router ─────────────────────────────────────────────────────────────
-  const renderPage = () => {
-    switch (activePage) {
-      case 'dashboard':      return <Dashboard />;
-      case 'transactions':   return <Transactions />;
-      case 'cards':          return <Wallet />;
-      case 'goals':          return <Goals />;
-      case 'kamba':          return <KambaChat />;
-      case 'categorias':     return <Categorias />;
-      case 'news':           return <News />;
-      case 'perfil':         return <Perfil />;
-      case 'personalizacao': return <Personalizacao />;
-      case 'relatorio':      return <Relatorio />;
-      default:               return <Dashboard />;
-    }
-  };
+  const renderPageStack = () => (
+    <>
+      {visitedPages.map((page) => {
+        const PageComponent = PAGE_COMPONENTS[page] ?? Dashboard;
+        const visible = page === activePage;
+
+        return (
+          <div
+            key={page}
+            className="h-full"
+            style={{ display: visible ? 'block' : 'none' }}
+            aria-hidden={!visible}
+          >
+            <ErrorBoundary>
+              <PageComponent />
+            </ErrorBoundary>
+          </div>
+        );
+      })}
+    </>
+  );
 
   return (
     <Layout activePage={activePage} onNavigate={setActivePage} user={user}>
-      <ErrorBoundary>
-        {renderPage()}
-      </ErrorBoundary>
+      {renderPageStack()}
     </Layout>
   );
 };

@@ -4,6 +4,19 @@
 // — Conversa persistida em sessionStorage e histórico carregado do backend
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+
+// Provide a minimal JSX.IntrinsicElements declaration to satisfy TS when the
+// project's TSX/JSX config is not picking up built-in JSX types.
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      [elemName: string]: any;
+    }
+  }
+}
+
+declare module 'react/jsx-runtime';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   IoPaperPlaneOutline,
@@ -120,6 +133,378 @@ function cardFromSerialized(cd?: FinancialCardSerialized): FinancialCard | undef
   return { ...cd, icon: rehydrateCardIcon(cd.iconType) };
 }
 
+type MarkdownBlock =
+  | { type: 'heading'; level: 1 | 2 | 3; content: string }
+  | { type: 'paragraph'; lines: string[] }
+  | { type: 'list'; ordered: boolean; items: string[] }
+  | { type: 'quote'; lines: string[] }
+  | { type: 'kv'; items: Array<{ label: string; value: string }> }
+  | { type: 'wizard'; action: string; payload: Record<string, unknown> }
+  | { type: 'code'; language?: string; content: string }
+  | { type: 'rule' }
+  | { type: 'table'; header: string[]; rows: string[][] };
+
+function normalizeMessageText(text: string) {
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\r/g, '\r')
+    .replace(/\u00a0/g, ' ');
+}
+
+function parseWizardPayload(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    // ignore invalid wizard payloads
+  }
+
+  return { raw };
+}
+
+function wizardLabel(action: string) {
+  const labels: Record<string, string> = {
+    criar_meta: 'Criar Meta',
+    registar_gasto: 'Registar Gasto',
+    registar_cartao: 'Registar Cartão',
+    analise_mensal: 'Análise Mensal',
+  };
+
+  return labels[action] ?? action.replace(/_/g, ' ');
+}
+
+function isSafeUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function parseInline(text: string, isUser: boolean, keyPrefix: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const regex = /(\*\*[\s\S]+?\*\*|`[^`]+`|\[([^\]]+)\]\(([^)]+)\)|\*([^*\n]+)\*|_([^_\n]+)_)/g;
+
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let index = 0;
+
+  const pushPlain = (segment: string) => {
+    if (!segment) return;
+    nodes.push(segment);
+  };
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      pushPlain(text.slice(lastIndex, match.index));
+    }
+
+    const token = match[0];
+    const key = `${keyPrefix}-${index++}`;
+
+    if (token.startsWith('**')) {
+      nodes.push(
+        <strong
+          key={key}
+          className="font-bold"
+          style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}
+        >
+          {token.slice(2, -2)}
+        </strong>,
+      );
+    } else if (token.startsWith('`')) {
+      nodes.push(
+        <code
+          key={key}
+          className="rounded-md border px-1.5 py-0.5 text-[0.92em]"
+          style={{
+            backgroundColor: isUser ? 'rgba(255,255,255,0.14)' : 'var(--bg-elevated)',
+            borderColor: isUser ? 'rgba(255,255,255,0.12)' : 'var(--border)',
+            color: isUser ? 'var(--accent-text)' : 'var(--text-primary)',
+          }}
+        >
+          {token.slice(1, -1)}
+        </code>,
+      );
+    } else if (token.startsWith('[')) {
+      const label = match[2];
+      const url = match[3];
+      if (label && url && isSafeUrl(url)) {
+        nodes.push(
+          <a
+            key={key}
+            href={url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-semibold underline decoration-dotted underline-offset-4 transition-opacity hover:opacity-80"
+            style={{ color: isUser ? 'var(--accent-text)' : 'var(--accent)' }}
+          >
+            {label}
+          </a>,
+        );
+      } else {
+        nodes.push(token);
+      }
+    } else if (token.startsWith('*')) {
+      nodes.push(
+        <em
+          key={key}
+          className="italic"
+          style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}
+        >
+          {token.slice(1, -1)}
+        </em>,
+      );
+    } else if (token.startsWith('_')) {
+      nodes.push(
+        <em
+          key={key}
+          className="italic"
+          style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}
+        >
+          {token.slice(1, -1)}
+        </em>,
+      );
+    } else {
+      nodes.push(token);
+    }
+
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    pushPlain(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function splitTableRow(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim());
+}
+
+function isTableSeparator(line: string) {
+  return /^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+}
+
+function parseBlocks(text: string): MarkdownBlock[] {
+  const lines = normalizeMessageText(text).split('\n');
+  const blocks: MarkdownBlock[] = [];
+
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listOrdered = false;
+  let quoteLines: string[] = [];
+  let kvItems: Array<{ label: string; value: string }> = [];
+  let codeLines: string[] = [];
+  let tableLines: string[] = [];
+  let inCode = false;
+  let codeLanguage: string | undefined;
+
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      blocks.push({ type: 'paragraph', lines: [...paragraph] });
+      paragraph = [];
+    }
+  };
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      blocks.push({ type: 'list', ordered: listOrdered, items: [...listItems] });
+      listItems = [];
+    }
+  };
+
+  const flushQuote = () => {
+    if (quoteLines.length > 0) {
+      blocks.push({ type: 'quote', lines: [...quoteLines] });
+      quoteLines = [];
+    }
+  };
+
+  const flushKeyValues = () => {
+    if (kvItems.length > 0) {
+      blocks.push({ type: 'kv', items: [...kvItems] });
+      kvItems = [];
+    }
+  };
+
+  const flushTable = () => {
+    if (tableLines.length >= 2) {
+      const header = splitTableRow(tableLines[0]);
+      const rows = tableLines.slice(2).map(splitTableRow).filter((row) => row.length > 0);
+      blocks.push({ type: 'table', header, rows });
+    }
+    tableLines = [];
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith('```')) {
+      if (inCode) {
+        blocks.push({ type: 'code', language: codeLanguage, content: codeLines.join('\n') });
+        codeLines = [];
+        codeLanguage = undefined;
+        inCode = false;
+      } else {
+        flushParagraph();
+        flushList();
+        flushQuote();
+        flushKeyValues();
+        flushTable();
+        inCode = true;
+        codeLanguage = trimmed.slice(3).trim() || undefined;
+      }
+      continue;
+    }
+
+    if (inCode) {
+      codeLines.push(line);
+      continue;
+    }
+
+    if (trimmed === '') {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushKeyValues();
+      flushTable();
+      continue;
+    }
+
+    if (trimmed === '---' || trimmed === '***') {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushKeyValues();
+      flushTable();
+      blocks.push({ type: 'rule' });
+      continue;
+    }
+
+    if (/^#{1,3}\s+/.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushKeyValues();
+      flushTable();
+      const level = Math.min(3, trimmed.match(/^#{1,3}/)?.[0].length ?? 1) as 1 | 2 | 3;
+      blocks.push({ type: 'heading', level, content: trimmed.replace(/^#{1,3}\s+/, '').trim() });
+      continue;
+    }
+
+    const listMatch = trimmed.match(/^(\s*)([-*•]|\d+\.)\s+(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      flushQuote();
+      flushKeyValues();
+      flushTable();
+      const ordered = /\d+\./.test(listMatch[2]);
+      if (listItems.length === 0) listOrdered = ordered;
+      if (listOrdered !== ordered && listItems.length > 0) {
+        flushList();
+        listOrdered = ordered;
+      }
+      listItems.push(listMatch[3].trim());
+      continue;
+    }
+
+    if (trimmed.startsWith('>')) {
+      flushParagraph();
+      flushList();
+      flushKeyValues();
+      flushTable();
+      quoteLines.push(trimmed.replace(/^>\s?/, ''));
+      continue;
+    }
+
+    const wizardMatch = trimmed.match(/^\[WIZARD:([a-z_]+):(\{.*\})\]$/);
+    if (wizardMatch) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushKeyValues();
+      flushTable();
+      blocks.push({
+        type: 'wizard',
+        action: wizardMatch[1],
+        payload: parseWizardPayload(wizardMatch[2]),
+      });
+      continue;
+    }
+
+    const kvMatch = trimmed.match(/^(?:\*\*)?([^:\n]{1,60}?)(?:\*\*)?:\s+(.+)$/);
+    if (
+      kvMatch &&
+      !/^https?:\/\//i.test(trimmed) &&
+      kvMatch[1].trim().length > 0 &&
+      kvMatch[1].trim().length <= 40 &&
+      kvMatch[2].trim().length > 0
+    ) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushTable();
+      kvItems.push({
+        label: kvMatch[1].trim().replace(/^\*\*|\*\*$/g, ''),
+        value: kvMatch[2].trim(),
+      });
+      continue;
+    }
+
+    if (kvItems.length > 0) {
+      flushKeyValues();
+    }
+
+    const nextLine = lines[i + 1];
+    if (line.includes('|') && nextLine && isTableSeparator(nextLine.trim())) {
+      flushParagraph();
+      flushList();
+      flushQuote();
+      flushKeyValues();
+      tableLines.push(trimmed);
+      i += 1;
+      continue;
+    }
+
+    if (tableLines.length > 0) {
+      if (line.includes('|')) {
+        tableLines.push(trimmed);
+        continue;
+      }
+      flushTable();
+    }
+
+    flushList();
+    flushQuote();
+    paragraph.push(line);
+  }
+
+  if (inCode) {
+    blocks.push({ type: 'code', language: codeLanguage, content: codeLines.join('\n') });
+  }
+
+  flushParagraph();
+  flushList();
+  flushQuote();
+  flushKeyValues();
+  flushTable();
+
+  return blocks;
+}
+
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 const SUGGESTIONS = [
@@ -141,24 +526,241 @@ const WELCOME_MSG: Message = {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
+  const blocks = parseBlocks(text);
+
+  if (blocks.length === 0) {
+    return null;
+  }
+
   return (
-    <>
-      {text.split('\n').map((line, li) => {
-        if (line === '---') return (
-          <div key={li} className="my-2 border-t" style={{ borderColor: 'var(--border)' }} />
-        );
-        const parts = line.split('**');
-        return (
-          <p key={li} className={li > 0 ? 'mt-1' : ''}>
-            {parts.map((part, i) =>
-              i % 2 === 1
-                ? <strong key={i} className="font-bold" style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}>{part}</strong>
-                : part
-            )}
-          </p>
-        );
+    <div className="space-y-3">
+      {blocks.map((block, blockIndex) => {
+        const baseKey = `block-${blockIndex}`;
+
+        if (block.type === 'rule') {
+          return (
+            <div
+              key={baseKey}
+              className="my-2 h-px w-full"
+              style={{ backgroundColor: 'var(--border)' }}
+            />
+          );
+        }
+
+        if (block.type === 'heading') {
+          const headingClass =
+            block.level === 1
+              ? 'text-lg'
+              : block.level === 2
+                ? 'text-base'
+                : 'text-sm';
+
+          return (
+            <div key={baseKey} className="space-y-1">
+              <p
+                className={cx('font-extrabold tracking-tight', headingClass)}
+                style={{ color: isUser ? 'var(--accent-text)' : 'var(--text-primary)' }}
+              >
+                {parseInline(block.content, isUser, `${baseKey}-heading`)}
+              </p>
+            </div>
+          );
+        }
+
+        if (block.type === 'paragraph') {
+          return (
+            <p key={baseKey} className="leading-relaxed">
+              {block.lines.map((line, lineIndex) => (
+                <React.Fragment key={`${baseKey}-${lineIndex}`}>
+                  {lineIndex > 0 && <br />}
+                  {parseInline(line, isUser, `${baseKey}-p-${lineIndex}`)}
+                </React.Fragment>
+              ))}
+            </p>
+          );
+        }
+
+        if (block.type === 'quote') {
+          return (
+            <blockquote
+              key={baseKey}
+              className="rounded-xl border-l-4 px-4 py-3"
+              style={{
+                borderColor: isUser ? 'rgba(255,255,255,0.3)' : 'var(--accent-30)',
+                backgroundColor: isUser ? 'rgba(255,255,255,0.08)' : 'var(--bg-elevated)',
+              }}
+            >
+              <div className="space-y-1">
+                {block.lines.map((line, lineIndex) => (
+                  <p key={`${baseKey}-q-${lineIndex}`} className="leading-relaxed">
+                    {parseInline(line, isUser, `${baseKey}-q-${lineIndex}`)}
+                  </p>
+                ))}
+              </div>
+            </blockquote>
+          );
+        }
+
+        if (block.type === 'kv') {
+          return (
+            <div
+              key={baseKey}
+              className="overflow-hidden rounded-xl border"
+              style={{ borderColor: 'var(--border)', backgroundColor: 'var(--bg-elevated)' }}
+            >
+              <div>
+                {block.items.map((item, itemIndex) => (
+                  <div
+                    key={`${baseKey}-kv-${itemIndex}`}
+                    className={cx(
+                      'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] gap-3 px-4 py-3',
+                      itemIndex > 0 && 'border-t',
+                    )}
+                    style={itemIndex > 0 ? { borderColor: 'var(--border)' } : undefined}
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                      {parseInline(item.label, isUser, `${baseKey}-kv-${itemIndex}-label`)}
+                    </div>
+                    <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                      {parseInline(item.value, isUser, `${baseKey}-kv-${itemIndex}-value`)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (block.type === 'wizard') {
+          const entries = Object.entries(block.payload);
+          return (
+            <div
+              key={baseKey}
+              className="overflow-hidden rounded-2xl border shadow-sm"
+              style={{ borderColor: 'var(--accent-20)', backgroundColor: 'color-mix(in srgb, var(--accent) 6%, var(--bg-surface))' }}
+            >
+              <div className="flex items-center justify-between gap-3 border-b px-4 py-3" style={{ borderColor: 'var(--accent-20)' }}>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.24em]" style={{ color: 'var(--accent)' }}>
+                    Próximo passo
+                  </p>
+                  <p className="mt-1 text-sm font-extrabold" style={{ color: 'var(--text-primary)' }}>
+                    {wizardLabel(block.action)}
+                  </p>
+                </div>
+                <span
+                  className="rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest"
+                  style={{ color: 'var(--accent)', borderColor: 'var(--accent-20)', backgroundColor: 'var(--accent-10)' }}
+                >
+                  Wizard
+                </span>
+              </div>
+
+              {entries.length > 0 ? (
+                <div className="divide-y" style={{ divideColor: 'var(--accent-15)' }}>
+                  {entries.map(([key, value]) => (
+                    <div key={`${baseKey}-${key}`} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] gap-3 px-4 py-3">
+                      <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                        {key.replace(/_/g, ' ')}
+                      </div>
+                      <div className="text-[13px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>
+                        {typeof value === 'string'
+                          ? parseInline(value, isUser, `${baseKey}-wizard-${key}`)
+                          : Array.isArray(value)
+                            ? value.join(', ')
+                            : value !== null && typeof value === 'object'
+                              ? JSON.stringify(value)
+                              : String(value)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-3 text-sm" style={{ color: 'var(--text-muted)' }}>
+                  Ação estruturada detectada.
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        if (block.type === 'code') {
+          return (
+            <div key={baseKey} className="space-y-2">
+              {block.language && (
+                <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                  {block.language}
+                </div>
+              )}
+              <pre
+                className="overflow-x-auto rounded-xl border px-4 py-3 text-[12px] leading-relaxed"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderColor: 'var(--border)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <code className="font-mono">{block.content}</code>
+              </pre>
+            </div>
+          );
+        }
+
+        if (block.type === 'table') {
+          return (
+            <div key={baseKey} className="overflow-x-auto rounded-xl border" style={{ borderColor: 'var(--border)' }}>
+              <table className="min-w-full border-collapse text-left text-[12px]">
+                <thead style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                  <tr>
+                    {block.header.map((cell, cellIndex) => (
+                      <th
+                        key={`${baseKey}-h-${cellIndex}`}
+                        className="px-3 py-2 font-bold"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        {parseInline(cell, isUser, `${baseKey}-h-${cellIndex}`)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, rowIndex) => (
+                    <tr key={`${baseKey}-r-${rowIndex}`} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                      {row.map((cell, cellIndex) => (
+                        <td key={`${baseKey}-r-${rowIndex}-${cellIndex}`} className="px-3 py-2 align-top" style={{ color: 'var(--text-muted)' }}>
+                          {parseInline(cell, isUser, `${baseKey}-r-${rowIndex}-${cellIndex}`)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
+
+        if (block.type === 'list') {
+          const Tag = block.ordered ? 'ol' : 'ul';
+          return (
+            <Tag
+              key={baseKey}
+              className={cx(
+                'space-y-2',
+                block.ordered ? 'list-decimal pl-5' : 'list-disc pl-5',
+              )}
+            >
+              {block.items.map((item, itemIndex) => (
+                <li key={`${baseKey}-item-${itemIndex}`} className="leading-relaxed">
+                  {parseInline(item, isUser, `${baseKey}-item-${itemIndex}`)}
+                </li>
+              ))}
+            </Tag>
+          );
+        }
+
+        return null;
       })}
-    </>
+    </div>
   );
 }
 

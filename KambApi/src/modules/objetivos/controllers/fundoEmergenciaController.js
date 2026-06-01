@@ -50,6 +50,57 @@ const calcularMetricas = async (usuarioId, saldoAtual) => {
   };
 };
 
+const obterCategoriaPoupanca = async (tx, usuarioId) => {
+  const categoriaUsuario = await tx.categoria.findFirst({
+    where: {
+      usuarioId,
+      excluido: false,
+      nome: {
+        contains: 'Poupança',
+        mode: 'insensitive'
+      }
+    },
+    orderBy: [{ padrao: 'desc' }, { nome: 'asc' }]
+  });
+
+  if (categoriaUsuario) return categoriaUsuario;
+
+  const categoriaPadrao = await tx.categoria.findFirst({
+    where: {
+      padrao: true,
+      excluido: false,
+      nome: {
+        contains: 'Poupança',
+        mode: 'insensitive'
+      }
+    },
+    orderBy: { nome: 'asc' }
+  });
+
+  if (categoriaPadrao) return categoriaPadrao;
+
+  const fallback = await tx.categoria.findFirst({
+    where: { padrao: true, excluido: false },
+    orderBy: { nome: 'asc' }
+  });
+
+  if (fallback) return fallback;
+
+  return tx.categoria.create({
+    data: {
+      usuarioId,
+      nome: 'Fundo de Emergência',
+      tipo: 'POUPANCA',
+      cor: '#14b8a6',
+      icone: 'shield',
+      padrao: false,
+      ordem: 999,
+      excluido: false,
+      ativa: true
+    }
+  });
+};
+
 // ==========================================
 // OBTER STATUS DO FUNDO
 // ==========================================
@@ -219,20 +270,7 @@ const depositar = async (req, res, next) => {
       });
 
       // Registar a saída como gasto na origem
-      const categoriaEmergencia = await tx.categoria.findFirst({
-        where: {
-          OR: [
-            { usuarioId, nome: { contains: 'Poupança', mode: 'insensitive' }, excluido: false },
-            { padrao: true, nome: { contains: 'Poupança', mode: 'insensitive' }, excluido: false }
-          ]
-        }
-      }) || await tx.categoria.findFirst({
-        where: { padrao: true, excluido: false }
-      });
-
-      if (!categoriaEmergencia) {
-        throw new AppError('Nenhuma categoria disponível. Cria uma categoria primeiro.', 400);
-      }
+      const categoriaEmergencia = await obterCategoriaPoupanca(tx, usuarioId);
 
       await tx.gasto.create({
         data: {
@@ -373,14 +411,7 @@ const levantar = async (req, res, next) => {
       });
 
       // Registar saída do fundo como gasto
-      const categoria = await tx.categoria.findFirst({
-        where: {
-          OR: [
-            { usuarioId, excluido: false },
-            { padrao: true, excluido: false }
-          ]
-        }
-      });
+      const categoria = await obterCategoriaPoupanca(tx, usuarioId);
 
       await tx.gasto.create({
         data: {

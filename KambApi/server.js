@@ -251,10 +251,6 @@ const startServer = async () => {
             logger.error({ err }, "[CRON] Erro no balanço semanal");
           }
         },
-        {
-          scheduled: true,
-          timezone: "Africa/Luanda",
-        },
       );
 
       cronJobsBootstrap = [balancoSemanal];
@@ -317,6 +313,8 @@ const startServer = async () => {
   }
 };
 
-startServer();
+if (process.env.NODE_ENV !== "test") {
+  startServer();
+}
 
 module.exports = { app, server };

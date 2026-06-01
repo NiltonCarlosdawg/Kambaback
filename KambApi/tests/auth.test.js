@@ -4,6 +4,7 @@ const { app } = require('../server');
 describe('Auth API', () => {
   let accessToken;
   let refreshToken;
+  const uniqueTelefone = () => `9${Math.floor(Math.random() * 9) + 1}${String(Date.now() % 10000000).padStart(7, '0')}`;
 
   describe('POST /api/auth/register', () => {
     it('deve registar um novo utilizador', async () => {
@@ -12,7 +13,7 @@ describe('Auth API', () => {
         .send({
           nome: 'Teste User',
           email: `teste${Date.now()}@example.com`,
-          telefone: '923456789',
+          telefone: uniqueTelefone(),
           senha: 'Senha123!',
           dataNascimento: '1990-01-01',
           sexo: 'Masculino',
@@ -30,13 +31,13 @@ describe('Auth API', () => {
     it('deve rejeitar email duplicado', async () => {
       const email = `dup${Date.now()}@example.com`;
       await request(app).post('/api/auth/register').send({
-        nome: 'Teste', email, telefone: '923456788',
+        nome: 'Teste', email, telefone: uniqueTelefone(),
         senha: 'Senha123!', dataNascimento: '1990-01-01',
         sexo: 'Masculino', morada: 'Luanda'
       });
 
       const res = await request(app).post('/api/auth/register').send({
-        nome: 'Teste2', email, telefone: '923456787',
+        nome: 'Teste2', email, telefone: uniqueTelefone(),
         senha: 'Senha123!', dataNascimento: '1990-01-01',
         sexo: 'Masculino', morada: 'Luanda'
       });
@@ -51,7 +52,7 @@ describe('Auth API', () => {
       const email = `login${Date.now()}@example.com`;
       const senha = 'Senha123!';
       await request(app).post('/api/auth/register').send({
-        nome: 'Login Test', email, telefone: '923456786',
+        nome: 'Login Test', email, telefone: uniqueTelefone(),
         senha, dataNascimento: '1990-01-01',
         sexo: 'Masculino', morada: 'Luanda'
       });
@@ -77,7 +78,7 @@ describe('Auth API', () => {
       const email = `refresh${Date.now()}@example.com`;
       const senha = 'Senha123!';
       const reg = await request(app).post('/api/auth/register').send({
-        nome: 'Refresh Test', email, telefone: '923456785',
+        nome: 'Refresh Test', email, telefone: uniqueTelefone(),
         senha, dataNascimento: '1990-01-01',
         sexo: 'Masculino', morada: 'Luanda'
       });

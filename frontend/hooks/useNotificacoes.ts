@@ -1,5 +1,5 @@
 // src/hooks/useNotificacoes.ts
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { 
   Bell, 
   AlertTriangle, 
@@ -35,16 +35,36 @@ export const useNotificacoes = () => {
   const [notificacoes, setNotificacoes] = useState<Notificacao[]>([]);
   const [totalNaoLidas, setTotalNaoLidas] = useState(0);
   const [loading, setLoading] = useState(false);
+  const initializedRef = useRef(false);
+  const lastSyncRef = useRef(0);
 
-  const buscarNaoLidas = useCallback(async () => {
+  const buscarNaoLidas = useCallback(async (options: { silent?: boolean } = {}) => {
+    const { silent = false } = options;
+    const now = Date.now();
+
+    if (silent && now - lastSyncRef.current < 60 * 1000) {
+      return;
+    }
+
     try {
+      if (!initializedRef.current) {
+        setLoading(true);
+      }
+
       const { data } = await api.get('/notificacoes/nao-lidas?limite=50');
       if (data.success) {
         setNotificacoes(data.notificacoes);
         setTotalNaoLidas(data.total);
       }
+      lastSyncRef.current = now;
+      initializedRef.current = true;
     } catch (err) {
       console.error('[NOTIFICACOES] Erro ao buscar:', err);
+    } finally {
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+      }
+      setLoading(false);
     }
   }, []);
 
@@ -89,9 +109,23 @@ export const useNotificacoes = () => {
   // Busca inicial
   useEffect(() => {
     buscarNaoLidas();
-    // Refresh a cada 5 minutos como fallback
-    const interval = setInterval(buscarNaoLidas, 5 * 60 * 1000);
-    return () => clearInterval(interval);
+  }, [buscarNaoLidas]);
+
+  // Sincronização discreta quando a aba volta ao foco
+  useEffect(() => {
+    const syncSilencioso = () => {
+      if (document.visibilityState === 'visible') {
+        buscarNaoLidas({ silent: true });
+      }
+    };
+
+    window.addEventListener('focus', syncSilencioso);
+    document.addEventListener('visibilitychange', syncSilencioso);
+
+    return () => {
+      window.removeEventListener('focus', syncSilencioso);
+      document.removeEventListener('visibilitychange', syncSilencioso);
+    };
   }, [buscarNaoLidas]);
 
   return {

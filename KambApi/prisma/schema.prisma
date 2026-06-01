@@ -74,6 +74,7 @@ fundoAtivo         Boolean  @default(false)
   
   // Define se o cartão distribui receitas automaticamente
   distribuirParaObjetivos Boolean  @default(false)
+  percentualDistribuicaoPoupanca Decimal @default(0) @db.Decimal(5, 2)
   
   ativo                   Boolean  @default(true)
   excluido                Boolean  @default(false)
@@ -129,6 +130,8 @@ model Gasto {
   
   // NOVO: Flag para rastrear se houve distribuição automática (para estorno preciso)
   distribuicaoAutomatica Boolean @default(false)
+  percentualDistribuicaoPoupanca Decimal @default(0) @db.Decimal(5, 2)
+  valorDistribuidoPoupanca Decimal @default(0) @db.Decimal(12, 2)
   
   usuarioId     String
   usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)

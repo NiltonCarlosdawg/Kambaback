@@ -5,6 +5,34 @@ const { invalidarCacheUsuario } = require('../../insights/controllers/insightsCo
 const NotificacaoService = require('../../users/services/notificacaoService');
 const { sanitizeHtml } = require('../../../utils/sanitizer');
 
+const arredondarDinheiro = (valor) =>
+  Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
+
+const distribuirPoolPorPesos = (objetivos, pool) => {
+  const totalPesos = objetivos.reduce(
+    (acc, objetivo) => acc + Number(objetivo.porcentagemDistribuicao || 0),
+    0,
+  );
+
+  if (Math.abs(totalPesos - 100) > 0.01) {
+    throw new AppError(
+      'A soma das percentagens dos objetivos deve ser exactamente 100%',
+      400,
+    );
+  }
+
+  let acumulado = 0;
+  return objetivos.map((objetivo, index) => {
+    const peso = Number(objetivo.porcentagemDistribuicao || 0);
+    const valor =
+      index === objetivos.length - 1
+        ? arredondarDinheiro(pool - acumulado)
+        : arredondarDinheiro((pool * peso) / 100);
+    acumulado += valor;
+    return { objetivo, valor };
+  });
+};
+
 /**
  * CRIAR NOVO GASTO / RECEITA (Versão Corrigida com WebSocket)
  */
@@ -70,10 +98,11 @@ const criarGasto = async (req, res, next) => {
       let distribuicaoAutomatica = false;
       let valorDistribuidoTotal = 0;
       let distribuicoes = [];
+      const percentualPoupanca = Number(cartao.percentualDistribuicaoPoupanca || 0);
 
       // --- LÓGICA DE OBJETIVOS ---
       // A) Distribuição Automática (Receita + Cartão Configurado)
-      if (tipo === 'RECEITA' && cartao.distribuirParaObjetivos) {
+      if (tipo === 'RECEITA' && cartao.distribuirParaObjetivos && percentualPoupanca > 0) {
         const objetivos = await tx.objetivo.findMany({
           where: { 
             usuarioId, 
@@ -83,43 +112,59 @@ const criarGasto = async (req, res, next) => {
           }
         });
 
-        if (objetivos.length > 0) {
-          distribuicaoAutomatica = true;
-          
-          for (const obj of objetivos) {
-            const valorFatiado = valorNum * (Number(obj.porcentagemDistribuicao) / 100);
-            if (valorFatiado > 0) {
-              const objetivoAtualizado = await tx.objetivo.update({
-                where: { id: obj.id },
-                data: { valorAtual: { increment: valorFatiado } }
-              });
-              
-              valorDistribuidoTotal += valorFatiado;
-              distribuicoes.push({
-                objetivoId: obj.id,
-                titulo: obj.titulo,
-                porcentagem: Number(obj.porcentagemDistribuicao),
-                valor: valorFatiado,
-                novoValorAtual: Number(objetivoAtualizado.valorAtual),
-                valorAlvo: Number(obj.valorAlvo)
-              });
-            }
-          }
+        if (objetivos.length === 0) {
+          throw new AppError(
+            'A distribuição automática está activa, mas não existem objetivos configurados',
+            400,
+          );
+        }
 
-          // NOVO: Atualizar saldoReservado do cartão (bloqueia o valor distribuído)
-          await tx.cartao.update({
-            where: { id: cartaoId },
-            data: { 
-              saldoReservado: { increment: valorDistribuidoTotal }
-            }
+        const poolDistribuicao = arredondarDinheiro(
+          (valorNum * percentualPoupanca) / 100,
+        );
+        const distribuicoesPool = distribuirPoolPorPesos(
+          objetivos,
+          poolDistribuicao,
+        );
+
+        distribuicaoAutomatica = true;
+
+        for (const item of distribuicoesPool) {
+          const { objetivo, valor } = item;
+          const objetivoAtualizado = await tx.objetivo.update({
+            where: { id: objetivo.id },
+            data: { valorAtual: { increment: valor } }
+          });
+
+          valorDistribuidoTotal += valor;
+          distribuicoes.push({
+            objetivoId: objetivo.id,
+            titulo: objetivo.titulo,
+            porcentagem: Number(objetivo.porcentagemDistribuicao),
+            valor,
+            novoValorAtual: Number(objetivoAtualizado.valorAtual),
+            valorAlvo: Number(objetivo.valorAlvo)
           });
         }
+
       }
 
       // B) Depósito Manual (Despesa direcionada a objetivo)
       if (tipo === 'DESPESA' && objetivoId) {
+        const objetivoExistente = await tx.objetivo.findFirst({
+          where: {
+            id: objetivoId,
+            usuarioId,
+            excluido: false
+          }
+        });
+
+        if (!objetivoExistente) {
+          throw new AppError('Objetivo não encontrado', 404);
+        }
+
         const objetivoAtualizado = await tx.objetivo.update({
-          where: { id: objetivoId, usuarioId },
+          where: { id: objetivoId },
           data: { valorAtual: { increment: valorNum } }
         });
 
@@ -154,7 +199,11 @@ const criarGasto = async (req, res, next) => {
           cartaoId,
           categoriaId,
           objetivoId: (tipo === 'DESPESA' && objetivoId) ? objetivoId : null,
-          distribuicaoAutomatica // NOVO: Flag para rastrear
+          distribuicaoAutomatica, // NOVO: Flag para rastrear
+          percentualDistribuicaoPoupanca: distribuicaoAutomatica
+            ? percentualPoupanca
+            : 0,
+          valorDistribuidoPoupanca: valorDistribuidoTotal
         },
         include: {
           categoria: { select: { nome: true, icone: true } },
@@ -171,9 +220,8 @@ const criarGasto = async (req, res, next) => {
 
       if (tipo === 'RECEITA') {
         novoDisponivel += valorNum;
-        // Se teve distribuição automática, o reservado já foi incrementado acima
-        // e o disponível deve refletir: novoSaldo - novoReservado
         if (distribuicaoAutomatica) {
+          novoReservado += valorDistribuidoTotal;
           novoDisponivel = novoSaldo - novoReservado;
         }
       } else {
@@ -439,6 +487,7 @@ const deletarGasto = async (req, res, next) => {
       const cartao = gasto.cartao;
       const valor = Number(gasto.valor);
       const tipo = gasto.tipo;
+      const valorDistribuidoAutomatica = Number(gasto.valorDistribuidoPoupanca || 0);
 
       // Array de operações para Promise.all (independentes entre si)
       const operacoes = [];
@@ -474,7 +523,7 @@ const deletarGasto = async (req, res, next) => {
         ajusteSaldo = -valor;
         
         // CORREÇÃO CRÍTICA: Se tinha distribuição automática, reverter dos objetivos
-        if (gasto.distribuicaoAutomatica && cartao.distribuirParaObjetivos) {
+        if (gasto.distribuicaoAutomatica && valorDistribuidoAutomatica > 0) {
           const objetivos = await tx.objetivo.findMany({
             where: { 
               usuarioId, 
@@ -484,21 +533,25 @@ const deletarGasto = async (req, res, next) => {
           });
 
           let totalRevertido = 0;
-          
-          for (const obj of objetivos) {
-            const valorFatiado = valor * (Number(obj.porcentagemDistribuicao) / 100);
+          const distribuicoesPool = distribuirPoolPorPesos(
+            objetivos,
+            valorDistribuidoAutomatica,
+          );
+
+          for (const item of distribuicoesPool) {
+            const { objetivo, valor: valorFatiado } = item;
             if (valorFatiado > 0) {
               operacoes.push(
                 tx.objetivo.update({
-                  where: { id: obj.id },
+                  where: { id: objetivo.id },
                   data: { valorAtual: { decrement: valorFatiado } }
                 })
               );
               totalRevertido += valorFatiado;
-              
+
               notificacoesReverter.push({
                 tipo: 'objetivo',
-                objetivoId: obj.id,
+                objetivoId: objetivo.id,
                 valor: -valorFatiado
               });
             }
@@ -674,23 +727,6 @@ const atualizarGasto = async (req, res, next) => {
   const { descricao, categoriaId, data, local, tags } = req.body;
   const usuarioId = req.user.id;
 
-  const camposPermitidos = ['descricao', 'categoriaId', 'data', 'local', 'tags'];
-  const dadosAtualizacao = {};
-
-  for (const campo of camposPermitidos) {
-    if (req.body[campo] !== undefined) {
-      if (campo === 'data') {
-        dadosAtualizacao[campo] = new Date(req.body[campo]);
-      } else if (campo === 'tags') {
-        dadosAtualizacao[campo] = Array.isArray(req.body[campo]) ? req.body[campo] : [];
-      } else if (typeof req.body[campo] === 'string') {
-        dadosAtualizacao[campo] = req.body[campo].trim();
-      } else {
-        dadosAtualizacao[campo] = req.body[campo];
-      }
-    }
-  }
-
   try {
     const gastoExistente = await prisma.gasto.findFirst({
       where: { id, usuarioId, excluido: false }
@@ -701,11 +737,32 @@ const atualizarGasto = async (req, res, next) => {
     }
 
     const dadosAtualizacao = {};
+
+    if (categoriaId !== undefined) {
+      if (categoriaId === null || categoriaId === '') {
+        dadosAtualizacao.categoriaId = null;
+      } else {
+        const categoriaValida = await prisma.categoria.findFirst({
+          where: {
+            id: categoriaId,
+            excluido: false,
+            OR: [{ usuarioId }, { usuarioId: null, padrao: true }]
+          }
+        });
+
+        if (!categoriaValida) {
+          return next(new AppError('Categoria inválida', 400));
+        }
+
+        dadosAtualizacao.categoriaId = categoriaId;
+      }
+    }
     if (descricao !== undefined) dadosAtualizacao.descricao = descricao.trim();
-    if (categoriaId !== undefined) dadosAtualizacao.categoriaId = categoriaId;
     if (data !== undefined) dadosAtualizacao.data = new Date(data);
-    if (local !== undefined) dadosAtualizacao.local = local.trim();
-    if (tags !== undefined) dadosAtualizacao.tags = tags;
+    if (local !== undefined) {
+      dadosAtualizacao.local = typeof local === 'string' ? local.trim() : local;
+    }
+    if (tags !== undefined) dadosAtualizacao.tags = Array.isArray(tags) ? tags : [];
 
     const gastoAtualizado = await prisma.gasto.update({
       where: { id },

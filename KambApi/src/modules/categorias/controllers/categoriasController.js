@@ -51,8 +51,7 @@ const listarCategorias = async (req, res, next) => {
         { usuarioId: req.user.id }           // categorias criadas pelo usuário
       ],
       AND: {
-        excluido: false,
-        ativa: true
+        excluido: false
       },
       ...(tipo && { tipo }) // Filtro por tipo se fornecido
     };

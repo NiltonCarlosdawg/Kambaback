@@ -1,7 +1,9 @@
 // src/routes/objetivos.js
 const express = require('express');
 const router = express.Router();
+const Joi = require('joi');
 const { protegerRota } = require('../../../middleware/auth');
+const { validar } = require('../../../middleware/validator');
 const {
   listarObjetivos,
   criarObjetivo,
@@ -29,7 +31,14 @@ router.put('/:id', atualizarObjetivo);
 router.delete('/:id', deletarObjetivo);
 
 
-router.post('/distribuir-poupanca', distribuirPoupanca);
+const distribuirPoupancaSchema = validar(
+  Joi.object({
+    valorTotal: Joi.number().positive().required(),
+    cartaoId: Joi.string().required(),
+  }),
+);
+
+router.post('/distribuir-poupanca', distribuirPoupancaSchema, distribuirPoupanca);
 
 
 

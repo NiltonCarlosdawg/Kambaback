@@ -656,7 +656,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
         </header>
 
         {/* Page content */}
-        <div className={`flex-1 ${activePage === 'kamba' ? 'overflow-hidden' : 'overflow-y-auto p-4 md:p-6'} animate-in fade-in slide-in-from-bottom-4 duration-500`}
+        <div className={`flex-1 ${activePage === 'kamba' ? 'overflow-hidden' : 'overflow-y-auto p-4 md:p-6'}`}
           style={{ backgroundColor: 'var(--bg-base)' }}>
           {children}
         </div>
