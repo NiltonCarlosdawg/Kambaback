@@ -1,9 +1,11 @@
 // src/components/Goals.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import goalsService from '../services/goalsService';
 import transactionsService from '../services/transactionsService';
-import { Objetivo } from '../types';
+import cardsService from '../services/cardsService';
+import categoriesService, { Categoria as ServiceCategoria } from '../services/categoriesService';
+import { Cartao, Objetivo } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
 
@@ -86,12 +88,14 @@ const Goals: React.FC = () => {
   const [editMode,          setEditMode]          = useState(false);
   const [selectedGoal,      setSelectedGoal]      = useState<Objetivo | null>(null);
   const [depositAmount,     setDepositAmount]     = useState('');
+  const [depositCardId,     setDepositCardId]     = useState('');
+  const [depositCategoryId, setDepositCategoryId] = useState('');
+  const [cards,             setCards]             = useState<Cartao[]>([]);
+  const [categories,        setCategories]        = useState<ServiceCategoria[]>([]);
   const [formData, setFormData] = useState({
     titulo: '', valorAlvo: '', dataPrevista: '', valorAtual: '0',
     categoria: 'Geral', prioridade: 'MEDIA', porcentagemDistribuicao: '0',
   });
-
-  useEffect(() => { fetchGoals(); }, []);
 
   const fetchGoals = async () => {
     try {
@@ -102,6 +106,61 @@ const Goals: React.FC = () => {
       setResumo(data.resumo);
     } catch { setError('Falha ao carregar objetivos'); }
     finally { setLoading(false); }
+  };
+
+  const fetchSupportData = async () => {
+    try {
+      const [cardsRes, categoriesRes] = await Promise.all([
+        cardsService.listar(),
+        categoriesService.listar(),
+      ]);
+
+      setCards(cardsRes.cartoes || []);
+      setCategories(categoriesRes.categorias || []);
+    } catch {
+      setCards([]);
+      setCategories([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchGoals();
+    fetchSupportData();
+  }, []);
+
+  const activeGoals = useMemo(() => objetivos.filter(obj => !obj.concluido), [objetivos]);
+  const totalDistribuicao = useMemo(
+    () => activeGoals.reduce((acc, obj) => acc + Number(obj.porcentagemDistribuicao || 0), 0),
+    [activeGoals],
+  );
+  const objetivosComDistribuicao = useMemo(
+    () => activeGoals.filter(obj => Number(obj.porcentagemDistribuicao || 0) > 0),
+    [activeGoals],
+  );
+  const availableCards = useMemo(
+    () => cards.filter(card => card.ativo && !card.excluido),
+    [cards],
+  );
+  const availableCategories = useMemo(
+    () => categories.filter(cat => cat.ativa !== false),
+    [categories],
+  );
+  const suggestedCategory = useMemo(
+    () => availableCategories.find(cat => cat.tipo === 'POUPANCA') || availableCategories[0] || null,
+    [availableCategories],
+  );
+  const suggestedCard = useMemo(
+    () => availableCards[0] || null,
+    [availableCards],
+  );
+
+  const openDepositModal = (goal: Objetivo) => {
+    setError('');
+    setSelectedGoal(goal);
+    setDepositAmount('');
+    setDepositCardId(suggestedCard?.id || '');
+    setDepositCategoryId(suggestedCategory?.id || '');
+    setShowDepositModal(true);
   };
 
   const handleOpenModal = (obj?: Objetivo) => {
@@ -135,9 +194,29 @@ const Goals: React.FC = () => {
   const handleQuickDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedGoal || !depositAmount) return;
+    if (!depositCardId) {
+      setError('Escolhe um cartão/conta para registar o depósito.');
+      return;
+    }
+    if (!depositCategoryId) {
+      setError('Escolhe uma categoria para registar o depósito.');
+      return;
+    }
     try {
-      await transactionsService.criar({ descricao: `Depósito manual: ${selectedGoal.titulo}`, valor: Number(depositAmount), tipo: 'DESPESA', cartaoId: '', categoriaId: '', objetivoId: selectedGoal.id, data: new Date().toISOString() });
-      setShowDepositModal(false); setDepositAmount(''); fetchGoals();
+      await transactionsService.criar({
+        descricao: `Depósito manual: ${selectedGoal.titulo}`,
+        valor: Number(depositAmount),
+        tipo: 'DESPESA',
+        cartaoId: depositCardId,
+        categoriaId: depositCategoryId,
+        objetivoId: selectedGoal.id,
+        data: new Date().toISOString(),
+      });
+      setShowDepositModal(false);
+      setDepositAmount('');
+      setDepositCardId('');
+      setDepositCategoryId('');
+      fetchGoals();
     } catch (err: any) { setError(err.response?.data?.message || 'Erro ao depositar'); }
   };
 
@@ -210,6 +289,31 @@ const Goals: React.FC = () => {
             </motion.div>
           ))}
         </motion.div>
+      )}
+
+      {resumo && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="rounded-2xl border p-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Distribuição automática</p>
+            <p className="mt-1 text-xl font-black" style={{ color: 'var(--text-primary)' }}>{Number(totalDistribuicao).toFixed(2)}%</p>
+          </div>
+          <div className="rounded-2xl border p-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Objetivos com percentagem</p>
+            <p className="mt-1 text-xl font-black" style={{ color: 'var(--accent)' }}>{objetivosComDistribuicao.length}</p>
+          </div>
+          <div className="rounded-2xl border p-4" style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>Espaço livre</p>
+            <p className={`mt-1 text-xl font-black ${totalDistribuicao > 100 ? 'text-red-400' : 'text-emerald-400'}`}>
+              {Math.max(0, 100 - totalDistribuicao).toFixed(2)}%
+            </p>
+          </div>
+        </div>
+      )}
+
+      {totalDistribuicao > 100 && (
+        <div className="rounded-2xl border p-4 text-sm" style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+          A soma das percentagens dos objetivos ultrapassa 100%. Ajusta os valores na edição dos objetivos antes de tentares usar a distribuição automática.
+        </div>
       )}
 
       <motion.div
@@ -392,7 +496,7 @@ const Goals: React.FC = () => {
                         {progresso}% concluído
                       </motion.p>
                       <motion.button
-                        onClick={() => { setSelectedGoal(obj); setShowDepositModal(true); }}
+                        onClick={() => openDepositModal(obj)}
                         className="text-xs font-bold"
                         style={{ color: 'var(--accent)' }}
                         whileHover={{ scale: 1.1 }}
@@ -578,11 +682,17 @@ const Goals: React.FC = () => {
                     </label>
                     <input type="number" min="0" max="100" step="0.01" placeholder="0" value={formData.porcentagemDistribuicao} onChange={e => setFormData({ ...formData, porcentagemDistribuicao: e.target.value })} style={{ ...inp, border: '1px solid rgba(59,130,246,0.3)' }} onFocus={e => { e.target.style.boxShadow = '0 0 0 1px #3b82f6'; }} onBlur={fb} />
                     <p className="text-xs text-blue-400/80 mt-2">Percentagem das receitas direcionadas automaticamente para este objetivo.</p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
+                      Este valor só entra em acção quando existe um cartão com distribuição automática activada.
+                    </p>
                   </motion.div>
                   <motion.button
                     type="submit"
                     className="w-full h-12 rounded-xl font-bold"
-                    style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-text)',
+                    }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
@@ -645,11 +755,53 @@ const Goals: React.FC = () => {
                       whileFocus={{ scale: 1.02 }}
                     />
                   </div>
-                  <div className="p-3 rounded-lg text-xs text-yellow-400" style={{ backgroundColor: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)' }}>
-                    Nota: Isto criará uma despesa na conta selecionada e adicionará o valor ao objetivo.
+
+                  {(availableCards.length === 0 || availableCategories.length === 0) && (
+                    <div className="rounded-xl border px-3 py-2 text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+                      Precisas de ter pelo menos um cartão activo e uma categoria disponível para registar este depósito.
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Cartão / Conta</label>
+                    <select
+                      value={depositCardId}
+                      onChange={e => setDepositCardId(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl outline-none border appearance-none"
+                      style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">Seleccionar…</option>
+                      {availableCards.map(card => (
+                        <option key={card.id} value={card.id}>
+                          {card.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Categoria</label>
+                    <select
+                      value={depositCategoryId}
+                      onChange={e => setDepositCategoryId(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl outline-none border appearance-none"
+                      style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">Seleccionar…</option>
+                      {availableCategories.map(category => (
+                        <option key={category.id} value={category.id}>
+                          {category.nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="p-3 rounded-lg text-xs" style={{ backgroundColor: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', color: 'rgb(252,211,77)' }}>
+                    Nota: isto cria uma despesa na conta seleccionada e adiciona o valor ao objetivo escolhido.
                   </div>
                   <motion.button
                     type="submit"
+                    disabled={!depositAmount || !depositCardId || !depositCategoryId || availableCards.length === 0 || availableCategories.length === 0}
                     className="w-full h-12 rounded-xl font-bold"
                     style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
                     whileHover={{ scale: 1.02 }}

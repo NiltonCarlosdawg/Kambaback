@@ -15,6 +15,7 @@ import Perfil from './components/Perfil';
 import Personalizacao from './components/Personalizacao';
 import Relatorio from './components/Relatorio';
 import News from './components/News';
+import OnboardingTutorial from './components/OnboardingTutorial';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
 const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
@@ -30,13 +31,51 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   relatorio: Relatorio,
 };
 
+type SessionUser = {
+  id?: string;
+  nome: string;
+  email?: string;
+  rendaMensalMedia?: number;
+  [key: string]: any;
+};
+
+const ONBOARDING_STORAGE_VERSION = 'v1';
+
+const getOnboardingStorageKey = (user: SessionUser | null) => {
+  const identifier = user?.id || user?.email?.toLowerCase().trim();
+  return identifier ? `kamba_onboarding_${ONBOARDING_STORAGE_VERSION}_${identifier}` : null;
+};
+
+const hasCompletedOnboarding = (user: SessionUser | null) => {
+  const storageKey = getOnboardingStorageKey(user);
+  if (!storageKey) return false;
+
+  try {
+    return localStorage.getItem(storageKey) === ONBOARDING_STORAGE_VERSION;
+  } catch {
+    return false;
+  }
+};
+
+const markOnboardingCompleted = (user: SessionUser | null) => {
+  const storageKey = getOnboardingStorageKey(user);
+  if (!storageKey) return;
+
+  try {
+    localStorage.setItem(storageKey, ONBOARDING_STORAGE_VERSION);
+  } catch {
+    // Persistência opcional: se falhar, o onboarding volta a aparecer no próximo acesso.
+  }
+};
+
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser]                       = useState<any>(null);
-  const [activePage, setActivePage]           = useState('dashboard');
-  const [loading, setLoading]                 = useState(true);
-  const [isRegistering, setIsRegistering]     = useState(false);
-  const [visitedPages, setVisitedPages]       = useState<string[]>(['dashboard']);
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [activePage, setActivePage] = useState('dashboard');
+  const [loading, setLoading] = useState(true);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [visitedPages, setVisitedPages] = useState<string[]>(['dashboard']);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     const handleLogout = () => {
@@ -44,6 +83,7 @@ const App: React.FC = () => {
       setIsAuthenticated(false);
       setActivePage('dashboard');
       setVisitedPages(['dashboard']);
+      setShowOnboarding(false);
     };
     window.addEventListener('auth:logout', handleLogout);
     return () => window.removeEventListener('auth:logout', handleLogout);
@@ -85,8 +125,15 @@ const App: React.FC = () => {
         try {
           const { data } = await api.get('/auth/perfil');
           if (data.success) {
-            setUser(data.user ?? data.usuario);
+            const authUser = data.user ?? data.usuario;
+            const shouldShowOnboarding = !hasCompletedOnboarding(authUser);
+            setUser(authUser);
             setIsAuthenticated(true);
+            setIsRegistering(false);
+            setShowOnboarding(shouldShowOnboarding);
+            if (shouldShowOnboarding) {
+              setActivePage('personalizacao');
+            }
           }
         } catch {
           localStorage.removeItem('accessToken');
@@ -102,12 +149,6 @@ const App: React.FC = () => {
       current.includes(activePage) ? current : [...current, activePage]
     ));
   }, [activePage]);
-
-  const handleLoginSuccess = (u: any) => {
-    setUser(u);
-    setIsAuthenticated(true);
-    setIsRegistering(false);
-  };
 
   // ── Loading splash ──────────────────────────────────────────────────────────
   if (loading) {
@@ -151,12 +192,47 @@ const App: React.FC = () => {
     );
   }
 
-  // ── Auth gates ──────────────────────────────────────────────────────────────
+  const openAuthenticatedSession = (sessionUser: SessionUser, forceOnboarding = false) => {
+    const shouldShowOnboarding = forceOnboarding || !hasCompletedOnboarding(sessionUser);
+    setUser(sessionUser);
+    setIsAuthenticated(true);
+    setIsRegistering(false);
+    setShowOnboarding(shouldShowOnboarding);
+
+    if (shouldShowOnboarding) {
+      setActivePage('personalizacao');
+    }
+  };
+
+  const handleLoginSuccess = (sessionUser: SessionUser) => {
+    openAuthenticatedSession(sessionUser);
+  };
+
+  const handleRegisterSuccess = (sessionUser: SessionUser) => {
+    openAuthenticatedSession(sessionUser, true);
+  };
+
+  const handleOnboardingComplete = () => {
+    markOnboardingCompleted(user);
+    setShowOnboarding(false);
+    setActivePage('personalizacao');
+    setVisitedPages(['personalizacao']);
+  };
+
+  if (showOnboarding && user) {
+    return (
+      <OnboardingTutorial
+        user={user}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
+
   if (!isAuthenticated) {
     if (isRegistering) {
       return (
         <Register
-          onRegisterSuccess={handleLoginSuccess}
+          onRegisterSuccess={handleRegisterSuccess}
           onBackToLogin={() => setIsRegistering(false)}
         />
       );

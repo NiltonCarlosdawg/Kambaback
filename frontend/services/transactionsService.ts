@@ -8,6 +8,21 @@ export interface GastosResponse {
   transacoes?: Gasto[];
 }
 
+export interface CriarGastoPayload {
+  descricao: string;
+  valor: number;
+  tipo: 'DESPESA' | 'RECEITA';
+  data: string;
+  cartaoId: string;
+  categoriaId: string;
+  objetivoId?: string | null;
+  local?: string;
+  parcelado?: boolean;
+  totalParcelas?: number;
+  parcelaAtual?: number;
+  tags?: string[];
+}
+
 const transactionsService = {
   /**
    * Obtém a lista de gastos/transações
@@ -21,7 +36,7 @@ const transactionsService = {
   /**
    * Registra uma nova transação
    */
-  async criar(payload: any): Promise<any> {
+  async criar(payload: CriarGastoPayload): Promise<any> {
     const { data } = await api.post('/gastos', payload);
     return data;
   },

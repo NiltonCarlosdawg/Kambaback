@@ -23,6 +23,7 @@ model User {
   ativo             Boolean   @default(true)
   bloqueado         Boolean   @default(false)
   verificado        Boolean   @default(false)
+  tutorialConcluido Boolean   @default(false)
   
   googleId          String?   @unique
   appleId           String?   @unique

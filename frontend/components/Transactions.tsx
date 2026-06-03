@@ -5,7 +5,8 @@ import { AlertCircle, ArrowDown, ArrowUp, Plus, Trophy, X, Filter, Search, Calen
 import transactionsService from '../services/transactionsService';
 import categoriesService from '../services/categoriesService';
 import cardsService from '../services/cardsService';
-import { Gasto, Categoria, Cartao } from '../types';
+import goalsService from '../services/goalsService';
+import { Gasto, Categoria, Cartao, Objetivo } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
 
@@ -60,6 +61,11 @@ const TransactionRow: React.FC<{
               <Trophy size={10} /> {transaction.objetivo.titulo}
             </p>
           )}
+          {transaction.distribuicaoAutomatica && (
+            <p className="text-[10px] font-medium flex items-center gap-1 justify-end text-emerald-400">
+              <CheckCircle2 size={10} /> Distribuição automática
+            </p>
+          )}
         </div>
         
         <button 
@@ -82,6 +88,7 @@ const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Gasto[]>([]);
   const [categories,   setCategories]   = useState<Categoria[]>([]);
   const [cards,        setCards]        = useState<Cartao[]>([]);
+  const [goals,        setGoals]        = useState<Objetivo[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [refreshing,   setRefreshing]   = useState(false);
   const [showForm,     setShowForm]     = useState(false);
@@ -94,7 +101,7 @@ const Transactions: React.FC = () => {
   // Form State
   const [formData, setFormData] = useState({
     descricao: '', valor: '', tipo: 'DESPESA', data: new Date().toISOString().split('T')[0],
-    categoriaId: '', cartaoId: ''
+    categoriaId: '', cartaoId: '', objetivoId: ''
   });
 
   const fetchData = async (isRefresh = false) => {
@@ -109,6 +116,12 @@ const Transactions: React.FC = () => {
       setTransactions(tRes.gastos || tRes.transacoes || []);
       setCategories(cRes.categorias || []);
       setCards(cardRes.cartoes || []);
+      try {
+        const gRes = await goalsService.listar();
+        setGoals(gRes.objetivos || []);
+      } catch {
+        setGoals([]);
+      }
     } catch { setError('Falha ao sincronizar transações.'); }
     finally { setLoading(false); setRefreshing(false); }
   };
@@ -123,19 +136,64 @@ const Transactions: React.FC = () => {
     } catch { alert('Erro ao eliminar transação.'); }
   };
 
+  const openTransactionForm = () => {
+    setError('');
+    setFormData({
+      descricao: '',
+      valor: '',
+      tipo: 'DESPESA',
+      data: new Date().toISOString().split('T')[0],
+      categoriaId: '',
+      cartaoId: '',
+      objetivoId: '',
+    });
+    setShowForm(true);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.descricao || !formData.valor) return;
+
+    if (!formData.cartaoId) {
+      setError('Escolhe uma conta/cartão para registar a transação.');
+      return;
+    }
+
+    if (!formData.categoriaId) {
+      setError('Escolhe uma categoria para registar a transação.');
+      return;
+    }
+
+    if (formData.tipo === 'RECEITA' && selectedCard?.distribuirParaObjetivos) {
+      if (selectedCardDistributionPercent <= 0) {
+        setError('O cartão selecionado está com distribuição automática activa, mas sem percentagem configurada.');
+        return;
+      }
+
+      if (distributionGoals.length === 0) {
+        setError('Ativa percentagens nos objetivos para usar a distribuição automática.');
+        return;
+      }
+
+      if (Math.abs(distributionTotal - 100) > 0.01) {
+        setError(`A soma das percentagens dos objetivos está em ${distributionTotal.toFixed(2)}%. Ajusta a distribuição na tela de objetivos para fechar 100%.`);
+        return;
+      }
+    }
     
     try {
       setError('');
       await transactionsService.criar({
-        ...formData,
+        descricao: formData.descricao,
         valor: Number(formData.valor),
-        data: new Date(formData.data).toISOString()
+        tipo: formData.tipo,
+        data: new Date(formData.data).toISOString(),
+        cartaoId: formData.cartaoId,
+        categoriaId: formData.categoriaId,
+        objetivoId: formData.tipo === 'DESPESA' ? (formData.objetivoId || null) : null,
       });
       setShowForm(false);
-      setFormData({ descricao: '', valor: '', tipo: 'DESPESA', data: new Date().toISOString().split('T')[0], categoriaId: '', cartaoId: '' });
+      setFormData({ descricao: '', valor: '', tipo: 'DESPESA', data: new Date().toISOString().split('T')[0], categoriaId: '', cartaoId: '', objetivoId: '' });
       fetchData(true);
     } catch (err: any) {
       setError(err.response?.data?.message || 'Falha ao registar transação.');
@@ -158,6 +216,29 @@ const Transactions: React.FC = () => {
       return acc;
     }, { receitas: 0, despesas: 0 });
   }, [filteredTransactions]);
+
+  const activeGoals = useMemo(
+    () => goals.filter(goal => !goal.concluido),
+    [goals],
+  );
+
+  const distributionGoals = useMemo(
+    () => activeGoals.filter(goal => Number(goal.porcentagemDistribuicao || 0) > 0),
+    [activeGoals],
+  );
+
+  const distributionTotal = useMemo(
+    () => distributionGoals.reduce((acc, goal) => acc + Number(goal.porcentagemDistribuicao || 0), 0),
+    [distributionGoals],
+  );
+
+  const selectedCard = useMemo(
+    () => cards.find(card => card.id === formData.cartaoId) || null,
+    [cards, formData.cartaoId],
+  );
+
+  const selectedCardDistributionPercent = Number(selectedCard?.percentualDistribuicaoPoupanca || 0);
+  const selectedCardAutoDistribution = Boolean(selectedCard?.distribuirParaObjetivos && selectedCardDistributionPercent > 0);
 
   if (loading) return (
     <div className="flex h-full flex-col items-center justify-center p-8 gap-4">
@@ -183,7 +264,7 @@ const Transactions: React.FC = () => {
             style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
             <RefreshCcw size={18} className={refreshing ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => setShowForm(true)}
+          <button onClick={openTransactionForm}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-accent/20"
             style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
             <Plus size={18} />
@@ -295,7 +376,11 @@ const Transactions: React.FC = () => {
               <motion.form onSubmit={handleSubmit} className="space-y-4">
                 <div className="flex p-1 rounded-xl bg-white/[0.03] border" style={{ borderColor: 'var(--border)' }}>
                   {(['DESPESA', 'RECEITA'] as const).map(t => (
-                    <button key={t} type="button" onClick={() => setFormData({...formData, tipo: t})}
+                    <button key={t} type="button" onClick={() => setFormData({
+                      ...formData,
+                      tipo: t,
+                      objetivoId: t === 'DESPESA' ? formData.objetivoId : '',
+                    })}
                       className="flex-1 py-2 rounded-lg text-xs font-bold transition-all"
                       style={{ 
                         backgroundColor: formData.tipo === t ? (t === 'DESPESA' ? '#ef4444' : '#10b981') : 'transparent',
@@ -366,6 +451,93 @@ const Transactions: React.FC = () => {
                     </select>
                   </div>
                 </div>
+
+                {formData.tipo === 'DESPESA' && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Destino do valor</label>
+                    <select
+                      value={formData.objetivoId}
+                      onChange={e => setFormData({...formData, objetivoId: e.target.value})}
+                      className="w-full px-4 py-3 rounded-xl outline-none border appearance-none"
+                      style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">Nenhum objetivo</option>
+                      {activeGoals.map(goal => (
+                        <option key={goal.id} value={goal.id}>
+                          {goal.titulo} - {Number(goal.porcentagemDistribuicao || 0)}%
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[11px]" style={{ color: 'var(--text-faint)' }}>
+                      Esta despesa será registada e, se escolheres um objetivo, o valor entra nele como depósito manual.
+                    </p>
+                    {activeGoals.length === 0 && (
+                      <p className="text-[11px] text-amber-400">
+                        Ainda não tens objetivos activos. Cria um objetivo na tela de Objetivos para usar este destino.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {formData.tipo === 'RECEITA' && (
+                  <div className="rounded-2xl border p-4 space-y-3" style={{ backgroundColor: 'rgba(16,185,129,0.08)', borderColor: 'rgba(16,185,129,0.18)' }}>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-400">
+                        <CheckCircle2 size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Distribuição automática</p>
+                        <p className="text-xs mt-1" style={{ color: 'var(--text-faint)' }}>
+                          A distribuição é controlada pelo cartão selecionado. Se o cartão estiver activo para poupança, a receita será repartida pelos objetivos configurados.
+                        </p>
+                      </div>
+                    </div>
+
+                    {selectedCard?.distribuirParaObjetivos ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                          Cartão seleccionado: {selectedCard?.nome || 'Cartão selecionado'}
+                        </p>
+                        <p className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                          {selectedCardDistributionPercent}% da receita vai para a pool de objetivos.
+                        </p>
+                        <p className="text-[11px]" style={{ color: selectedCardAutoDistribution ? '#4ade80' : '#f87171' }}>
+                          {selectedCardAutoDistribution
+                            ? 'Distribuição automática activa para este cartão.'
+                            : 'A opção está activa, mas a percentagem precisa de ser maior que zero.'}
+                        </p>
+                        <div className="rounded-xl border px-3 py-2" style={{ backgroundColor: 'rgba(255,255,255,0.02)', borderColor: 'var(--border)' }}>
+                          <p className="text-xs font-bold" style={{ color: 'var(--text-muted)' }}>
+                            Objetivos activos com distribuição: {distributionGoals.length} · Total {distributionTotal.toFixed(2)}%
+                          </p>
+                          {distributionGoals.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {distributionGoals.map((goal) => (
+                                <span key={goal.id} className="rounded-full border px-2.5 py-1 text-[11px] font-semibold" style={{ borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+                                  {goal.titulo} {Number(goal.porcentagemDistribuicao || 0)}%
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {Math.abs(distributionTotal - 100) > 0.01 && (
+                          <div className="rounded-xl border px-3 py-2 text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+                            A soma das percentagens dos objetivos está em {distributionTotal.toFixed(2)}%. Ajusta os valores na tela de objetivos para a distribuição automática funcionar.
+                          </div>
+                        )}
+                        {selectedCardDistributionPercent <= 0 && (
+                          <div className="rounded-xl border px-3 py-2 text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+                            Este cartão tem a opção activa, mas a percentagem está em 0%. Define um valor maior que zero na tela de cartões.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs" style={{ color: 'var(--text-faint)' }}>
+                        Selecciona um cartão com a opção de distribuição automática activada na carteira para usar esta funcionalidade.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <div className="pt-4 flex gap-3">
                   <button type="button" onClick={() => setShowForm(false)}

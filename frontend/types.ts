@@ -38,6 +38,7 @@ export interface Cartao {
   bloqueado: boolean;
   excluido?: boolean;
   distribuirParaObjetivos?: boolean;
+  percentualDistribuicaoPoupanca?: number;
 }
 
 export interface Categoria {
@@ -59,6 +60,18 @@ export interface Gasto {
   local?: string;
   categoria: Categoria | null; // Pode ser null se categoria foi deletada
   cartao: Cartao | null; // Pode ser null se cartão foi deletado
+  objetivo?: {
+    id: string;
+    titulo: string;
+  } | null;
+  distribuicaoAutomatica?: boolean;
+  distribuicoes?: Array<{
+    objetivoId: string;
+    titulo: string;
+    porcentagem?: number;
+    valor?: number;
+    tipo?: string;
+  }>;
   excluido?: boolean;
 }
 
