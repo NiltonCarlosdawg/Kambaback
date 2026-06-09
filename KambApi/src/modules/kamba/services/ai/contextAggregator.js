@@ -1,4 +1,5 @@
 const prisma = require("../../../../lib/prisma");
+const currencyService = require("../core/currencyService");
 
 const agregarContexto = async (usuarioId) => {
   const hoje = new Date();
@@ -26,7 +27,7 @@ const agregarContexto = async (usuarioId) => {
   ] = await Promise.all([
     prisma.cartao.findMany({
       where: { usuarioId, ativo: true, excluido: false },
-      select: { nome: true, saldoAtual: true, tipo: true },
+      select: { nome: true, saldoAtual: true, tipo: true, moeda: true },
     }),
     prisma.gasto.findMany({
       where: {
@@ -69,16 +70,53 @@ const agregarContexto = async (usuarioId) => {
     }),
     prisma.user.findUnique({
       where: { id: usuarioId },
-      select: { rendaMensalMedia: true },
+      select: {
+        rendaMensalMedia: true,
+        tipoRenda: true,
+        rendaFixaMensal: true,
+        rendaVariavelMedia: true,
+        rendaEmDolar: true,
+        percentualDolar: true,
+        fontesRenda: true
+      },
     }),
   ]);
 
-  // ── SALDOS ─────────────────────────────────
-  const saldoTotal = cartoes.reduce((acc, c) => acc + Number(c.saldoAtual), 0);
-  const contasDetalhe = cartoes.map((c) => ({
+  // ── SALDOS (multi-moeda) ──────────────────
+  const saldosConvertidos = await Promise.all(
+    cartoes.map(async (c) => {
+      const { valorAOA, taxa } = await currencyService.converterParaAOA(
+        Number(c.saldoAtual),
+        c.moeda || 'AOA'
+      );
+      return {
+        ...c,
+        saldoAOA: valorAOA,
+        saldoOriginal: Number(c.saldoAtual),
+        moeda: c.moeda || 'AOA',
+        taxa
+      };
+    })
+  );
+
+  const saldoTotal = saldosConvertidos.reduce((acc, c) => acc + c.saldoAOA, 0);
+
+  const saldosPorMoeda = saldosConvertidos.reduce((acc, c) => {
+    const m = c.moeda || 'AOA';
+    if (!acc[m]) acc[m] = { totalOriginal: 0, totalAOA: 0, contas: [] };
+    acc[m].totalOriginal += c.saldoOriginal;
+    acc[m].totalAOA += c.saldoAOA;
+    acc[m].contas.push({ nome: c.nome, saldo: c.saldoOriginal, saldoAOA: c.saldoAOA });
+    return acc;
+  }, {});
+
+  const contasDetalhe = saldosConvertidos.map(c => ({
     nome: c.nome,
     tipo: c.tipo,
-    saldo: Number(c.saldoAtual),
+    moeda: c.moeda || 'AOA',
+    saldo: c.saldoOriginal,
+    saldoAOA: c.saldoAOA,
+    taxa: c.taxa
   }));
 
   // ── GASTOS ─────────────────────────────────
@@ -198,7 +236,17 @@ const agregarContexto = async (usuarioId) => {
     saldoTotal: Math.round(saldoTotal),
     numContas: cartoes.length,
     contas: contasDetalhe,
+    saldosPorMoeda,
     rendaMensal: renda,
+    perfilRenda: {
+      rendaMensal: renda,
+      tipoRenda: perfilRenda?.tipoRenda || 'FIXO',
+      rendaFixa: Number(perfilRenda?.rendaFixaMensal || 0),
+      rendaVariavel: Number(perfilRenda?.rendaVariavelMedia || 0),
+      temComponenteDolar: perfilRenda?.rendaEmDolar || false,
+      percentualDolar: perfilRenda?.percentualDolar || 0,
+      fontes: perfilRenda?.fontesRenda || []
+    },
     gastosEsteMes: {
       total: Math.round(totalGastos),
       numTransacoes: gastosMes.length,
@@ -231,7 +279,15 @@ const formatarContextoFinanceiro = (contexto) => {
   lines.push(
     `• Saldo total: ${contexto.saldoTotal.toLocaleString("pt-AO")} AOA (${contexto.numContas} ${contexto.numContas === 1 ? "conta" : "contas"})`,
   );
-  if (contexto.contas.length > 0) {
+  if (contexto.saldosPorMoeda) {
+    for (const [moeda, dados] of Object.entries(contexto.saldosPorMoeda)) {
+      if (moeda === 'AOA') {
+        lines.push(`  - AOA: ${dados.totalOriginal.toLocaleString('pt-AO')} AOA`);
+      } else {
+        lines.push(`  - ${moeda}: ${dados.totalOriginal.toFixed(2)} ${moeda} (~${dados.totalAOA.toLocaleString('pt-AO')} AOA)`);
+      }
+    }
+  } else if (contexto.contas.length > 0) {
     for (const c of contexto.contas) {
       lines.push(`  - ${c.nome}: ${c.saldo.toLocaleString("pt-AO")} AOA`);
     }
@@ -317,6 +373,31 @@ const formatarContextoFinanceiro = (contexto) => {
       lines.push(`• Perfil do utilizador: ${tracos.join("; ")}`);
       lines.push("");
     }
+  }
+
+  // Tipo de renda
+  if (contexto.perfilRenda) {
+    const pr = contexto.perfilRenda;
+    const tipoMap = {
+      'FIXO': 'Salário fixo',
+      'VARIAVEL': 'Rendimento variável/irregular',
+      'MISTO': 'Fixo + variável',
+      'INFORMAL': 'Economia informal/biscates'
+    };
+    lines.push(`• Perfil de renda: ${tipoMap[pr.tipoRenda] || 'Não definido'}`);
+    if (pr.rendaFixa > 0) {
+      lines.push(`  - Parte fixa: ${pr.rendaFixa.toLocaleString('pt-AO')} AOA`);
+    }
+    if (pr.rendaVariavel > 0) {
+      lines.push(`  - Parte variável (média): ${pr.rendaVariavel.toLocaleString('pt-AO')} AOA`);
+    }
+    if (pr.temComponenteDolar) {
+      lines.push(`  - ⚠️ ${pr.percentualDolar}% da renda chega em USD — conversão variável`);
+    }
+    if (pr.fontes.length > 0) {
+      lines.push(`  - Fontes: ${pr.fontes.join(', ')}`);
+    }
+    lines.push("");
   }
 
   // Nota final

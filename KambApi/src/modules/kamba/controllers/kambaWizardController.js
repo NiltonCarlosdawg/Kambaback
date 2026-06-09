@@ -213,6 +213,12 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
         erroMsg: "Responde 1 para Sim ou 2 para Não, kamba.",
       },
       {
+        id: "moeda",
+        pergunta: "💱 Em que moeda foi o gasto?\n\n1️⃣ Kwanza (AOA)\n2️⃣ Dólar (USD)\n3️⃣ Euro (EUR)",
+        validacao: (resp) => ["1", "2", "3"].includes(resp.trim()),
+        erroMsg: "Escolhe 1, 2 ou 3."
+      },
+      {
         id: "descricao",
         pergunta:
           ' Descreve o gasto (ou manda "pular"):\nExemplo: "Almoço no restaurante", "Candongueiro para o trabalho"',
@@ -222,6 +228,7 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
     ],
     concluir: async (dados, usuarioId) => {
       try {
+        const currencyService = require('../services/core/currencyService');
         const categoriaMap = {
           1: "Alimentação",
           2: "Transporte",
@@ -232,7 +239,20 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
         };
 
         const nomeCategoria = categoriaMap[dados.categoria];
-        const valor = parseFloat(dados.valor);
+        const moedaMap = { "1": "AOA", "2": "USD", "3": "EUR" };
+        const moedaGasto = moedaMap[dados.moeda || "1"] || "AOA";
+        const valorOriginal = parseFloat(dados.valor);
+
+        let valorAOA = valorOriginal;
+        let taxa = 1;
+
+        if (moedaGasto !== 'AOA') {
+          const convertido = await currencyService.converterParaAOA(valorOriginal, moedaGasto);
+          valorAOA = convertido.valorAOA;
+          taxa = convertido.taxa;
+        }
+
+        const valor = valorAOA;
 
         let categoria = await prisma.categoria.findFirst({
           where: { usuarioId, nome: nomeCategoria, excluido: false },
@@ -289,6 +309,9 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
               excluido: false,
               local: null,
               tags: [],
+              moeda: moedaGasto,
+              valorOriginal: moedaGasto !== 'AOA' ? valorOriginal : null,
+              taxaCambio: moedaGasto !== 'AOA' ? taxa : null,
             },
           });
 
@@ -430,6 +453,169 @@ Quer criar um plano de corte de gastos? Diz "criar meta" para começar. `;
         return " Deu erro ao gerar a análise, kamba. Tenta mais tarde.";
       }
     },
+  },
+
+  criar_kixikila: {
+    nome: "Criar Grupo de Kixikila",
+    icone: "🤝",
+    passos: [
+      {
+        id: "nome",
+        pergunta: "🤝 Vamos criar o teu grupo de kixikila!\n\nQual é o nome do grupo?\nExemplo: \"Kixikila das Amigas\", \"Grupo do Trabalho\", \"Família Luanda\"",
+        validacao: (resp) => resp && resp.trim().length >= 3 && resp.trim().length <= 80,
+        erroMsg: "Nome inválido. Usa entre 3 e 80 caracteres."
+      },
+      {
+        id: "contribuicao",
+        pergunta: "💰 Quanto cada membro contribui por mês (em AOA)?\nExemplo: 50000 (para 50 mil Kwanzas)",
+        validacao: (resp) => {
+          const num = parseFloat(resp.replace(/[.\s]/g, '').replace(',', '.'));
+          return !isNaN(num) && num > 0 && num < 10_000_000;
+        },
+        transform: (resp) => resp.replace(/[.\s]/g, '').replace(',', '.'),
+        erroMsg: "Valor inválido. Exemplo: 50000 (máx 10 milhões AOA)"
+      },
+      {
+        id: "total_membros",
+        pergunta: "👥 Quantos membros tem o grupo (incluindo tu)?\nExemplo: 10 (para 10 pessoas → cada um recebe 1 vez por ano)",
+        validacao: (resp) => {
+          const num = parseInt(resp);
+          return !isNaN(num) && num >= 2 && num <= 50;
+        },
+        erroMsg: "Número inválido. Mínimo 2, máximo 50 membros."
+      },
+      {
+        id: "periodicidade",
+        pergunta: "📅 Qual é a periodicidade das contribuições?\n\n1️⃣ Mensal\n2️⃣ Quinzenal\n3️⃣ Semanal",
+        validacao: (resp) => ["1", "2", "3"].includes(resp.trim()),
+        erroMsg: "Escolhe 1, 2 ou 3."
+      },
+      {
+        id: "minha_posicao",
+        pergunta: "🎯 Qual é a tua posição na ordem de recepção?\nExemplo: 1 (recebes primeiro), 5 (recebes quinto)...",
+        validacao: (resp) => {
+          const num = parseInt(resp);
+          return !isNaN(num) && num >= 1 && num <= 50;
+        },
+        erroMsg: "Posição inválida. Tem de ser entre 1 e 50."
+      }
+    ],
+    concluir: async (dados, usuarioId) => {
+      try {
+        const periodicidadeMap = { "1": "MENSAL", "2": "QUINZENAL", "3": "SEMANAL" };
+        const contribuicao = parseFloat(dados.contribuicao);
+        const totalMembros = parseInt(dados.total_membros);
+        const minhaPosicao = parseInt(dados.minha_posicao);
+        const montantePorCiclo = contribuicao * totalMembros;
+
+        const kixikila = await prisma.kixikila.create({
+          data: {
+            organizadorId: usuarioId,
+            nome: dados.nome.trim(),
+            contribuicaoMensal: contribuicao,
+            totalMembros,
+            periodicidade: periodicidadeMap[dados.periodicidade],
+            cicloActual: 1,
+            ativa: true,
+            membros: {
+              create: {
+                usuarioId,
+                posicao: minhaPosicao,
+                jaRecebeu: false,
+                nome: 'Tu (organizador)'
+              }
+            }
+          }
+        });
+
+        return `🤝 Kixikila criada com sucesso!\n\n*${dados.nome}*\n💰 Contribuição: ${contribuicao.toLocaleString('pt-AO')} AOA/${periodicidadeMap[dados.periodicidade].toLowerCase()}\n👥 Membros: ${totalMembros}\n🏆 Cada um recebe: ${montantePorCiclo.toLocaleString('pt-AO')} AOA\n🎯 A tua posição: ${minhaPosicao}º a receber\n\nAgora podes adicionar os outros membros dizendo "adicionar membro à kixikila". 💪`;
+      } catch (err) {
+        console.error("[WIZARD] Erro ao criar kixikila:", err);
+        return "❌ Erro ao criar a kixikila. Verifica se a base de dados suporta este modelo e tenta novamente.";
+      }
+    }
+  },
+
+  configurar_renda: {
+    nome: "Configurar Perfil de Renda",
+    icone: "💼",
+    passos: [
+      {
+        id: "tipo_renda",
+        pergunta: "💼 Como é o teu rendimento mensal?\n\n1️⃣ Salário fixo (mesmo valor todos os meses)\n2️⃣ Variável (comissões, freelance, biscates)\n3️⃣ Misto (parte fixa + parte variável)\n4️⃣ Informal (negócio próprio, zunga, revenda)",
+        validacao: (resp) => ["1", "2", "3", "4"].includes(resp.trim()),
+        erroMsg: "Escolhe entre 1 e 4, kamba."
+      },
+      {
+        id: "renda_fixa",
+        pergunta: "💰 Qual é a parte fixa/garantida por mês (em AOA)?\nSe não tens parte fixa, escreve 0.",
+        condicao: (dados) => ["2", "3", "4"].includes(dados.tipo_renda),
+        validacao: (resp) => {
+          const num = parseFloat(resp.replace(/[.\s]/g, '').replace(',', '.'));
+          return !isNaN(num) && num >= 0;
+        },
+        transform: (resp) => resp.replace(/[.\s]/g, '').replace(',', '.'),
+        erroMsg: "Introduz um valor válido (ou 0 se não tens parte fixa)."
+      },
+      {
+        id: "renda_variavel",
+        pergunta: "📊 Em média, quanto ganhas a mais com a parte variável (biscates, negócio, etc.)?\nPensa nos últimos 3 meses e faz a média.",
+        condicao: (dados) => ["2", "3", "4"].includes(dados.tipo_renda),
+        validacao: (resp) => {
+          const num = parseFloat(resp.replace(/[.\s]/g, '').replace(',', '.'));
+          return !isNaN(num) && num >= 0;
+        },
+        transform: (resp) => resp.replace(/[.\s]/g, '').replace(',', '.'),
+        erroMsg: "Introduz um valor válido (ou 0 se ainda não tens histórico)."
+      },
+      {
+        id: "tem_dolar",
+        pergunta: "💵 Parte do teu rendimento chega em dólar?\n\n1️⃣ Sim\n2️⃣ Não",
+        validacao: (resp) => ["1", "2", "sim", "não", "nao"].includes(resp.toLowerCase().trim()),
+        erroMsg: "Responde 1 (Sim) ou 2 (Não)."
+      },
+      {
+        id: "percentual_dolar",
+        pergunta: "📊 Aproximadamente que percentagem da tua renda chega em dólar?\nExemplo: 30 (para 30%)",
+        condicao: (dados) => ["1", "sim"].includes(dados.tem_dolar?.toLowerCase().trim()),
+        validacao: (resp) => {
+          const num = parseInt(resp);
+          return !isNaN(num) && num > 0 && num <= 100;
+        },
+        erroMsg: "Introduz uma percentagem válida (1-100)."
+      }
+    ],
+    concluir: async (dados, usuarioId) => {
+      try {
+        const tipoMap = { "1": "FIXO", "2": "VARIAVEL", "3": "MISTO", "4": "INFORMAL" };
+        const tipoRenda = tipoMap[dados.tipo_renda];
+        const rendaFixa = parseFloat(dados.renda_fixa || 0);
+        const rendaVariavel = parseFloat(dados.renda_variavel || 0);
+        const rendaTotal = tipoRenda === 'FIXO'
+          ? (await prisma.user.findUnique({ where: { id: usuarioId }, select: { rendaMensalMedia: true } }))?.rendaMensalMedia || 0
+          : rendaFixa + rendaVariavel;
+        const temDolar = ["1", "sim"].includes(dados.tem_dolar?.toLowerCase().trim());
+        const percentualDolar = temDolar ? parseInt(dados.percentual_dolar || 0) : 0;
+
+        await prisma.user.update({
+          where: { id: usuarioId },
+          data: {
+            tipoRenda,
+            rendaFixaMensal: rendaFixa,
+            rendaVariavelMedia: rendaVariavel,
+            rendaMensalMedia: rendaTotal,
+            rendaEmDolar: temDolar,
+            percentualDolar
+          }
+        });
+
+        const tipoNomeMap = { "FIXO": "Salário fixo", "VARIAVEL": "Variável", "MISTO": "Misto", "INFORMAL": "Informal" };
+        return `✅ Perfil de renda actualizado!\n\n💼 Tipo: ${tipoNomeMap[tipoRenda]}\n💰 Renda total estimada: ${Number(rendaTotal).toLocaleString('pt-AO')} AOA/mês${temDolar ? `\n💵 ${percentualDolar}% em dólar` : ''}\n\nAgora os meus conselhos financeiros vão ser mais precisos para a tua realidade, kamba! 🎯`;
+      } catch (err) {
+        console.error("[WIZARD] Erro ao configurar renda:", err);
+        return "❌ Erro ao actualizar o perfil. Tenta novamente.";
+      }
+    }
   },
 
   registar_cartao: {
@@ -810,6 +996,14 @@ const detectarIntencaoFluxo = (mensagem) => {
     )
   ) {
     tipo = "analise_mensal";
+  } else if (
+    /\b(criar|nova|organizar|iniciar|registar|começar).*kixikila\b|criar.*grupo.*poupança|quero.*kixikila|^kixikila$/.test(msg)
+  ) {
+    tipo = "criar_kixikila";
+  } else if (
+    /configurar.*renda|perfil.*renda|tipo.*renda|my income type|minha renda.*(variável|fixa|mista|informal)|definir.*renda|alterar.*renda|actualizar.*renda|meu rendimento|perfil financeiro/.test(msg)
+  ) {
+    tipo = "configurar_renda";
   }
 
   return tipo ? { tipo, dadosIniciais } : null;

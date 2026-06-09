@@ -7,6 +7,28 @@ const CACHE_TTL = 3600; // 1 hora
 const RESUMO_CACHE_TTL = 7200; // 2 horas para o resumo
 const REDIS_KEY_PREFIX = 'noticias:v2:economia:';
 
+const memoryCache = new Map();
+
+const getFromCache = async (key) => {
+  if (redisClient.isDisponivel()) {
+    const cached = await redisClient.get(key);
+    if (cached) return cached;
+  }
+  if (memoryCache.has(key)) {
+    const entry = memoryCache.get(key);
+    if (Date.now() < entry.expiresAt) return entry.data;
+    memoryCache.delete(key);
+  }
+  return null;
+};
+
+const setCache = async (key, data, ttl) => {
+  memoryCache.set(key, { data, expiresAt: Date.now() + ttl * 1000 });
+  if (redisClient.isDisponivel()) {
+    await redisClient.set(key, data, ttl).catch(() => {});
+  }
+};
+
 /**
  * Mapeamento de categorias econômicas para queries de busca
  */
@@ -37,13 +59,11 @@ const buscarNoticias = async (categoria = 'angola') => {
   console.log(`[NOTICIAS] Buscando notícias econômicas: ${categoria}`);
   const cacheKey = `${REDIS_KEY_PREFIX}${categoria}`;
   
-  // 1. Tentar Cache (Redis)
-  if (redisClient.isDisponivel()) {
-    const cached = await redisClient.get(cacheKey);
-    if (cached) {
-      console.log(`[NOTICIAS] Cache hit para: ${categoria}`);
-      return { ...cached, fromCache: true };
-    }
+  // 1. Tentar Cache (Redis + memória)
+  const cached = await getFromCache(cacheKey);
+  if (cached) {
+    console.log(`[NOTICIAS] Cache hit para: ${categoria}`);
+    return { ...cached, fromCache: true };
   }
 
   // 2. Buscar de múltiplas fontes em paralelo
@@ -65,10 +85,12 @@ const buscarNoticias = async (categoria = 'angola') => {
     }
   });
 
-  // 3. Se não houver notícias, usar fallback
+  // 3. Se não houver notícias, usar fallback e cachear para evitar bater nas APIs
   if (todosArtigos.length === 0) {
     console.warn(`[NOTICIAS] Nenhuma fonte retornou dados para: ${categoria}. Ativando fallback.`);
-    return getFallback(categoria);
+    const fallback = getFallback(categoria);
+    await setCache(cacheKey, fallback, CACHE_TTL);
+    return fallback;
   }
 
   // 4. Limpar e ordenar
@@ -87,10 +109,8 @@ const buscarNoticias = async (categoria = 'angola') => {
     }))
   };
 
-  // 5. Guardar em Cache
-  if (redisClient.isDisponivel()) {
-    await redisClient.set(cacheKey, resultado, CACHE_TTL);
-  }
+  // 5. Guardar em Cache (Redis + memória)
+  await setCache(cacheKey, resultado, CACHE_TTL);
 
   return resultado;
 };
@@ -115,7 +135,13 @@ const _fetchFromGNews = async (query, lang = 'pt') => {
       provider: 'gnews'
     }));
   } catch (err) {
-    console.error(`[NOTICIAS] Erro GNews: ${err.message}`);
+    if (err.response) {
+      console.error(`[NOTICIAS] Erro GNews ${err.response.status}: ${err.response.statusText}`);
+    } else if (err.request) {
+      console.error(`[NOTICIAS] Erro GNews: sem resposta (timeout/rede)`);
+    } else {
+      console.error(`[NOTICIAS] Erro GNews: ${err.message}`);
+    }
     return [];
   }
 };
@@ -147,7 +173,13 @@ const _fetchFromNewsAPI = async (query) => {
       provider: 'newsapi'
     }));
   } catch (err) {
-    console.error(`[NOTICIAS] Erro NewsAPI: ${err.message}`);
+    if (err.response) {
+      console.error(`[NOTICIAS] Erro NewsAPI ${err.response.status}: ${err.response.statusText}`);
+    } else if (err.request) {
+      console.error(`[NOTICIAS] Erro NewsAPI: sem resposta (timeout/rede)`);
+    } else {
+      console.error(`[NOTICIAS] Erro NewsAPI: ${err.message}`);
+    }
     return [];
   }
 };
@@ -241,12 +273,10 @@ const getFallback = (categoria) => {
 const gerarResumoIA = async (categoria = 'angola') => {
   const cacheKey = `noticias:resumo:${categoria}`;
   
-  if (redisClient.isDisponivel()) {
-    const cached = await redisClient.get(cacheKey);
-    if (cached) {
-      console.log(`[NOTICIAS] Resumo cacheado retornado para: ${categoria}`);
-      return cached;
-    }
+  const cached = await getFromCache(cacheKey);
+  if (cached) {
+    console.log(`[NOTICIAS] Resumo cacheado retornado para: ${categoria}`);
+    return cached;
   }
 
   const newsData = await buscarNoticias(categoria);
@@ -299,9 +329,7 @@ const gerarResumoIA = async (categoria = 'angola') => {
       atualizadoEm: new Date().toISOString()
     };
 
-    if (redisClient.isDisponivel()) {
-      await redisClient.set(cacheKey, resultado, RESUMO_CACHE_TTL);
-    }
+    await setCache(cacheKey, resultado, RESUMO_CACHE_TTL);
 
     return resultado;
 

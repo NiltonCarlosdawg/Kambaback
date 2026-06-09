@@ -105,30 +105,95 @@ const EXEMPLOS = [
   { intencao: "casual", texto: "ok obrigado" },
   { intencao: "casual", texto: "parabéns pelo trabalho" },
   { intencao: "casual", texto: "até logo" },
+
+  // ── kixikila ────────────────────────────────────────────
+  { intencao: "kixikila", texto: "quero gerir a minha kixikila" },
+  { intencao: "kixikila", texto: "organizar grupo de poupança" },
+  { intencao: "kixikila", texto: "quanto falta para a minha vez" },
+  { intencao: "kixikila", texto: "sou o organizador do grupo" },
+  { intencao: "kixikila", texto: "registar kixikila" },
+  { intencao: "kixikila", texto: "criar grupo de kixikila" },
+  { intencao: "kixikila", texto: "ver membros do grupo" },
+  { intencao: "kixikila", texto: "quem já recebeu na kixikila" },
+  { intencao: "kixikila", texto: "adicionar membro ao grupo" },
+  { intencao: "kixikila", texto: "minha vez na kixikila é quando" },
+  { intencao: "kixikila", texto: "contribuição do mês do grupo" },
+  { intencao: "kixikila", texto: "poupança colectiva com amigos" },
+  { intencao: "kixikila", texto: "xitique angola" },
+  { intencao: "kixikila", texto: "grupo de poupança rotativa" },
+  { intencao: "kixikila", texto: "tontine angola" },
 ];
 
-const EXEMPLOS_COM_EMBEDDING = EXEMPLOS.map((ex) => ({
-  ...ex,
-  embedding: gerarEmbedding(ex.texto),
-}));
+let EXEMPLOS_COM_EMBEDDING = null;
+
+const inicializarEmbeddings = async () => {
+  if (EXEMPLOS_COM_EMBEDDING) return EXEMPLOS_COM_EMBEDDING;
+
+  const API_KEY = process.env.KAMBA_AI_API_KEY;
+  const BASE_URL = process.env.KAMBA_AI_BASE_URL || '';
+  const EMBEDDING_MODEL = process.env.KAMBA_EMBEDDING_MODEL || null;
+
+  if (API_KEY && EMBEDDING_MODEL) {
+    try {
+      const OpenAI = require('openai');
+      const client = new OpenAI({ apiKey: API_KEY, baseURL: BASE_URL });
+
+      const textos = EXEMPLOS.map(e => e.texto);
+      const response = await client.embeddings.create({
+        model: EMBEDDING_MODEL,
+        input: textos
+      });
+
+      EXEMPLOS_COM_EMBEDDING = EXEMPLOS.map((ex, i) => ({
+        ...ex,
+        embedding: response.data[i].embedding
+      }));
+
+      console.log(`[EMBEDDINGS] Dataset inicializado com modelo real: ${EMBEDDING_MODEL}`);
+      return EXEMPLOS_COM_EMBEDDING;
+    } catch (err) {
+      console.warn('[EMBEDDINGS] Falha na API, usando fallback lexical:', err.message);
+    }
+  }
+
+  const { gerarEmbedding } = require('../../services/ai/embeddingService');
+  EXEMPLOS_COM_EMBEDDING = EXEMPLOS.map(ex => ({
+    ...ex,
+    embedding: gerarEmbedding(ex.texto)
+  }));
+
+  console.log('[EMBEDDINGS] Dataset inicializado com embeddings lexicais (fallback)');
+  return EXEMPLOS_COM_EMBEDDING;
+};
 
 const INTENCOES_PRECISA_TOOLS = new Set([
   "dados_financeiros",
   "cotacao",
   "negocio",
   "planeamento",
+  "kixikila",
 ]);
 
+const getDatasetEmbeddings = () => {
+  if (!EXEMPLOS_COM_EMBEDDING) {
+    const { gerarEmbedding } = require("../../services/ai/embeddingService");
+    EXEMPLOS_COM_EMBEDDING = EXEMPLOS.map(ex => ({
+      ...ex,
+      embedding: gerarEmbedding(ex.texto)
+    }));
+  }
+  return EXEMPLOS_COM_EMBEDDING;
+};
+
 const buscarPorSimilaridade = (mensagem) => {
+  const dataset = getDatasetEmbeddings();
+  const { gerarEmbedding, calcularSimilaridade } = require("../../services/ai/embeddingService");
   const msgEmbedding = gerarEmbedding(mensagem);
-  const {
-    calcularSimilaridade,
-  } = require("../../services/ai/embeddingService");
 
   let melhor = { intencao: "desconhecido", confianca: 0, idx: -1 };
 
-  for (let i = 0; i < EXEMPLOS_COM_EMBEDDING.length; i++) {
-    const ex = EXEMPLOS_COM_EMBEDDING[i];
+  for (let i = 0; i < dataset.length; i++) {
+    const ex = dataset[i];
     const sim = calcularSimilaridade(msgEmbedding, ex.embedding);
     if (sim > melhor.confianca) {
       melhor = { intencao: ex.intencao, confianca: sim, idx: i };
@@ -145,7 +210,8 @@ const buscarPorSimilaridade = (mensagem) => {
 
 module.exports = {
   EXEMPLOS,
-  EXEMPLOS_COM_EMBEDDING,
+  EXEMPLOS_COM_EMBEDDING: null,
   buscarPorSimilaridade,
   INTENCOES_PRECISA_TOOLS,
+  inicializarEmbeddings,
 };

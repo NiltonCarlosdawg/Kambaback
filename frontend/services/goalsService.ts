@@ -41,6 +41,14 @@ const goalsService = {
     const { data } = await api.delete(`/objetivos/${id}`);
     return data;
   },
+
+  /**
+   * Distribui poupança para os objetivos a partir de um cartão
+   */
+  async distribuirPoupanca(valorTotal: number, cartaoId: string): Promise<any> {
+    const { data } = await api.post('/objetivos/distribuir-poupanca', { valorTotal, cartaoId });
+    return data;
+  },
 };
 
 export default goalsService;

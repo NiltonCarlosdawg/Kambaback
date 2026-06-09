@@ -84,6 +84,10 @@ const Goals: React.FC = () => {
   const [loading,           setLoading]           = useState(true);
   const [showModal,         setShowModal]         = useState(false);
   const [showDepositModal,  setShowDepositModal]  = useState(false);
+  const [showDistribuirModal, setShowDistribuirModal] = useState(false);
+  const [distribuirValor,   setDistribuirValor]   = useState('');
+  const [distribuirCardId,  setDistribuirCardId]  = useState('');
+  const [distributing,      setDistributing]      = useState(false);
   const [error,             setError]             = useState('');
   const [editMode,          setEditMode]          = useState(false);
   const [selectedGoal,      setSelectedGoal]      = useState<Objetivo | null>(null);
@@ -220,6 +224,31 @@ const Goals: React.FC = () => {
     } catch (err: any) { setError(err.response?.data?.message || 'Erro ao depositar'); }
   };
 
+  const openDistribuirModal = () => {
+    setError('');
+    setDistribuirValor('');
+    setDistribuirCardId(suggestedCard?.id || '');
+    setShowDistribuirModal(true);
+  };
+
+  const handleDistribuirPoupanca = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!distribuirValor || !distribuirCardId) return;
+    try {
+      setDistributing(true);
+      setError('');
+      await goalsService.distribuirPoupanca(Number(distribuirValor), distribuirCardId);
+      setShowDistribuirModal(false);
+      setDistribuirValor('');
+      setDistribuirCardId('');
+      fetchGoals();
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Erro ao distribuir poupança.');
+    } finally {
+      setDistributing(false);
+    }
+  };
+
   const getDaysRemaining = (d?: string) => d ? Math.ceil((new Date(d).getTime() - Date.now()) / 86400000) : null;
 
   const prioridadeColors: Record<string, { bg: string; text: string; border: string }> = {
@@ -333,16 +362,28 @@ const Goals: React.FC = () => {
           </motion.div>
           <p className="text-sm" style={{ color: 'var(--text-faint)' }}>Planeia e alcança as tuas metas</p>
         </div>
-        <motion.button
-          onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm"
-          style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Novo Objetivo
-        </motion.button>
+        <div className="flex items-center gap-2">
+          <motion.button
+            onClick={openDistribuirModal}
+            className="flex items-center gap-2 px-4 py-3 rounded-xl font-medium text-sm border"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+            Distribuir Poupança
+          </motion.button>
+          <motion.button
+            onClick={() => handleOpenModal()}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl font-medium text-sm"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Novo Objetivo
+          </motion.button>
+        </div>
       </motion.div>
 
       <div className="space-y-6">
@@ -808,6 +849,127 @@ const Goals: React.FC = () => {
                     whileTap={{ scale: 0.98 }}
                   >
                     Confirmar Depósito
+                  </motion.button>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showDistribuirModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              className="absolute inset-0 z-0"
+              style={{ backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
+              variants={backdropVariants}
+              initial="hidden"
+              animate="show"
+              exit="exit"
+              onClick={() => setShowDistribuirModal(false)}
+            />
+            <motion.div
+              className="relative z-10 w-full max-w-sm rounded-2xl shadow-2xl"
+              style={{ backgroundColor: 'var(--bg-surface)', border: '1px solid var(--border-strong)' }}
+              variants={modalVariants}
+              initial="hidden"
+              animate="show"
+              exit="exit"
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>Distribuir Poupança</h3>
+                  <motion.button
+                    onClick={() => setShowDistribuirModal(false)}
+                    className="p-2 rounded-lg"
+                    style={{ color: 'var(--text-faint)' }}
+                    whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.05)' }}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </motion.button>
+                </div>
+                <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>
+                  Distribui um valor por todos os objetivos com percentagem definida.
+                </p>
+                <form onSubmit={handleDistribuirPoupanca} className="space-y-4">
+                  <AnimatePresence>
+                    {error && (
+                      <motion.div
+                        className="mb-4 p-3 rounded-lg text-sm text-red-400 bg-red-900/20 border border-red-500/30"
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        exit={{ opacity: 0, height: 0 }}
+                      >
+                        {error}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="relative">
+                    <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-faint)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    <motion.input
+                      type="number"
+                      step="0.01"
+                      autoFocus
+                      placeholder="Valor total a distribuir"
+                      value={distribuirValor}
+                      onChange={e => setDistribuirValor(e.target.value)}
+                      style={{ ...inp, paddingLeft: 48, height: 56, fontSize: 20, fontWeight: 700 }}
+                      onFocus={fa}
+                      onBlur={fb}
+                      whileFocus={{ scale: 1.02 }}
+                    />
+                  </div>
+
+                  {availableCards.length === 0 && (
+                    <div className="rounded-xl border px-3 py-2 text-xs" style={{ backgroundColor: 'rgba(239,68,68,0.08)', borderColor: 'rgba(239,68,68,0.2)', color: '#f87171' }}>
+                      Precisas de ter pelo menos um cartão activo para distribuir poupança.
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Cartão / Conta de origem</label>
+                    <select
+                      value={distribuirCardId}
+                      onChange={e => setDistribuirCardId(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl outline-none border appearance-none"
+                      style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                    >
+                      <option value="">Seleccionar…</option>
+                      {availableCards.map(card => (
+                        <option key={card.id} value={card.id}>
+                          {card.nome} — {maskValue(formatMoney(Number(card.saldoAtual)))}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="p-3 rounded-lg text-xs" style={{ backgroundColor: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)', color: 'rgb(252,211,77)' }}>
+                    Nota: o valor será distribuído proporcionalmente pelas percentagens de cada objetivo. Apenas objetivos com percentagem &gt; 0% serão incluídos.
+                  </div>
+
+                  <motion.button
+                    type="submit"
+                    disabled={!distribuirValor || !distribuirCardId || availableCards.length === 0 || distributing}
+                    className="w-full h-12 rounded-xl font-bold flex items-center justify-center gap-2"
+                    style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    {distributing ? (
+                      <>
+                        <motion.div
+                          className="w-5 h-5 rounded-full border-2 border-t-transparent"
+                          style={{ borderColor: 'var(--accent-text)', borderTopColor: 'transparent' }}
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}
+                        />
+                        A distribuir…
+                      </>
+                    ) : (
+                      'Distribuir'
+                    )}
                   </motion.button>
                 </form>
               </div>

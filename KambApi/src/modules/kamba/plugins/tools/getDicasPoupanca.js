@@ -40,7 +40,38 @@ module.exports = {
     const usuarioId = context.usuarioId;
     const mes30Dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    const [gastosRecentes, userPrefs] = await Promise.all([
+    const ZONAS_LUANDA = {
+      alta: ['miramar', 'alvalade', 'talatona', 'belas', 'benfica', 'ilha', 'bay', 'atlântico', 'atlantico'],
+      media: ['kilamba', 'sequele', 'camama', 'viana', 'mulenvos', 'centralidade', 'patriota', 'zango'],
+      baixa: ['cazenga', 'rangel', 'hoji', 'sambizanga', 'cacuaco', 'palanca', 'marçal', 'cassequel', 'lixeira', 'rocha pinto', 'terra nova'],
+      centro: ['ingombota', 'maianga', 'samba', 'prenda', 'vila alice', 'mutamba']
+    };
+
+    const detectarZona = (morada) => {
+      if (!morada) return null;
+      const m = morada.toLowerCase();
+      for (const [zona, palavras] of Object.entries(ZONAS_LUANDA)) {
+        if (palavras.some(p => m.includes(p))) return zona;
+      }
+      return null;
+    };
+
+    const DICAS_POR_ZONA = {
+      alta: [
+        'Em zonas premium como Talatona e Miramar, os supermercados cobram 30-50% a mais que mercados locais. Vale a pena ir ao Roque ou Zango para compras a granel.',
+        'Serviços de delivery e conveniência têm margens altas. Cozinhar em casa 3x por semana pode poupar 100,000+ AOA/mês nessas zonas.'
+      ],
+      media: [
+        'No Kilamba e Sequele, há muitos minimercados concorrentes. Compara preços entre vizinhos antes de te fidelizares a um.',
+        'O transporte entre as centralidades e o centro pode custar 5,000-10,000 AOA/semana. Organiza as deslocações para reduzir viagens.'
+      ],
+      baixa: [
+        'Nos mercados do Cazenga, Rangel e zonas populares, podes negociar preço ao comprar em quantidade. Junta-te a vizinhos para comprar a granel.',
+        'A kixikila é muito comum nestas zonas — é uma forma eficiente de juntar capital sem banco. Garante que confias nos membros do grupo.'
+      ]
+    };
+
+    const [gastosRecentes, userPrefs, userGeo] = await Promise.all([
       prisma.gasto.findMany({
         where: {
           usuarioId,
@@ -50,7 +81,11 @@ module.exports = {
         },
         include: { categoria: { select: { nome: true } } }
       }),
-      prisma.kambaPreferencias.findUnique({ where: { usuarioId } })
+      prisma.kambaPreferencias.findUnique({ where: { usuarioId } }),
+      prisma.user.findUnique({
+        where: { id: usuarioId },
+        select: { morada: true }
+      }).catch(() => null)
     ]);
 
     const totalGasto = gastosRecentes.reduce((acc, g) => acc + Number(g.valor), 0);
@@ -78,11 +113,15 @@ module.exports = {
       contextoPessoal += ' Diversificar em dólar pode proteger, mas não deixes todo o kumbú numa moeda só.';
     }
 
+    const zona = detectarZona(userGeo?.morada);
+    const dicasZona = DICAS_POR_ZONA[zona] || [];
+
     return {
       totalGasto: Math.round(totalGasto),
       maiorCategoria,
       dicas: dicasSelecionadas,
-      contextoPessoal: contextoPessoal.trim()
+      contextoPessoal: contextoPessoal.trim(),
+      dicasContextoGeografico: dicasZona
     };
   },
   parameters: { type: 'object', properties: {} },

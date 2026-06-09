@@ -184,11 +184,41 @@ const atualizarCategoriaSchema = Joi.object({
   'object.min': 'Pelo menos um campo deve ser enviado para atualização' 
 });
 
+const esqueciSenhaSchema = Joi.object({
+  email: Joi.string().email({ tlds: { allow: false } }).trim().lowercase().required().messages({
+    'string.email': 'Email inválido',
+    'any.required': 'Email é obrigatório',
+  }),
+});
+
+const redefinirSenhaSchema = Joi.object({
+  email: Joi.string().email({ tlds: { allow: false } }).trim().lowercase().required().messages({
+    'string.email': 'Email inválido',
+    'any.required': 'Email é obrigatório',
+  }),
+  otp: Joi.string().length(6).pattern(/^\d{6}$/).required().messages({
+    'string.length': 'OTP deve ter exatamente 6 dígitos',
+    'string.pattern.base': 'OTP deve conter apenas números',
+    'any.required': 'OTP é obrigatório',
+  }),
+  novaSenha: Joi.string()
+    .min(8)
+    .pattern(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .required()
+    .messages({
+      'string.min': 'Nova senha deve ter no mínimo 8 caracteres',
+      'string.pattern.base': 'Nova senha deve conter letras maiúsculas, minúsculas e números',
+      'any.required': 'Nova senha é obrigatória',
+    }),
+});
+
 module.exports = {
   validar,
   registroSchema,
   loginSchema,
   atualizarPerfilSchema,
   criarCategoriaSchema,
-  atualizarCategoriaSchema
+  atualizarCategoriaSchema,
+  esqueciSenhaSchema,
+  redefinirSenhaSchema,
 };

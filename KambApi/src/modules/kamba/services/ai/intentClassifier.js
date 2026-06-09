@@ -152,6 +152,17 @@ const classificarPorRegex = (msgLower, historicoRecente) => {
     };
   }
 
+  // ── KIXIKILA ─────────────────────────────────────────────
+  if (
+    /\b(kixikila|xitique|tontine|poupança colectiva|poupanca colectiva|grupo de poupança|grupo de poupanca|poupança rotativa|poupanca rotativa|vez no grupo|minha vez)\b/.test(msgLower)
+  ) {
+    return {
+      precisaTools: true,
+      intencao: "kixikila",
+      confianca: CONFIANCA_REGEX_ALTA,
+    };
+  }
+
   // ── PEDIDO DIRECTO DE DADOS FINANCEIROS ─────────────────
   const PEDE_DADOS = [
     /\b(qual|quanto|ver|mostrar|analisar|análise)\b.*\b(saldo|gasto|despesa|receita|objetivo|meta|fundo|cartão|conta)/,
@@ -301,6 +312,7 @@ const extrairEntidades = (msgLower) => {
       /\b(contrato|declaração|recibo|factura|fatura|nif|contribuinte|empresa|registado)\b/.test(
         msgLower,
       ),
+    temaKixikila: /\b(kixikila|xitique|tontine|poupança colectiva|grupo de poupança|poupança rotativa|vez no grupo)\b/.test(msgLower),
   };
 };
 

@@ -231,6 +231,12 @@ const startServer = async () => {
     iniciarCronJobs();
     logger.info("Cron jobs iniciados");
 
+    // Pré-computar embeddings do dataset no arranque
+    const { inicializarEmbeddings } = require('./src/modules/kamba/plugins/intents/intentDataset');
+    inicializarEmbeddings()
+      .then(() => logger.info('[STARTUP] Embeddings do dataset prontos'))
+      .catch(err => logger.warn({ err }, '[STARTUP] Embeddings em modo lexical'));
+
     server.listen(PORT, () => {
       logger.info(`Servidor online na porta ${PORT}`);
       logger.info(`Ambiente: ${process.env.NODE_ENV || "development"}`);

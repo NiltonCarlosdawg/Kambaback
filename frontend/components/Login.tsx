@@ -32,6 +32,7 @@ import { springBouncy, springSmooth } from './ui/animations/variants';
 interface LoginProps {
   onLoginSuccess: (user: any) => void;
   onRegisterClick: () => void;
+  onForgotPasswordClick?: () => void;
 }
 
 // ─── Animated Background Component ───────────────────────────────────────────
@@ -187,7 +188,7 @@ const FeatureItem: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, 
   </div>
 );
 
-const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
+const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgotPasswordClick }) => {
   const { prefs } = useTheme();
   const [email,        setEmail]        = useState('');
   const [senha,        setSenha]        = useState('');
@@ -564,14 +565,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick }) => {
                   />
                   <span className="text-sm" style={{ color: 'var(--text-faint)' }}>Lembrar-me</span>
                 </label>
-                <motion.a
-                  href="#"
-                  className="text-sm font-semibold"
-                  style={{ color: 'var(--text-faint)' }}
+                <motion.button
+                  type="button"
+                  onClick={onForgotPasswordClick}
+                  className="text-sm font-semibold bg-transparent border-none"
+                  style={{ color: 'var(--text-faint)', cursor: 'pointer' }}
                   whileHover={{ color: 'var(--accent)' }}
                 >
                   Esqueceu a palavra-passe?
-                </motion.a>
+                </motion.button>
               </div>
 
               {/* Submit Button with shimmer effect */}

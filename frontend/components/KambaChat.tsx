@@ -122,7 +122,7 @@ function cx(...cls: (string | boolean | undefined)[]) {
 function rehydrateCardIcon(iconType?: string): React.ReactNode {
   switch (iconType) {
     case 'warning': return <IoWarningOutline size={14} />;
-    case 'trophy':  return <IoTrophyOutline  size={14} />;
+    case 'trophy':  return <IoTrophyOutline  size={14} />;m
     case 'wallet':  return <IoWalletOutline  size={14} />;
     default:        return <IoSparklesOutline size={14} />;
   }

@@ -10,6 +10,8 @@ import Wallet from './components/Wallet';
 import Goals from './components/Goals';
 import Login from './components/Login';
 import Register from './components/Register';
+import ForgotPassword from './components/ForgotPassword';
+import ResetPassword from './components/ResetPassword';
 import Categorias from './components/Categorias';
 import Perfil from './components/Perfil';
 import Personalizacao from './components/Personalizacao';
@@ -74,6 +76,9 @@ const App: React.FC = () => {
   const [activePage, setActivePage] = useState('dashboard');
   const [loading, setLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [isResetPassword, setIsResetPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
   const [visitedPages, setVisitedPages] = useState<string[]>(['dashboard']);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
@@ -229,6 +234,23 @@ const App: React.FC = () => {
   }
 
   if (!isAuthenticated) {
+    if (isForgotPassword) {
+      return (
+        <ForgotPassword
+          onBackToLogin={() => { setIsForgotPassword(false); setIsRegistering(false); }}
+          onOtpSent={(email) => { setResetEmail(email); setIsForgotPassword(false); setIsResetPassword(true); }}
+        />
+      );
+    }
+    if (isResetPassword) {
+      return (
+        <ResetPassword
+          email={resetEmail}
+          onBackToLogin={() => { setIsResetPassword(false); setIsRegistering(false); }}
+          onResetSuccess={() => { setIsResetPassword(false); setIsRegistering(false); }}
+        />
+      );
+    }
     if (isRegistering) {
       return (
         <Register
@@ -241,6 +263,7 @@ const App: React.FC = () => {
       <Login
         onLoginSuccess={handleLoginSuccess}
         onRegisterClick={() => setIsRegistering(true)}
+        onForgotPasswordClick={() => setIsForgotPassword(true)}
       />
     );
   }

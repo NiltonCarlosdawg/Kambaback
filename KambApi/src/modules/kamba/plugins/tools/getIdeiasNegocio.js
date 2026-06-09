@@ -1,13 +1,59 @@
 const prisma = require('../../../../lib/prisma');
 
+const ZONAS_LUANDA = {
+  alta: ['miramar', 'alvalade', 'talatona', 'belas', 'benfica', 'ilha', 'bay', 'atlântico', 'atlantico'],
+  media: ['kilamba', 'sequele', 'camama', 'viana', 'mulenvos', 'centralidade', 'patriota', 'zango'],
+  baixa: ['cazenga', 'rangel', 'hoji', 'sambizanga', 'cacuaco', 'palanca', 'marçal', 'cassequel', 'lixeira', 'rocha pinto', 'terra nova'],
+  centro: ['ingombota', 'maianga', 'samba', 'prenda', 'vila alice', 'mutamba']
+};
+
+const detectarZona = (morada) => {
+  if (!morada) return 'desconhecida';
+  const m = morada.toLowerCase();
+  for (const [zona, palavras] of Object.entries(ZONAS_LUANDA)) {
+    if (palavras.some(p => m.includes(p))) return zona;
+  }
+  return 'desconhecida';
+};
+
+const IDEIAS_POR_ZONA = {
+  alta: {
+    micro: [
+      { nome: 'Personal Shopper / Compras no Exterior', investimento: 30000, retorno: '50-100% por viagem', descricao: 'Clientes de alta renda pagam bem por conveniência' },
+      { nome: 'Delivery premium de comida caseira', investimento: 50000, retorno: '40-60% ao mês', descricao: 'Marmitas gourmet para executivos em Talatona/Miramar' },
+      { nome: 'Aulas particulares (idiomas, informática)', investimento: 10000, retorno: '60-80% ao mês', descricao: 'Alta procura em zonas com expatriados e classe alta' }
+    ]
+  },
+  media: {
+    micro: [
+      { nome: 'Mini-supermercado de bairro', investimento: 200000, retorno: '20-30% ao mês', descricao: 'Alta densidade populacional no Kilamba e Sequele' },
+      { nome: 'Cabeleireiro/Barbearia', investimento: 150000, retorno: '25-40% ao mês', descricao: 'Mercado crescente nas novas centralidades' },
+      { nome: 'Venda de refeições na hora do almoço', investimento: 40000, retorno: '35-50% ao mês', descricao: 'Muitos trabalhadores longe do centro, sem opções próximas' }
+    ]
+  },
+  baixa: {
+    micro: [
+      { nome: 'Revenda no Zango / Roque Santeiro', investimento: 20000, retorno: '30-50% ao mês', descricao: 'Mercados de revenda são a espinha dorsal da economia local' },
+      { nome: 'Venda ambulante (zunga)', investimento: 15000, retorno: '20-40% ao mês', descricao: 'Baixo investimento, alta rotatividade' },
+      { nome: 'Fotocópias e serviços de impressão', investimento: 80000, retorno: '30-50% ao mês', descricao: 'Alta procura em zonas com escolas e repartições' }
+    ]
+  }
+};
+
 module.exports = {
   name: 'getIdeiasNegocio',
   description: 'Fornece ideias de negócio adaptadas ao capital disponível e realidade angolana. Chamar APENAS quando o utilizador mencionar querer começar um negócio.',
   handler: async (params, context) => {
-    const cartoes = await prisma.cartao.aggregate({
-      where: { usuarioId: context.usuarioId, ativo: true, excluido: false },
-      _sum: { saldoAtual: true }
-    });
+    const [cartoes, userGeo] = await Promise.all([
+      prisma.cartao.aggregate({
+        where: { usuarioId: context.usuarioId, ativo: true, excluido: false },
+        _sum: { saldoAtual: true }
+      }),
+      prisma.user.findUnique({
+        where: { id: context.usuarioId },
+        select: { morada: true }
+      }).catch(() => null)
+    ]);
     const saldoReal = Number(cartoes._sum.saldoAtual) || 0;
     const capitalDaConversa = Number(params?.capital) || 0;
 
@@ -38,11 +84,19 @@ module.exports = {
 
     let categoria = capitalNum <= 100000 ? 'micro' : capitalNum <= 500000 ? 'pequeno' : 'medio';
 
+    const zona = detectarZona(userGeo?.morada);
+    const ideiasZona = IDEIAS_POR_ZONA[zona]?.[categoria] || [];
+
     const resultado = {
       capitalDisponivel: Math.round(capitalNum),
       categoria,
       ideias: ideias[categoria].slice(0, 5),
-      dicaGeral: 'Começa com o que sabes fazer melhor. Não invistas tudo de uma vez. Testa primeiro!'
+      dicaGeral: 'Começa com o que sabes fazer melhor. Não invistas tudo de uma vez. Testa primeiro!',
+      zona: zona !== 'desconhecida' ? zona : null,
+      ideiasAdaptadasZona: ideiasZona.length > 0 ? ideiasZona : null,
+      notaGeografica: zona !== 'desconhecida'
+        ? `Sugestões adaptadas para a zona ${zona === 'alta' ? 'premium' : zona === 'media' ? 'de classe média' : zona === 'baixa' ? 'popular' : 'central'} de Luanda`
+        : null
     };
 
     if (saldoOficial && capitalDaConversa > 0 && saldoOficial !== capitalDaConversa) {

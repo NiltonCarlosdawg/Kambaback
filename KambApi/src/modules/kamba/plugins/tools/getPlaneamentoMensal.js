@@ -15,7 +15,7 @@ module.exports = {
     const [user, gastosMes] = await Promise.all([
       prisma.user.findUnique({
         where: { id: usuarioId },
-        select: { rendaMensalMedia: true, nome: true }
+        select: { rendaMensalMedia: true, nome: true, tipoRenda: true, rendaFixaMensal: true, rendaVariavelMedia: true }
       }),
       prisma.gasto.findMany({
         where: {
@@ -36,9 +36,21 @@ module.exports = {
       };
     }
 
-    const orcamentoNecessidades = renda * 0.50;
-    const orcamentoDesejos = renda * 0.30;
-    const orcamentoPoupanca = renda * 0.20;
+    const tipoRenda = user?.tipoRenda || 'FIXO';
+    const rendaFixa = Number(user?.rendaFixaMensal || 0);
+    const rendaVariavel = Number(user?.rendaVariavelMedia || 0);
+
+    const isRendaVariavel = ['VARIAVEL', 'INFORMAL', 'MISTO'].includes(tipoRenda);
+    const rendaBase = isRendaVariavel ? renda * 0.7 : renda;
+    const bufferVariabilidade = isRendaVariavel ? renda * 0.3 : 0;
+
+    const pctNecessidades = isRendaVariavel ? 0.55 : 0.50;
+    const pctDesejos = isRendaVariavel ? 0.20 : 0.30;
+    const pctPoupanca = isRendaVariavel ? 0.25 : 0.20;
+
+    const orcamentoNecessidades = rendaBase * pctNecessidades;
+    const orcamentoDesejos = rendaBase * pctDesejos;
+    const orcamentoPoupanca = rendaBase * pctPoupanca;
 
     let gastoNecessidades = 0;
     let gastoDesejos = 0;
@@ -76,6 +88,7 @@ module.exports = {
 
     return {
       rendaMensal: Math.round(renda),
+      tipoRenda,
       periodo: inicioMes.toLocaleDateString('pt-AO', { month: 'long', year: 'numeric' }),
       planeamento: {
         necessidades: categorizar(gastoNecessidades, orcamentoNecessidades, 'Necessidades'),
@@ -87,6 +100,11 @@ module.exports = {
           percentualUtilizado: Math.min(100, Math.round((gastoOutros / Math.max(orcamentoPoupanca, 1)) * 100))
         }
       },
+      bufferVariabilidade: Math.round(bufferVariabilidade),
+      notaRenda: isRendaVariavel
+        ? `Com renda variável, reservei ${Math.round(bufferVariabilidade).toLocaleString('pt-AO')} AOA como buffer para meses fracos.`
+        : null,
+      regra: isRendaVariavel ? '55/20/25 (adaptada para renda variável)' : '50/30/20',
       saldoRestante: Math.max(0, Math.round(saldoRestante)),
       projecaoFimMes: Math.round(projecaoGasto),
       dica: saldoRestante > 0

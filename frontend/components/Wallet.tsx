@@ -1,7 +1,7 @@
 // src/components/Wallet.tsx
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, CreditCard, Plus, Save, ShieldCheck, X, RefreshCcw, Loader2, Trash2, Settings2, DollarSign, Wallet as WalletIcon, Lock } from 'lucide-react';
+import { AlertCircle, CreditCard, Plus, Save, ShieldCheck, X, RefreshCcw, Loader2, Trash2, Settings2, DollarSign, Wallet as WalletIcon, Lock, PiggyBank } from 'lucide-react';
 import cardsService from '../services/cardsService';
 import { Cartao } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -48,14 +48,18 @@ const CardVisual: React.FC<{ card: Cartao; index: number; onEdit: (c: Cartao) =>
             <p className="text-[9px] font-bold uppercase opacity-50">Disponível</p>
             <p className="text-xs font-bold">{maskValue(formatMoney(Number(card.saldoDisponivel)))}</p>
           </div>
-          <div>
-            <p className="text-[9px] font-bold uppercase opacity-50">Reservado</p>
-            <p className="text-xs font-bold">{maskValue(formatMoney(Number(card.saldoReservado)))}</p>
-          </div>
         </div>
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/20 backdrop-blur-md border border-white/10">
-          <div className={`w-1.5 h-1.5 rounded-full ${card.ativo ? 'bg-emerald-400' : 'bg-white/20'}`} />
-          <span className="text-[9px] font-bold uppercase">{card.tipo}</span>
+        <div className="flex items-center gap-1.5">
+          {card.distribuirParaObjetivos && Number(card.percentualDistribuicaoPoupanca) > 0 && (
+            <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/30 backdrop-blur-md border border-white/10">
+              <PiggyBank size={10} />
+              <span className="text-[8px] font-bold">{card.percentualDistribuicaoPoupanca}%</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/20 backdrop-blur-md border border-white/10">
+            <div className={`w-1.5 h-1.5 rounded-full ${card.ativo ? 'bg-emerald-400' : 'bg-white/20'}`} />
+            <span className="text-[9px] font-bold uppercase">{card.tipo}</span>
+          </div>
         </div>
       </div>
       
@@ -82,8 +86,11 @@ const Wallet: React.FC = () => {
   const [error,      setError]      = useState('');
   
   const [formData, setFormData] = useState({
-    nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true
+    nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true,
+    distribuirParaObjetivos: false, percentualDistribuicaoPoupanca: '0',
   });
+
+  const autoDistribActive = formData.distribuirParaObjetivos && Number(formData.percentualDistribuicaoPoupanca) > 0;
 
   const fetchCards = async (isRefresh = false) => {
     try {
@@ -98,7 +105,7 @@ const Wallet: React.FC = () => {
 
   const handleOpenCreate = () => {
     setSelected(null);
-    setFormData({ nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true });
+    setFormData({ nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true, distribuirParaObjetivos: false, percentualDistribuicaoPoupanca: '0' });
     setShowModal(true);
   };
 
@@ -109,7 +116,9 @@ const Wallet: React.FC = () => {
       tipo: c.tipo, 
       saldoAtual: c.saldoAtual.toString(), 
       cor: c.cor || '#3b82f6',
-      ativo: c.ativo 
+      ativo: c.ativo,
+      distribuirParaObjetivos: c.distribuirParaObjetivos || false,
+      percentualDistribuicaoPoupanca: (c.percentualDistribuicaoPoupanca || 0).toString(),
     });
     setShowModal(true);
   };
@@ -118,16 +127,19 @@ const Wallet: React.FC = () => {
     e.preventDefault();
     try {
       setError('');
+      const payload: Record<string, any> = {
+        nome: formData.nome,
+        tipo: formData.tipo,
+        cor: formData.cor,
+        ativo: formData.ativo,
+        distribuirParaObjetivos: formData.distribuirParaObjetivos,
+        percentualDistribuicaoPoupanca: Number(formData.percentualDistribuicaoPoupanca),
+      };
       if (selected) {
-        await cardsService.atualizar(selected.id, {
-          ...formData,
-          saldoAtual: Number(formData.saldoAtual)
-        });
+        await cardsService.atualizar(selected.id, payload);
       } else {
-        await cardsService.criar({
-          ...formData,
-          saldoAtual: Number(formData.saldoAtual)
-        });
+        payload.saldoAtual = Number(formData.saldoAtual);
+        await cardsService.criar(payload);
       }
       setShowModal(false);
       fetchCards(true);
@@ -156,7 +168,6 @@ const Wallet: React.FC = () => {
     { label: 'Total na Carteira', value: maskValue(formatMoney(cards.reduce((a, c) => a + Number(c.saldoAtual), 0))), icon: DollarSign, color: 'var(--accent)' },
     { label: 'Contas Activas', value: cards.filter(c => c.ativo).length.toString(), icon: ShieldCheck, color: '#10b981' },
     { label: 'Cartões de Crédito', value: cards.filter(c => c.tipo === 'CREDITO').length.toString(), icon: CreditCard, color: '#f59e0b' },
-    { label: 'Saldo Bloqueado', value: maskValue(formatMoney(cards.reduce((a, c) => a + Number(c.saldoReservado), 0))), icon: Lock, color: '#ef4444' },
   ];
 
   return (
@@ -288,6 +299,48 @@ const Wallet: React.FC = () => {
                     * Para alterar o saldo ou tipo, utiliza as transacções ou cria uma nova conta.
                   </p>
                 )}
+
+                {/* Auto-distribuição */}
+                <div className="p-4 rounded-xl space-y-3" style={{ backgroundColor: autoDistribActive ? 'rgba(16,185,129,0.08)' : 'var(--bg-base)', border: `1px solid ${autoDistribActive ? 'rgba(16,185,129,0.3)' : 'var(--border)'}` }}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase tracking-widest flex items-center gap-2" style={{ color: autoDistribActive ? '#34d399' : 'var(--text-faint)' }}>
+                      <PiggyBank size={14} />
+                      Distribuição Automática
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, distribuirParaObjetivos: !formData.distribuirParaObjetivos, percentualDistribuicaoPoupanca: formData.distribuirParaObjetivos ? '0' : formData.percentualDistribuicaoPoupanca })}
+                      className={`relative w-12 h-6 rounded-full transition-all ${formData.distribuirParaObjetivos ? 'bg-emerald-500' : 'bg-white/10'}`}
+                    >
+                      <div className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${formData.distribuirParaObjetivos ? 'left-7' : 'left-1'}`} />
+                    </button>
+                  </div>
+                  {formData.distribuirParaObjetivos && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      className="space-y-2"
+                    >
+                      <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
+                        Percentagem de cada receita (%)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        value={formData.percentualDistribuicaoPoupanca}
+                        onChange={e => setFormData({ ...formData, percentualDistribuicaoPoupanca: e.target.value })}
+                        placeholder="Ex: 20"
+                        className="w-full px-4 py-3 rounded-xl outline-none border transition-all font-mono font-bold"
+                        style={{ backgroundColor: 'var(--bg-base)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+                      />
+                      <p className="text-[10px]" style={{ color: 'var(--text-faint)' }}>
+                        Quando registares uma receita, {formData.percentualDistribuicaoPoupanca || 0}% será distribuído pelos objectivos que tiverem percentagem de distribuição definida.
+                      </p>
+                    </motion.div>
+                  )}
+                </div>
 
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Cor do Cartão</label>

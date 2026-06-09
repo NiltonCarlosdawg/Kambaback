@@ -46,8 +46,14 @@
 
 ### getPlaneamentoMensal
 - **OBRIGATÓRIO quando:** Utilizador pede orçamento, planeamento, "cria um orçamento", "quanto posso gastar"
-- **Retorna:** Plano orçamental 50/30/20 baseado na renda do utilizador
+- **Retorna:** Plano orçamental 50/30/20 baseado na renda do utilizador (adaptado para 55/20/25 se renda variável/informal)
 - **Parâmetros:** Nenhum
+
+### getKixikilaStatus
+- **OBRIGATÓRIO quando:** Utilizador menciona kixikila, xitique, grupo de poupança, poupança colectiva, "minha vez", "quem já recebeu"
+- **Retorna:** Estado dos grupos de kixikila como organizador e membro, próxima vez a receber, contribuições pendentes
+- **Parâmetros:** Nenhum
+- **Nota cultural:** A kixikila é um sistema de poupança colectiva rotativa muito comum em Angola. Trata com o mesmo respeito que qualquer produto financeiro formal.
 
 ## Ferramentas de Conhecimento Geral
 Estas ferramentas fornecem informação pública. Usa quando relevante.

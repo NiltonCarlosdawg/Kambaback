@@ -117,10 +117,35 @@ const gerarSystemPrompt = (
     return `És o Kamba, consultor financeiro angolano. Nome do utilizador: ${perfil?.nome || "kamba"}. Data: ${hoje}. Responde em português de Angola, tom casual e directo.`;
   }
 
+  // Detectar zona de Luanda
+  const detectarZonaLuanda = (morada) => {
+    if (!morada) return 'não identificada';
+    const m = morada.toLowerCase();
+    const zonas = {
+      'premium (Miramar, Talatona, Belas)': ['miramar', 'alvalade', 'talatona', 'belas', 'ilha'],
+      'classe média (Kilamba, Sequele, Viana)': ['kilamba', 'sequele', 'camama', 'viana', 'zango'],
+      'popular (Cazenga, Rangel, Sambizanga)': ['cazenga', 'rangel', 'hoji', 'sambizanga', 'cacuaco'],
+      'centro (Ingombota, Maianga, Samba)': ['ingombota', 'maianga', 'samba', 'prenda']
+    };
+    for (const [nome, palavras] of Object.entries(zonas)) {
+      if (palavras.some(p => m.includes(p))) return nome;
+    }
+    return 'Luanda (zona não identificada)';
+  };
+
+  const tipoRendaMap = {
+    'FIXO': 'FIXO (salário fixo)',
+    'VARIAVEL': 'VARIAVEL (rendimento variável/irregular)',
+    'MISTO': 'MISTO (fixo + variável)',
+    'INFORMAL': 'INFORMAL (economia informal/biscates)'
+  };
+
   // Preencher variáveis comuns
   let prompt = template
     .replace(/{{NOME}}/g, perfil?.nome || "kamba")
     .replace(/{{MORADA}}/g, perfil?.morada || "Luanda")
+    .replace(/{{ZONA_LUANDA}}/g, detectarZonaLuanda(perfil?.morada))
+    .replace(/{{TIPO_RENDA}}/g, tipoRendaMap[perfil?.tipoRenda] || 'Não definido')
     .replace(/{{IDADE}}/g, idade || "não informada")
     .replace(
       /{{RENDA}}/g,

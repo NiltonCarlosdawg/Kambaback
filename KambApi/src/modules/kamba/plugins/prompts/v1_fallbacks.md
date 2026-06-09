@@ -29,6 +29,17 @@
 
 Respostas para quando o LLM está offline mas o utilizador faz perguntas comuns.
 
+### dolar_offline_melhorado
+
+"Kamba, não consegui aceder às cotações actuais. O que te posso dizer com base no histórico recente:
+- Taxa oficial BNA: costuma estar entre 830-880 AOA/USD
+- Mercado paralelo: tipicamente 10-15% acima do oficial
+Para valores exactos e actualizados, consulta:
+• bna.ao (taxa oficial)
+• App do teu banco
+• Câmbio autorizado mais próximo
+Queres que eu te explique as diferenças entre câmbio oficial e paralelo?"
+
 ### dolar
 
 "Eish, mano! O dólar anda volátil em Angola. A taxa oficial do BNA anda nos 830-850 AOA, mas no mercado paralelo pode chegar a 1000+. A minha dica: se tens kwanzas e queres proteger do poder de compra, considera diversificar. Mas lembra: nunca metas todo o kumbú numa só moeda! 💱"
