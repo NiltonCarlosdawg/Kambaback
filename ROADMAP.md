@@ -5,9 +5,9 @@ Transformar o Kamba de um assistente funcional mas monolítico num sistema intel
 
 ---
 
-## 📋 Fases do Plano
+## Fases do Plano
 
-### 🔧 Fase 1: Desacoplagem Arquitectural (Foundation)
+### Fase 1: Desacoplagem Arquitectural (Foundation)
 **Objectivo:** Separar o monolito de 1144 linhas em serviços dedicados e bem definidos.
 
 **Problema:** Um ficheiro faz tudo (controller, cache, rate limiter, prompt builder, API client)
@@ -55,7 +55,7 @@ services/kamba/
 
 ---
 
-### 🧠 Fase 2: Memória Inteligente
+### Fase 2: Memória Inteligente
 **Objectivo:** Dar ao Kamba capacidade de lembrar contexto de longo prazo e aprender com o utilizador.
 
 **Problema:** Apaga mensagens antigas; sem contexto de longo prazo; redação regex frágil
@@ -93,7 +93,7 @@ services/kamba/
 
 ---
 
-### 🔌 Fase 3: Sistema de Plugins/Extensões
+### Fase 3: Sistema de Plugins/Extensões
 **Objectivo:** Permitir adicionar novas capacidades sem editar o controller principal.
 
 **Problema:** Ferramentas hardcoded; adicionar nova = editar controller
@@ -139,7 +139,7 @@ toolRegistry.register({
 
 ---
 
-### 🎯 Fase 4: NLU/Classificador Inteligente
+### Fase 4: NLU/Classificador Inteligente
 **Objectivo:** Compreender melhor as intenções do utilizador.
 
 **Problema:** Regex-based intent detection é frágil
@@ -175,7 +175,7 @@ toolRegistry.register({
 
 ---
 
-### 📊 Fase 5: Analytics e Otimização
+### Fase 5: Analytics e Otimização
 **Objectivo:** Ter visibilidade sobre performance e melhorar continuamente.
 
 **Problema:** Zero visibilidade sobre performance do assistente
@@ -217,7 +217,7 @@ toolRegistry.register({
 
 ---
 
-### 🚀 Fase 6: Proatividade Avançada
+### Fase 6: Proatividade Avançada
 **Objectivo:** O Kamba antecipa necessidades e dá conselhos proactivos.
 
 **Problema:** Análise diária simples; não aprende padrões
@@ -255,7 +255,7 @@ toolRegistry.register({
 
 ---
 
-## 🗓️ Calendário de Implementação
+## Calendário de Implementação
 
 | Fase | Descrição | Duração | Dependências |
 |------|-----------|---------|--------------|
@@ -270,7 +270,7 @@ toolRegistry.register({
 
 ---
 
-## 🎯 Critérios de Sucesso
+## Critérios de Sucesso
 
 - [ ] Kamba responde de forma contextual e inteligente
 - [ ] Sistema é modular e fácil de estender
@@ -281,7 +281,7 @@ toolRegistry.register({
 
 ---
 
-## 📝 Notas
+## Notas
 
 - **Multi-Provider:** Fica para o futuro (após Fase 6). Groq é suficiente por agora.
 - **Ollama:** Considerar para fallback offline ou classificador local (Fase 4).
