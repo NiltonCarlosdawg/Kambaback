@@ -19,7 +19,7 @@
 3. Preencha:
    - **Organization**: Sua organisasi vorhanden
    - **Name**: `kambapro` (ou outro nome)
-   - **Database Password**: `***REDACTED-SEGURANCA***` (guarde esta senha!)
+   - **Database Password**: gere uma password forte aleatória (ex.: `openssl rand -base64 24`) e **guarde-a num gestor de passwords** — nunca em ficheiros do repositório
    - **Region**: `🇺🇸 us-east-1` (ou a mais próxima)
 4. Clique **Create new project**
 5. Aguarde 2-3 minutos para provisionamento
@@ -189,4 +189,4 @@ Após tudo configurado:
 ### Projeto Supabase pausado
 - Free tier pausa após 7 dias. Faça um ping ou upgrade.
 
-Supabase:***REDACTED-SEGURANCA***
+> **Segurança:** credenciais nunca ficam neste ficheiro — use as variáveis de ambiente do Render (Settings → Environment) e um gestor de passwords.
