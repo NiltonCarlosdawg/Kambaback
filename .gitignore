@@ -15,3 +15,9 @@ build/
 .cache
 .vite
 .aider*
+.codex
+
+# Artefactos gerados / dumps (F-008, F-081)
+*.rdb
+coverage/
+lcov-report/
