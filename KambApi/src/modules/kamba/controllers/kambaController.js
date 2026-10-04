@@ -154,6 +154,13 @@ const escreverEventoSSE = (res, tipo, dados = {}) => {
   res.write(`data: ${JSON.stringify({ type: tipo, ...dados })}\n\n`);
 };
 
+// Partilhados por todos os caminhos (F-024): antes havia 3 cópias de
+// NAO_CACHEAR e 2 de WIZARD_PATTERN (uma por controller) que podiam divergir.
+const NAO_CACHEAR =
+  /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
+
+const WIZARD_PATTERN = /\[WIZARD:([a-z_]+):(\{.*?\})\]/s;
+
 /**
  * Detecta se a pergunta actual já foi respondida antes (loop detector)
  * Retorna string descritiva para o prompt ou 'nenhum'
@@ -182,39 +189,6 @@ const detectarContextoPendente = async (usuarioId, msgLower, memoriaDB) => {
   } catch {
     return "nenhum";
   }
-};
-
-/**
- * Verifica se é a primeira mensagem desta sessão (últimos 30 min sem actividade)
- * e retorna contexto relevante da sessão anterior se existir
- */
-const getContextoSessaoAnterior = async (usuarioId, memoriaDB, threadId = "default") => {
-  if (memoriaDB.length === 0) return null;
-
-  const ultimaMensagem = memoriaDB[memoriaDB.length - 1];
-  const tempoDecorrido =
-    Date.now() - new Date(ultimaMensagem.criadoEm || 0).getTime();
-  const SESSAO_TIMEOUT = 30 * 60 * 1000; // 30 minutos
-
-  if (tempoDecorrido > SESSAO_TIMEOUT) {
-    const {
-      buscarContextoRelevante,
-    } = require("../services/memory/semanticMemory");
-    const contextosRelevantes = await buscarContextoRelevante(
-      usuarioId,
-      "resumo financeiro objectivos gastos",
-      2,
-      threadId, // F-011: a sessão anterior também é do MESMO thread
-    );
-
-    if (contextosRelevantes.length > 0) {
-      return contextosRelevantes
-        .map((c) => c.content?.substring(0, 100))
-        .filter(Boolean)
-        .join(" | ");
-    }
-  }
-  return null;
 };
 
 // ==========================================
@@ -437,8 +411,6 @@ const processarRotasRapidas = async (
   }
 
   // 8. VERIFICAR CACHE
-  const NAO_CACHEAR =
-    /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
   if (!NAO_CACHEAR.test(msgLower)) {
     const respostaCache = await cacheService.verificar(usuarioId, msgLower);
     if (respostaCache) {
@@ -450,7 +422,306 @@ const processarRotasRapidas = async (
 };
 
 // ==========================================
-// CONTROLLER PRINCIPAL
+// NÚCLEO PARTILHADO (F-024)
+// `conversarComKamba` (JSON) e `conversarComKambaStream` (SSE) eram a mesma
+// função duplicada (~326 + ~305 linhas) e já tinham divergido de forma
+// prejudicial: A/B testing só no JSON, tokens sempre 0 no stream e moderação
+// DEPOIS de o conteúdo já ter sido enviado ao cliente. Agora existe UM
+// pipeline que NUNCA escreve em `res` — devolve um resultado que cada
+// adapter renderiza (JSON vs eventos SSE).
+// ==========================================
+
+/**
+ * Pipeline completo: contexto → LLM (bloqueante ou em modo stream) → tool
+ * calls → pós-processamento (lembretes/empatia/wizard) → moderação ANTES de
+ * transmitir → memória → cache → analytics.
+ *
+ * @param {object} p
+ * @param {string} p.usuarioId
+ * @param {string} p.msg       mensagem já validada e com trim
+ * @param {string} p.msgLower
+ * @param {string} p.threadId
+ * @param {number} p.inicio    timestamp de início (cálculo de latência)
+ * @param {Function|null} [p.onChunk]    presente = modo stream; coleta mas
+ *                                       NUNCA escreve em `res` (buffer)
+ * @param {Function|null} [p.onToolCalls] recebe os nomes das tools executadas
+ * @returns {Promise<{tipo: "offline"|"erro_api_key"|"wizard"|"ok", ...}>}
+ */
+const processarRespostaLLM = async ({
+  usuarioId,
+  msg,
+  msgLower,
+  threadId,
+  inicio,
+  onChunk = null,
+  onToolCalls = null,
+}) => {
+  // 1. CONTEXTO
+  const {
+    perfil,
+    idade,
+    contextoFormatado,
+    memoriaDB,
+    classificacao,
+    sentimento,
+    sentimentoIntensidade,
+    idioma,
+    contextoFinanceiro,
+  } = await prepararContexto(usuarioId, msg, msgLower, threadId);
+
+  console.log(
+    `[KAMBA] Intenção: ${classificacao.intencao} | Tools: ${classificacao.precisaTools} | Confiança: ${classificacao.confianca} | Sentimento: ${sentimento} (${sentimentoIntensidade}) | Idioma: ${idioma}`,
+  );
+
+  // 2. CONTEXTO PENDENTE (loop detector) para o prompt
+  const contextoPendente = await detectarContextoPendente(
+    usuarioId,
+    msgLower,
+    memoriaDB,
+  );
+  const opcoesSessao = { sentimento, sentimentoIntensidade, contextoPendente };
+
+  // 3. MENSAGENS + A/B TESTING (antes só existia no JSON — F-024)
+  const messages = prepararMensagens(
+    classificacao,
+    perfil,
+    idade,
+    contextoFormatado,
+    memoriaDB,
+    msg,
+    contextoFinanceiro,
+    opcoesSessao,
+  );
+
+  let promptVersaoActiva = null;
+  try {
+    const testeActivo = await analytics.getPromptVersao(usuarioId);
+    if (testeActivo && classificacao.precisaTools) {
+      const idxSystem = messages.findIndex((m) => m.role === "system");
+      if (idxSystem !== -1 && testeActivo.promptContent) {
+        messages[idxSystem] = {
+          role: "system",
+          content: testeActivo.promptContent,
+        };
+        promptVersaoActiva = testeActivo.versao;
+      }
+    }
+  } catch (err) {
+    console.warn("[AB_TEST] Erro ao obter versão de prompt:", err.message);
+  }
+
+  // 4. SEM CHAVE DE API → RESPOSTA OFFLINE (memória guardada nos dois adapters)
+  if (!groqClient.isConfigured()) {
+    const resp = getRespostaOffline(msgLower);
+    await conversationService.salvarMemoria(usuarioId, "user", msg, "conversa_ia", threadId);
+    await conversationService.salvarMemoria(usuarioId, "assistant", resp, "conversa_ia", threadId);
+    return { tipo: "offline", resposta: resp };
+  }
+
+  // 5. CHAMADA AO LLM — stream coleta em buffer; JSON espera a resposta inteira
+  const tools = classificacao.precisaTools ? toolRegistry.getToolDefinitions() : null;
+  let data;
+  try {
+    if (onChunk) {
+      data = await groqClient.chamarStream(messages, { tools, onChunk });
+    } else if (classificacao.precisaTools) {
+      data = await groqClient.chamarGroqComTools(messages, tools);
+    } else {
+      data = await groqClient.chamarGroq(messages, false);
+    }
+  } catch (err) {
+    console.error("[KAMBA ERROR] API Error:", err.message);
+
+    if (err.message?.includes("401") || err.message?.includes("Invalid API Key")) {
+      const resp = getRespostaOffline(msgLower);
+      await conversationService.salvarMemoria(usuarioId, "user", msg, "conversa_ia", threadId);
+      await conversationService.salvarMemoria(usuarioId, "assistant", resp, "conversa_ia", threadId);
+      return { tipo: "erro_api_key", resposta: resp };
+    }
+
+    throw err;
+  }
+
+  // 6. TOOL CALLS (2.ª passagem — idêntica nos dois modos)
+  const primeiraMsg = data.choices?.[0]?.message;
+  let finalContent = primeiraMsg?.content || "";
+  let ferramentasUsadas = [];
+  let tokensUsados = data.usage?.total_tokens || 0;
+
+  if (primeiraMsg?.tool_calls?.length > 0) {
+    const toolCalls = primeiraMsg.tool_calls.map((tc) => ({
+      name: tc.function.name,
+      params: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
+      id: tc.id,
+    }));
+
+    if (onToolCalls) {
+      onToolCalls(toolCalls.map((tc) => tc.name));
+    }
+
+    const resultados = await toolRegistry.executeMultiple(toolCalls, {
+      usuarioId,
+    });
+
+    messages.push({
+      role: "assistant",
+      content: primeiraMsg.content || "",
+      tool_calls: primeiraMsg.tool_calls.map((tc) => ({
+        id: tc.id,
+        type: tc.type,
+        function: {
+          name: tc.function.name,
+          arguments: tc.function.arguments,
+        },
+      })),
+    });
+    resultados.forEach((result, idx) => {
+      messages.push({
+        role: "tool",
+        tool_call_id: toolCalls[idx].id,
+        content: JSON.stringify(result.data),
+      });
+    });
+
+    const segunda = onChunk
+      ? await groqClient.chamarStream(messages, { onChunk })
+      : await groqClient.chamarGroq(messages, false);
+
+    finalContent = segunda.choices?.[0]?.message?.content || finalContent;
+    tokensUsados += segunda.usage?.total_tokens || 0;
+    ferramentasUsadas = toolCalls.map((tc) => ({
+      nome: tc.name,
+      sucesso: true,
+    }));
+  }
+
+  if (!finalContent) {
+    finalContent = getFallback("erro_generico");
+  }
+
+  // 7. PÓS-PROCESSAMENTO: lembretes proativos → empatia → bridge do wizard
+  finalContent = await Proatividade.adicionarLembretesNaResposta(
+    usuarioId,
+    finalContent,
+  );
+
+  const prefixoEmpatia = getPrefixoEmpatia(sentimento, sentimentoIntensidade);
+  if (prefixoEmpatia && !finalContent.startsWith(prefixoEmpatia)) {
+    finalContent = `${prefixoEmpatia}\n\n${finalContent}`;
+  }
+
+  const wizardMatch = finalContent.match(WIZARD_PATTERN);
+  if (wizardMatch) {
+    const [fullMatch, tipoFluxo, dadosJson] = wizardMatch;
+    finalContent = finalContent
+      .replace(fullMatch, "")
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+    try {
+      const dadosIniciais = JSON.parse(dadosJson);
+      const fluxoExiste = Wizard.FLUXOS[tipoFluxo];
+
+      if (fluxoExiste && !(await Wizard.temFluxoAtivo(usuarioId))) {
+        const resultadoInicio = await Wizard.iniciarFluxo(
+          usuarioId,
+          tipoFluxo,
+          dadosIniciais,
+        );
+
+        if (resultadoInicio && !resultadoInicio.concluido) {
+          finalContent = `${finalContent}\n\n${resultadoInicio.mensagem}`;
+
+          await conversationService.salvarMemoria(
+            usuarioId,
+            "user",
+            msg,
+            "conversa_ia",
+            threadId,
+          );
+          await conversationService.salvarMemoria(
+            usuarioId,
+            "assistant",
+            finalContent,
+            `inicio_fluxo_${tipoFluxo}`,
+            threadId,
+          );
+
+          return {
+            tipo: "wizard",
+            fluxoTipo: tipoFluxo,
+            content: finalContent,
+            meta: {
+              latencia: Date.now() - inicio,
+              intencao: classificacao.intencao,
+            },
+          };
+        }
+      }
+    } catch (err) {
+      console.warn("[BRIDGE] Erro ao parsear dados do wizard:", err.message);
+    }
+  }
+
+  // 8. MODERAÇÃO DE OUTPUT — ANTES de qualquer transmissão (F-024: no stream
+  // antigo os chunks já tinham sido enviados ao cliente e só depois se
+  // moderava; agora o conteúdo fica em buffer até estar aprovado)
+  let bloqueado = false;
+  const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
+  if (moderacaoOutput.bloqueado) {
+    console.warn(
+      `[MODERACAO] Output bloqueado (user ${usuarioId}): ${moderacaoOutput.categoria}`,
+    );
+    finalContent = contentModerator.getRespostaBloqueio(
+      moderacaoOutput.categoria,
+    );
+    bloqueado = true;
+  }
+
+  // 9. MEMÓRIA (guarda a resposta final — inclui a substituta de bloqueio)
+  await conversationService.salvarMemoria(usuarioId, "user", msg, "conversa_ia", threadId);
+  await conversationService.salvarMemoria(usuarioId, "assistant", finalContent, "conversa_ia", threadId);
+
+  // 10. CACHE
+  if (!NAO_CACHEAR.test(msgLower)) {
+    await cacheService.guardar(usuarioId, msgLower, finalContent);
+  }
+
+  // 11. ANALYTICS (tokens reais também no stream — F-024)
+  const latencia = Date.now() - inicio;
+
+  analytics.registarUso({
+    usuarioId,
+    tokens: tokensUsados,
+    latencia,
+    modelo: groqClient.GROQ_MODEL,
+    sucesso: true,
+    intencao: classificacao.intencao,
+    sentimento,
+    confianca: classificacao.confianca,
+    ferramentas: ferramentasUsadas.length > 0 ? ferramentasUsadas : null,
+    promptVersao: promptVersaoActiva,
+  });
+
+  return {
+    tipo: "ok",
+    content: finalContent,
+    bloqueado,
+    categoria: moderacaoOutput.categoria,
+    meta: {
+      latencia,
+      tokens: tokensUsados,
+      intencao: classificacao.intencao,
+      sentimento,
+      confianca: classificacao.confianca,
+      idioma,
+    },
+  };
+};
+
+// ==========================================
+// CONTROLLER PRINCIPAL (adapter JSON)
 // ==========================================
 
 const conversarComKamba = async (req, res, next) => {
@@ -491,281 +762,41 @@ const conversarComKamba = async (req, res, next) => {
     );
     if (resultadoRapido.handled) return;
 
-    // 3. PREPARAR CONTEXTO (única chamada — elimina duplicação)
-    const {
-      perfil,
-      idade,
-      contextoFormatado,
-      memoriaDB,
-      classificacao,
-      sentimento,
-      sentimentoIntensidade,
-      idioma,
-      contextoFinanceiro,
-    } = await prepararContexto(usuarioId, msg, msgLower, threadId);
-
-    console.log(
-      `[KAMBA] Intenção: ${classificacao.intencao} | Tools: ${classificacao.precisaTools} | Confiança: ${classificacao.confianca} | Sentimento: ${sentimento} (${sentimentoIntensidade}) | Idioma: ${idioma}`,
-    );
-
-    // 3.1 DETECTAR CONTEXTO PENDENTE E SESSÃO
-    const contextoPendente = await detectarContextoPendente(
+    // 3. PIPELINE PARTILHADO (F-024) — só falta renderizar em JSON
+    const resultado = await processarRespostaLLM({
       usuarioId,
+      msg,
       msgLower,
-      memoriaDB,
-    );
-    const contextoSessao = await getContextoSessaoAnterior(
-      usuarioId,
-      memoriaDB,
       threadId,
-    );
+      inicio,
+    });
 
-    const opcoesSessao = {
-      sentimento,
-      sentimentoIntensidade,
-      contextoPendente,
-    };
-
-    // 4. PREPARAR MENSAGENS PARA O LLM
-    const messages = prepararMensagens(
-      classificacao,
-      perfil,
-      idade,
-      contextoFormatado,
-      memoriaDB,
-      msg,
-      contextoFinanceiro,
-      opcoesSessao,
-    );
-
-    // 5. VERIFICAR A/B TESTING
-    let promptVersaoActiva = null;
-    try {
-      const testeActivo = await analytics.getPromptVersao(usuarioId);
-      if (testeActivo && classificacao.precisaTools) {
-        const idxSystem = messages.findIndex((m) => m.role === "system");
-        if (idxSystem !== -1 && testeActivo.promptContent) {
-          messages[idxSystem] = {
-            role: "system",
-            content: testeActivo.promptContent,
-          };
-          promptVersaoActiva = testeActivo.versao;
-        }
-      }
-    } catch (err) {
-      console.warn("[AB_TEST] Erro ao obter versão de prompt:", err.message);
-    }
-
-    // 6. CHAMAR API
-    if (!groqClient.isConfigured()) {
-      const resp = getRespostaOffline(msgLower);
-      return kambaRes(res, resp, { offline: true });
-    }
-
-    let data;
-    try {
-      if (classificacao.precisaTools) {
-        data = await groqClient.chamarGroqComTools(
-          messages,
-          toolRegistry.getToolDefinitions(),
-        );
-      } else {
-        data = await groqClient.chamarGroq(messages, false);
-      }
-    } catch (err) {
-      console.error("[KAMBA ERROR] API Error:", err.message);
-
-      if (
-        err.message?.includes("401") ||
-        err.message?.includes("Invalid API Key")
-      ) {
-        const resp = getRespostaOffline(msgLower);
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "user",
-          msg,
-          "conversa_ia",
-          threadId,
-        );
-        await conversationService.salvarMemoria(
-          usuarioId,
-          "assistant",
-          resp,
-          "conversa_ia",
-          threadId,
-        );
-        return kambaRes(res, resp, { offline: true, error: "api_key_invalid" });
-      }
-
-      throw err;
-    }
-
-    // 7. PROCESSAR RESPOSTA
-    let finalContent;
-    const primeiraMsg = data.choices?.[0]?.message;
-
-    if (primeiraMsg?.tool_calls?.length > 0) {
-      const toolCalls = primeiraMsg.tool_calls.map((tc) => ({
-        name: tc.function.name,
-        params: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-        id: tc.id,
-      }));
-
-      const resultados = await toolRegistry.executeMultiple(toolCalls, {
-        usuarioId,
-      });
-
-      messages.push({
-        role: "assistant",
-        content: primeiraMsg.content || "",
-        tool_calls: primeiraMsg.tool_calls,
-      });
-      resultados.forEach((result, idx) => {
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCalls[idx].id,
-          content: JSON.stringify(result.data),
+    switch (resultado.tipo) {
+      case "offline":
+        return kambaRes(res, resultado.resposta, { offline: true });
+      case "erro_api_key":
+        return kambaRes(res, resultado.resposta, {
+          offline: true,
+          error: "api_key_invalid",
         });
-      });
-
-      const secondData = await groqClient.chamarGroq(messages, false);
-      finalContent = secondData.choices?.[0]?.message?.content;
-    } else {
-      finalContent = primeiraMsg?.content;
+      case "wizard":
+        return kambaRes(res, resultado.content, {
+          fluxoAtivo: true,
+          fluxoTipo: resultado.fluxoTipo,
+          fluxoIniciado: true,
+          latencia: `${resultado.meta.latencia}ms`,
+          intencao: resultado.meta.intencao,
+        });
+      default:
+        return kambaRes(res, resultado.content, {
+          latencia: `${resultado.meta.latencia}ms`,
+          tokens: resultado.meta.tokens,
+          intencao: resultado.meta.intencao,
+          sentimento: resultado.meta.sentimento,
+          confianca: resultado.meta.confianca,
+          idioma: resultado.meta.idioma,
+        });
     }
-
-    if (!finalContent) {
-      finalContent = getFallback("erro_generico");
-    }
-
-    // 8. ADICIONAR LEMBRETES PROATIVOS
-    finalContent = await Proatividade.adicionarLembretesNaResposta(
-      usuarioId,
-      finalContent,
-    );
-
-    // 8.1 PREFIXO DE EMPATIA (se sentimento negativo/intenso)
-    const prefixoEmpatia = getPrefixoEmpatia(sentimento, sentimentoIntensidade);
-    if (prefixoEmpatia && !finalContent.startsWith(prefixoEmpatia)) {
-      finalContent = `${prefixoEmpatia}\n\n${finalContent}`;
-    }
-
-    // 8.2 BRIDGE LLM → WIZARD
-    const WIZARD_PATTERN = /\[WIZARD:([a-z_]+):(\{.*?\})\]/s;
-    const wizardMatch = finalContent.match(WIZARD_PATTERN);
-
-    if (wizardMatch) {
-      const [fullMatch, tipoFluxo, dadosJson] = wizardMatch;
-      finalContent = finalContent
-        .replace(fullMatch, "")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-
-      try {
-        const dadosIniciais = JSON.parse(dadosJson);
-        const fluxoExiste = Wizard.FLUXOS[tipoFluxo];
-
-        if (fluxoExiste && !(await Wizard.temFluxoAtivo(usuarioId))) {
-          const resultadoInicio = await Wizard.iniciarFluxo(
-            usuarioId,
-            tipoFluxo,
-            dadosIniciais,
-          );
-
-          if (resultadoInicio && !resultadoInicio.concluido) {
-            finalContent = `${finalContent}\n\n${resultadoInicio.mensagem}`;
-
-            await conversationService.salvarMemoria(
-              usuarioId,
-              "user",
-              msg,
-              "conversa_ia",
-              threadId,
-            );
-            await conversationService.salvarMemoria(
-              usuarioId,
-              "assistant",
-              finalContent,
-              `inicio_fluxo_${tipoFluxo}`,
-              threadId,
-            );
-
-            return kambaRes(res, finalContent, {
-              fluxoAtivo: true,
-              fluxoTipo: tipoFluxo,
-              fluxoIniciado: true,
-              latencia: `${Date.now() - inicio}ms`,
-              intencao: classificacao.intencao,
-            });
-          }
-        }
-      } catch (err) {
-        console.warn("[BRIDGE] Erro ao parsear dados do wizard:", err.message);
-      }
-    }
-
-    // 9. MODERAÇÃO DE OUTPUT
-    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
-    if (moderacaoOutput.bloqueado) {
-      finalContent = contentModerator.getRespostaBloqueio(
-        moderacaoOutput.categoria,
-      );
-    }
-
-    // 10. SALVAR MEMÓRIA
-    await conversationService.salvarMemoria(
-      usuarioId,
-      "user",
-      msg,
-      "conversa_ia",
-      threadId,
-    );
-    await conversationService.salvarMemoria(
-      usuarioId,
-      "assistant",
-      finalContent,
-      "conversa_ia",
-      threadId,
-    );
-
-    // 11. CACHE
-    const NAO_CACHEAR =
-      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
-    if (!NAO_CACHEAR.test(msgLower)) {
-      await cacheService.guardar(usuarioId, msgLower, finalContent);
-    }
-
-    // 12. LOG DE PERFORMANCE
-    const latencia = Date.now() - inicio;
-    const tokensUsados = data.usage?.total_tokens || 0;
-    const ferramentasUsadas =
-      primeiraMsg?.tool_calls?.map((tc) => ({
-        nome: tc.function.name,
-        sucesso: true,
-      })) || [];
-
-    analytics.registarUso({
-      usuarioId,
-      tokens: tokensUsados,
-      latencia,
-      modelo: groqClient.GROQ_MODEL,
-      sucesso: true,
-      intencao: classificacao.intencao,
-      sentimento,
-      confianca: classificacao.confianca,
-      ferramentas: ferramentasUsadas.length > 0 ? ferramentasUsadas : null,
-      promptVersao: promptVersaoActiva,
-    });
-
-    return kambaRes(res, finalContent, {
-      latencia: `${latencia}ms`,
-      tokens: tokensUsados,
-      intencao: classificacao.intencao,
-      sentimento,
-      confianca: classificacao.confianca,
-      idioma,
-    });
   } catch (err) {
     console.error("[KAMBA ERROR]:", err.message);
 
@@ -816,7 +847,7 @@ const enviarFeedback = async (req, res, next) => {
 };
 
 // ==========================================
-// CONTROLLER DE STREAMING (SSE)
+// CONTROLLER DE STREAMING (SSE) (adapter SSE)
 // ==========================================
 
 const conversarComKambaStream = async (req, res, next) => {
@@ -843,7 +874,7 @@ const conversarComKambaStream = async (req, res, next) => {
       mensagem.trim().length === 0
     ) {
       escreverEventoSSE(res, "error", { message: "Mensagem vazia" });
-      return res.end();
+      return;
     }
 
     const msg = mensagem.trim();
@@ -851,12 +882,12 @@ const conversarComKambaStream = async (req, res, next) => {
       escreverEventoSSE(res, "error", {
         message: "Mensagem muito longa. Máx. 500 caracteres.",
       });
-      return res.end();
+      return;
     }
 
     const msgLower = msg.toLowerCase();
 
-    // Rotas rápidas
+    // Rotas rápidas (já com adapter de stream)
     const resultadoRapido = await processarRotasRapidas(
       usuarioId,
       msg,
@@ -868,262 +899,76 @@ const conversarComKambaStream = async (req, res, next) => {
     );
     if (resultadoRapido.handled) return;
 
-    // Preparar contexto
-    const {
-      perfil,
-      idade,
-      contextoFormatado,
-      memoriaDB,
-      classificacao,
-      sentimento,
-      sentimentoIntensidade,
-      contextoFinanceiro,
-    } = await prepararContexto(usuarioId, msg, msgLower, threadId);
-
-    // Detectar contexto pendente e sessão
-    const contextoPendenteStream = await detectarContextoPendente(
-      usuarioId,
-      msgLower,
-      memoriaDB,
-    );
-    const opcoesSessaoStream = {
-      sentimento,
-      sentimentoIntensidade,
-      contextoPendente: contextoPendenteStream,
-    };
-
-    if (!groqClient.isConfigured()) {
-      const resp = getRespostaOffline(msgLower);
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "user",
-        msg,
-        "conversa_ia",
-        threadId,
-      );
-      await conversationService.salvarMemoria(
-        usuarioId,
-        "assistant",
-        resp,
-        "conversa_ia",
-        threadId,
-      );
-      escreverEventoSSE(res, "chunk", { content: resp });
-      escreverEventoSSE(res, "done", { offline: true });
-      return res.end();
-    }
-
-    const tools = classificacao.precisaTools
-      ? toolRegistry.getToolDefinitions()
-      : null;
-    const messages = prepararMensagens(
-      classificacao,
-      perfil,
-      idade,
-      contextoFormatado,
-      memoriaDB,
-      msg,
-      contextoFinanceiro,
-      opcoesSessaoStream,
-    );
-
-    let finalContent = "";
-
     escreverEventoSSE(res, "stream_start");
 
-    const streamData = await groqClient.chamarStream(messages, {
-      tools,
-      onChunk: (event) => {
-        if (clientDisconnected) return;
-        if (event.type === "chunk") {
-          finalContent += event.content;
-          escreverEventoSSE(res, "chunk", { content: event.content });
-        } else if (event.type === "error") {
-          escreverEventoSSE(res, "error", { message: event.error });
+    // F-024: o pipeline coleta os chunks em BUFFER e NÃO escreve em `res` —
+    // o conteúdo só é transmitido depois de passar a moderação, do wizard e
+    // do pós-processamento (antes, os chunks iam ao cliente e a moderação
+    // acontecia já tarde demais).
+    const resultado = await processarRespostaLLM({
+      usuarioId,
+      msg,
+      msgLower,
+      threadId,
+      inicio,
+      onChunk: () => {}, // modo stream: coleta feita dentro do handleStream
+      onToolCalls: (nomes) => {
+        if (!clientDisconnected) {
+          escreverEventoSSE(res, "tool_calls", { tools: nomes });
         }
       },
     });
 
-    if (clientDisconnected) return res.end();
+    if (clientDisconnected) return;
 
-    let primeiraMsg = streamData.choices?.[0]?.message;
-
-    if (primeiraMsg?.tool_calls?.length > 0) {
-      escreverEventoSSE(res, "tool_calls", {
-        tools: primeiraMsg.tool_calls.map((tc) => tc.function.name),
+    if (resultado.tipo === "offline" || resultado.tipo === "erro_api_key") {
+      escreverEventoSSE(res, "chunk", { content: resultado.resposta });
+      escreverEventoSSE(res, "done", {
+        offline: true,
+        ...(resultado.tipo === "erro_api_key"
+          ? { error: "api_key_invalid" }
+          : {}),
       });
-
-      const toolCalls = primeiraMsg.tool_calls.map((tc) => ({
-        name: tc.function.name,
-        params: tc.function.arguments ? JSON.parse(tc.function.arguments) : {},
-        id: tc.id,
-      }));
-
-      const resultados = await toolRegistry.executeMultiple(toolCalls, {
-        usuarioId,
-      });
-
-      messages.push({
-        role: "assistant",
-        content: primeiraMsg.content || "",
-        tool_calls: primeiraMsg.tool_calls.map((tc) => ({
-          id: tc.id,
-          type: tc.type,
-          function: {
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          },
-        })),
-      });
-
-      resultados.forEach((result, idx) => {
-        messages.push({
-          role: "tool",
-          tool_call_id: toolCalls[idx].id,
-          content: JSON.stringify(result.data),
-        });
-      });
-
-      const secondStream = await groqClient.chamarStream(messages, {
-        onChunk: (event) => {
-          if (clientDisconnected) return;
-          if (event.type === "chunk") {
-            finalContent += event.content;
-            escreverEventoSSE(res, "chunk", { content: event.content });
-          }
-        },
-      });
-
-      finalContent =
-        secondStream.choices?.[0]?.message?.content || finalContent;
+      return;
     }
 
-    if (!finalContent) finalContent = getFallback("erro_generico");
-
-    finalContent = await Proatividade.adicionarLembretesNaResposta(
-      usuarioId,
-      finalContent,
-    );
-
-    // Prefixo de empatia no stream
-    const prefixoEmpatiaStream = getPrefixoEmpatia(
-      sentimento,
-      sentimentoIntensidade,
-    );
-    if (
-      prefixoEmpatiaStream &&
-      !finalContent.startsWith(prefixoEmpatiaStream)
-    ) {
-      finalContent = `${prefixoEmpatiaStream}\n\n${finalContent}`;
+    if (resultado.tipo === "wizard") {
+      escreverEventoSSE(res, "chunk", { content: resultado.content });
+      escreverEventoSSE(res, "done", {
+        fluxoAtivo: true,
+        fluxoTipo: resultado.fluxoTipo,
+        fluxoIniciado: true,
+        latencia: `${resultado.meta.latencia}ms`,
+        intencao: resultado.meta.intencao,
+      });
+      return;
     }
 
-    // BRIDGE LLM → WIZARD no stream
-    const WIZARD_PATTERN_STREAM = /\[WIZARD:([a-z_]+):(\{.*?\})\]/s;
-    const wizardMatchStream = finalContent.match(WIZARD_PATTERN_STREAM);
-
-    if (wizardMatchStream && !clientDisconnected) {
-      const [fullMatch, tipoFluxo, dadosJson] = wizardMatchStream;
-      finalContent = finalContent
-        .replace(fullMatch, "")
-        .replace(/[ \t]+\n/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-
-      try {
-        const dadosIniciais = JSON.parse(dadosJson);
-        const fluxoExiste = Wizard.FLUXOS[tipoFluxo];
-
-        if (fluxoExiste && !(await Wizard.temFluxoAtivo(usuarioId))) {
-          const resultadoInicio = await Wizard.iniciarFluxo(
-            usuarioId,
-            tipoFluxo,
-            dadosIniciais,
-          );
-
-          if (resultadoInicio && !resultadoInicio.concluido) {
-            if (!clientDisconnected) {
-              escreverEventoSSE(res, "chunk", {
-                content: `\n\n${resultadoInicio.mensagem}`,
-              });
-              escreverEventoSSE(res, "done", {
-                fluxoAtivo: true,
-                fluxoTipo: tipoFluxo,
-                fluxoIniciado: true,
-              });
-            }
-            return res.end();
-          }
-        }
-      } catch (err) {
-        console.warn(
-          "[BRIDGE] Erro ao parsear dados do wizard no stream:",
-          err.message,
-        );
-      }
+    // tipo "ok" — transmite APENAS aqui, já com o conteúdo aprovado
+    if (resultado.bloqueado) {
+      escreverEventoSSE(res, "moderated", { mensagem: resultado.content });
+    } else {
+      escreverEventoSSE(res, "chunk", { content: resultado.content });
     }
-
-    // MODERAÇÃO DE OUTPUT NO STREAM
-    const moderacaoOutput = await contentModerator.moderarOutput(finalContent);
-    if (moderacaoOutput.bloqueado) {
-      console.warn(
-        `[MODERACAO] Output bloqueado no streaming (user ${usuarioId}): ${moderacaoOutput.categoria}`,
-      );
-      if (!clientDisconnected) {
-        escreverEventoSSE(res, "moderated", {
-          mensagem: contentModerator.getRespostaBloqueio(
-            moderacaoOutput.categoria,
-          ),
-        });
-      }
-      return res.end();
-    }
-
-    await conversationService.salvarMemoria(
-      usuarioId,
-      "user",
-      msg,
-      "conversa_ia",
-      threadId,
-    );
-    await conversationService.salvarMemoria(
-      usuarioId,
-      "assistant",
-      finalContent,
-      "conversa_ia",
-      threadId,
-    );
-
-    const NAO_CACHEAR =
-      /saldo|gasto|metas?|objetivo|dinheiro|kumbú|tabua|fluxo|emergência|dolar|dólar/i;
-    if (!NAO_CACHEAR.test(msgLower)) {
-      await cacheService.guardar(usuarioId, msgLower, finalContent);
-    }
-
-    const latencia = Date.now() - inicio;
-    analytics.registarUso({
-      usuarioId,
-      tokens: 0,
-      latencia,
-      modelo: groqClient.GROQ_MODEL,
-      sucesso: true,
-      intencao: classificacao.intencao,
-      sentimento,
-      confianca: classificacao.confianca,
-    });
 
     escreverEventoSSE(res, "done", {
-      latencia: `${latencia}ms`,
-      intencao: classificacao.intencao,
+      latencia: `${resultado.meta.latencia}ms`,
+      tokens: resultado.meta.tokens,
+      intencao: resultado.meta.intencao,
+      sentimento: resultado.meta.sentimento,
+      confianca: resultado.meta.confianca,
+      idioma: resultado.meta.idioma,
+      ...(resultado.bloqueado ? { moderado: true } : {}),
     });
   } catch (err) {
     console.error("[KAMBA STREAM ERROR]:", err.message);
     if (!clientDisconnected && res.headersSent) {
-      escreverEventoSSE(res, "error", {
-        message: getFallback("erro_generico"),
-      });
+      escreverEventoSSE(res, "error", { message: getFallback("erro_generico") });
     }
   } finally {
-    if (!clientDisconnected) res.end();
+    if (!clientDisconnected && !res.writableEnded) {
+      res.end();
+    }
   }
 };
 

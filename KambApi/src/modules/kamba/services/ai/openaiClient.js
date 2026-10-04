@@ -33,6 +33,12 @@ const buildParams = (messages, options = {}) => {
     stream,
   };
 
+  // F-024: sem isto, o stream nunca devolve `usage` e a analytics registava
+  // sempre 0 tokens. O chunk final com usage vem com `choices` vazio.
+  if (stream) {
+    params.stream_options = { include_usage: true };
+  }
+
   if (tools && tools.length > 0) {
     params.tools = tools;
     params.tool_choice = "auto";
@@ -43,12 +49,18 @@ const buildParams = (messages, options = {}) => {
 
 const handleStream = async (params, onChunk) => {
   let fullContent = "";
+  let usage = null;
   const toolCallsMap = new Map();
 
   try {
     const stream = await getClient().chat.completions.create(params);
 
     for await (const chunk of stream) {
+      // F-024: o chunk final (stream_options.include_usage) traz `usage` e
+      // `choices` vazio — tem de ser lido ANTES do `continue` abaixo, senão
+      // os tokens ficavam sempre 0.
+      if (chunk.usage) usage = chunk.usage;
+
       const choice = chunk.choices?.[0];
       if (!choice) continue;
 
@@ -104,7 +116,7 @@ const handleStream = async (params, onChunk) => {
         finish_reason: toolCalls ? "tool_calls" : "stop",
       },
     ],
-    usage: { total_tokens: 0 },
+    usage: usage || { total_tokens: 0 },
   };
 };
 
