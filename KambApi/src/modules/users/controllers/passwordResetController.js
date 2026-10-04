@@ -1,9 +1,28 @@
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { sendOTPEmail } = require('../../../services/emailService');
 
-const gerarOTP = () => Math.floor(100000 + Math.random() * 900000).toString();
+// F-020: OTP criptograficamente seguro (crypto.randomInt) e na BD fica APENAS
+// o hash sha256(salt:otp) — um vazar da BD não revela códigos válidos.
+const LIMITE_TENTATIVAS = 5; // bloqueio por conta a partir de 5 tentativas erradas
+
+const gerarOTP = () => crypto.randomInt(100000, 1000000).toString();
+const gerarSalt = () => crypto.randomBytes(16).toString('hex');
+const hashOTP = (otp, salt) =>
+  crypto.createHash('sha256').update(`${salt}:${otp}`).digest('hex');
+
+const otpCorresponde = (otp, token) => {
+  try {
+    const esperado = Buffer.from(token.otp, 'hex');
+    const calculado = Buffer.from(hashOTP(otp, token.salt || ''), 'hex');
+    // linhas antigas (OTP em texto claro) têm comprimento diferente → false
+    return esperado.length === calculado.length && crypto.timingSafeEqual(esperado, calculado);
+  } catch {
+    return false;
+  }
+};
 
 const esqueciSenha = async (req, res, next) => {
   const { email } = req.body;
@@ -22,6 +41,7 @@ const esqueciSenha = async (req, res, next) => {
     }
 
     const otp = gerarOTP();
+    const salt = gerarSalt();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await prisma.passwordResetToken.updateMany({
@@ -32,7 +52,9 @@ const esqueciSenha = async (req, res, next) => {
     await prisma.passwordResetToken.create({
       data: {
         userId: usuario.id,
-        otp,
+        otp: hashOTP(otp, salt),
+        salt,
+        tentativas: 0,
         expiresAt,
       },
     });
@@ -66,10 +88,11 @@ const redefinirSenha = async (req, res, next) => {
       return next(new AppError('Código OTP inválido ou expirado.', 400));
     }
 
+    // F-020: procura o token ativo por utilizador e compara por hash
+    // (a BD nunca armazena nem indexa o OTP em texto claro)
     const token = await prisma.passwordResetToken.findFirst({
       where: {
         userId: usuario.id,
-        otp,
         used: false,
         expiresAt: { gte: new Date() },
       },
@@ -77,6 +100,19 @@ const redefinirSenha = async (req, res, next) => {
     });
 
     if (!token) {
+      return next(new AppError('Código OTP inválido ou expirado.', 400));
+    }
+
+    if (!otpCorresponde(otp, token)) {
+      // F-020: contador de tentativas POR CONTA — ao 5.º erro o token morre
+      // (mensagens idênticas em todos os caminhos de falha: sem oráculo)
+      const tentativas = (token.tentativas || 0) + 1;
+      await prisma.passwordResetToken.update({
+        where: { id: token.id },
+        data: tentativas >= LIMITE_TENTATIVAS
+          ? { tentativas, used: true, usadoEm: new Date() }
+          : { tentativas },
+      });
       return next(new AppError('Código OTP inválido ou expirado.', 400));
     }
 

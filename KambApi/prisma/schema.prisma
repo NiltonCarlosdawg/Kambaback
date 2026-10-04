@@ -414,17 +414,20 @@ model KixikilaContribuicao {
 }
 
 model PasswordResetToken {
-  id        String    @id @default(cuid())
-  userId    String
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  otp       String    @db.VarChar(6)
-  expiresAt DateTime
-  used      Boolean   @default(false)
-  criadoEm  DateTime  @default(now())
-  usadoEm   DateTime?
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // F-020: guarda sha256(salt:otp) em hex — nunca o OTP em texto claro
+  otp        String    @db.VarChar(64)
+  salt       String    @default("") @db.VarChar(32)
+  // F-020: contador de tentativas por conta (bloqueio aos 5 erros)
+  tentativas Int       @default(0)
+  expiresAt  DateTime
+  used       Boolean   @default(false)
+  criadoEm   DateTime  @default(now())
+  usadoEm    DateTime?
 
   @@index([userId])
-  @@index([otp])
 }
 
 // Enums para padronização
