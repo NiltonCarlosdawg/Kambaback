@@ -13,6 +13,19 @@ const buscarInfoUsuarioGoogle = async (accessToken) => {
   return response.json();
 };
 
+// F-007: no fluxo access_token não há verifyIdToken, por isso validamos a
+// audience do token contra o GOOGLE_CLIENT_ID via endpoint tokeninfo do Google
+const verificarAudienceGoogle = async (accessToken) => {
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+  );
+  if (!response.ok) return null;
+  const info = await response.json();
+  const aud = info.aud;
+  const aceite = Array.isArray(aud) ? aud.includes(GOOGLE_CLIENT_ID) : aud === GOOGLE_CLIENT_ID;
+  return aceite ? info : null;
+};
+
 const loginComGoogle = async (req, res, next) => {
   try {
     const { credential, access_token } = req.body;
@@ -43,12 +56,21 @@ const loginComGoogle = async (req, res, next) => {
       });
       payload = ticket.getPayload();
     } else {
+      // F-007: valida que o access_token foi emitido para a NOSSA app
+      const infoAud = await verificarAudienceGoogle(access_token);
+      if (!infoAud) {
+        return res.status(401).json({
+          success: false,
+          mensagem: 'Token Google não foi emitido para esta aplicação.'
+        });
+      }
       const userInfo = await buscarInfoUsuarioGoogle(access_token);
       payload = {
         sub: userInfo.sub,
         email: userInfo.email,
         name: userInfo.name,
         picture: userInfo.picture,
+        email_verified: userInfo.email_verified ?? infoAud.email_verified,
       };
     }
 
@@ -59,6 +81,19 @@ const loginComGoogle = async (req, res, next) => {
     const { sub: googleId, email, name } = payload;
 
     let usuario = await prisma.user.findUnique({ where: { googleId } });
+
+    // F-007: ligar por email exige email VERIFICADO pelo Google — sem isto,
+    // quem controle um email não verificado com o nome da vítima assumia a conta
+    const emailVerificado =
+      payload.email_verified === true || payload.email_verified === 'true';
+
+    if (!usuario && !emailVerificado) {
+      return res.status(401).json({
+        success: false,
+        mensagem:
+          'Email não verificado pelo Google. Inicia sessão com a tua senha para associar a conta Google.'
+      });
+    }
 
     if (!usuario) {
       usuario = await prisma.user.findUnique({ where: { email } });

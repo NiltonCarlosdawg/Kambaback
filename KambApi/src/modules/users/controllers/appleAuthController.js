@@ -76,8 +76,22 @@ const loginComApple = async (req, res, next) => {
 
     const { sub: appleId, email } = payload;
 
+    // F-007: ligar por email exige email VERIFICADO (Apple devolve boolean ou "true")
+    const emailVerificado =
+      payload.email_verified === true || payload.email_verified === 'true';
+
     // Procurar ou criar utilizador
     let usuario = await prisma.user.findUnique({ where: { appleId } });
+
+    // Gate apenas para contas ainda não ligadas a este appleId: sem email
+    // verificado, quem controle um email não verificado da vítima assumia a conta
+    if (!usuario && email && !emailVerificado) {
+      return res.status(401).json({
+        success: false,
+        mensagem:
+          'Email não verificado pela Apple. Inicia sessão com a tua senha para associar a conta Apple.'
+      });
+    }
 
     if (!usuario && email) {
       usuario = await prisma.user.findUnique({ where: { email } });

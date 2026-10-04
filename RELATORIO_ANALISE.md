@@ -168,7 +168,7 @@
   usuario = await prisma.user.findUnique({ where: { email } });
   if (usuario) { usuario = await prisma.user.update({ data: { googleId, ultimoLogin: new Date() } }); }
   ```
-- **Solução sugerida**: exigir `payload.email_verified === true` **antes** do link por email (senão devolver erro pedindo login por senha/OTP para associar), e validar `aud`/`azp` contra `GOOGLE_CLIENT_ID` em todos os fluxos.
+- **Solução sugerida**: exigir `payload.email_verified === true` **antes** do link por email (senão devolver erro pedindo login por senha/OTP para associar), e validar `aud`/`azp` contra `GOOGLE_CLIENT_ID` em todos os fluxos. — **✅ CORRIGIDO em 04/10/2026**: gate `email_verified` (boolean ou `"true"` do Apple) antes de link/criação em **ambos** os controllers (Google + Apple, só para contas ainda não ligadas); fluxo `access_token` do Google agora valida `aud` via endpoint `tokeninfo`. Validado funcionalmente 14/14 com `fetch`/`verifyIdToken`/JWKS mockados e BD real (audience errada→401, não verificado→401 sem link/criação, verificado→liga/cria, já ligado continua a entrar).
 - **Esforço estimado**: Baixo
 
 ---
