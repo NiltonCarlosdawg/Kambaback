@@ -1,6 +1,7 @@
 const { OAuth2Client } = require('google-auth-library');
 const prisma = require('../../../lib/prisma');
 const { gerarTokens } = require('../../../middleware/auth');
+const { definirCookieRefresh } = require('../../../utils/refreshCookie');
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
@@ -128,6 +129,9 @@ const loginComGoogle = async (req, res, next) => {
       where: { id: usuario.id },
       data: { refreshToken, ultimoLogin: new Date() }
     });
+
+    // F-019: refresh token também em cookie httpOnly
+    definirCookieRefresh(res, refreshToken);
 
     return res.json({
       success: true,

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeftRight, BarChart2, Bell, ChevronDown, ChevronRight, LayoutDashboard, LogOut, Menu, MessageCircle, Newspaper, Palette, Search, Tag, TrendingDown, TrendingUp, Trophy, User, Wallet, Wifi, WifiOff, X } from 'lucide-react';
 import dashboardService from '../services/dashboardService';
+import api, { setAccessToken } from '../services/api';
 import { useTheme } from '../contexts/ThemeContext';
 import useSocket from '../hooks/useSocket';
 import useNotificacoes, { NotificacaoTempoReal } from '../hooks/useNotificacoes';
@@ -124,7 +125,13 @@ const Layout: React.FC<LayoutProps> = ({ children, activePage, onNavigate, user 
     return () => document.removeEventListener('keydown', h);
   }, []);
 
-  const handleLogout = () => { localStorage.removeItem('accessToken'); localStorage.removeItem('refreshToken'); window.location.reload(); };
+  const handleLogout = async () => {
+    // F-019: revoga a sessão no servidor (limpa o cookie httpOnly e o refresh
+    // na BD) — sem isto, o reload seguinte renovaria a sessão pelo cookie
+    try { await api.post('/auth/logout'); } catch { /* offline: revoga no próximo login */ }
+    setAccessToken(null);
+    window.location.reload();
+  };
   const handleNavigate = (page: string) => { onNavigate(page); setMobileMenuOpen(false); setAvatarDropdownOpen(false); setSearchOpen(false); setSearchQuery(''); };
 
   const searchResults = searchQuery.trim().length > 0

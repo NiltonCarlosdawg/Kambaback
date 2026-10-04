@@ -1,7 +1,7 @@
 // src/components/Register.tsx
 import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, UserPlus } from 'lucide-react';
-import api from '../services/api';
+import api, { setAccessToken } from '../services/api';
 import { AuthResponse } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -111,8 +111,8 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
       if (data.success) {
         const authUser = data.user ?? data.usuario;
         if (data.accessToken) {
-          localStorage.setItem('accessToken', data.accessToken);
-          if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+          // F-019: access em memória; refresh fica no cookie httpOnly do backend
+          setAccessToken(data.accessToken);
           if (!authUser) {
             setError('Resposta de autenticação inválida.');
             return;

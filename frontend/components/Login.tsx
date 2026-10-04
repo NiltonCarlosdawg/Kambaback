@@ -24,7 +24,7 @@ declare global {
   }
 }
 
-import api from '../services/api';
+import api, { setAccessToken } from '../services/api';
 import { AuthResponse } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
@@ -227,8 +227,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
             access_token: response.access_token
           });
           if (data.success) {
-            localStorage.setItem('accessToken', data.accessToken);
-            if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+            setAccessToken(data.accessToken);
             const authUser = (data as any).user ?? (data as any).usuario;
             if (!authUser) {
               setError('Resposta de autenticação inválida.');
@@ -281,8 +280,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
         nome: nomeApple,
       });
       if (data.success) {
-        localStorage.setItem('accessToken', data.accessToken);
-        if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+        setAccessToken(data.accessToken);
         const authUser = data.user ?? data.usuario;
         if (!authUser) { setError('Resposta de autenticação inválida.'); return; }
         onLoginSuccess(authUser);
@@ -328,8 +326,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
     try {
       const { data } = await api.post<AuthResponse>('/auth/login', { email, senha });
       if (data.success) {
-        localStorage.setItem('accessToken', data.accessToken);
-        if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+        setAccessToken(data.accessToken);
         const authUser = data.user ?? data.usuario;
         if (!authUser) {
           setError('Resposta de autenticação inválida.');

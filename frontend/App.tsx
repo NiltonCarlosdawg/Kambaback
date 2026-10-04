@@ -1,6 +1,6 @@
 // src/App.tsx
 import React, { useState, useEffect } from 'react';
-import api from './services/api';
+import api, { getAccessToken, refreshSession, setAccessToken } from './services/api';
 import { ThemeProvider } from './contexts/ThemeContext';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -125,7 +125,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('accessToken');
+      // F-019: access token só em memória — após um reload renova-se a sessão
+      // pelo cookie httpOnly antes de decidir que não há sessão
+      const token = getAccessToken() || (await refreshSession());
       if (token) {
         try {
           const { data } = await api.get('/auth/perfil');
@@ -141,7 +143,7 @@ const App: React.FC = () => {
             }
           }
         } catch {
-          localStorage.removeItem('accessToken');
+          setAccessToken(null);
         }
       }
       setLoading(false);

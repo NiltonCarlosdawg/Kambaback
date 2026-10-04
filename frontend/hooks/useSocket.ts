@@ -1,6 +1,7 @@
 // src/hooks/useSocket.ts
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { getAccessToken } from '../services/api';
 
 type EventHandler = (data: unknown) => void;
 
@@ -43,7 +44,7 @@ export const useSocket = (options: UseSocketOptions = {}) => {
   optionsRef.current = options;
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
+    const token = getAccessToken(); // F-019: access token só em memória
     if (!token) return;
 
     const socket = createSocket(token);

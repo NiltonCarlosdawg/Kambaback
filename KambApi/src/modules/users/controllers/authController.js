@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
+const { definirCookieRefresh, limparCookieRefresh } = require('../../../utils/refreshCookie');
 
 // ==========================================
 // SECRETS
@@ -133,6 +134,9 @@ const registrar = async (req, res, next) => {
       data: { refreshToken }
     });
 
+    // F-019: refresh token também em cookie httpOnly (o frontend já não o guarda)
+    definirCookieRefresh(res, refreshToken);
+
     res.status(201).json({
       success: true,
       message: 'Conta criada com sucesso!',
@@ -185,6 +189,9 @@ const login = async (req, res, next) => {
       data: { refreshToken, ultimoLogin: new Date() }
     });
 
+    // F-019: refresh token também em cookie httpOnly (o frontend já não o guarda)
+    definirCookieRefresh(res, refreshToken);
+
     res.json({
       success: true,
       message: 'Login realizado',
@@ -221,7 +228,9 @@ const login = async (req, res, next) => {
 // REFRESH TOKEN
 // ==========================================
 const refresh = async (req, res, next) => {
-  const { refreshToken } = req.body;
+  // F-019: lê do cookie httpOnly; o corpo continua aceite como fallback de
+  // transição para clientes antigos que ainda mandam o token no body
+  const refreshToken = req.cookies?.refreshToken || req.body?.refreshToken;
 
   if (!refreshToken) return next(new AppError('Refresh token necessário', 401));
 
@@ -248,6 +257,9 @@ const refresh = async (req, res, next) => {
       where: { id: user.id },
       data: { refreshToken: novoRefresh }
     });
+
+    // F-019: renova o cookie httpOnly com o refresh token rotacionado
+    definirCookieRefresh(res, novoRefresh);
 
     res.json({
       success: true,
@@ -387,7 +399,7 @@ const logout = async (req, res, next) => {
       data: { refreshToken: null }
     });
 
-    res.clearCookie('refreshToken');
+    limparCookieRefresh(res);
 
     res.json({
       success: true,
@@ -441,7 +453,7 @@ const alterarSenha = async (req, res, next) => {
       }
     });
 
-    res.clearCookie('refreshToken');
+    limparCookieRefresh(res);
     res.json({
       success: true,
       message: 'Senha alterada com sucesso'

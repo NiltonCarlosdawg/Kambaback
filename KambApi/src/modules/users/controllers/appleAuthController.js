@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const prisma = require('../../../lib/prisma');
 const { gerarTokens } = require('../../../middleware/auth');
+const { definirCookieRefresh } = require('../../../utils/refreshCookie');
 
 const APPLE_CLIENT_ID = process.env.APPLE_CLIENT_ID;
 const APPLE_JWKS_URI = 'https://appleid.apple.com/auth/keys';
@@ -126,6 +127,9 @@ const loginComApple = async (req, res, next) => {
       where: { id: usuario.id },
       data: { refreshToken, ultimoLogin: new Date() }
     });
+
+    // F-019: refresh token também em cookie httpOnly
+    definirCookieRefresh(res, refreshToken);
 
     return res.json({
       success: true,
