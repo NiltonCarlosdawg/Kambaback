@@ -288,7 +288,7 @@
   const objetivos = await tx.objetivo.findMany({ where: { usuarioId, excluido: false, porcentagemDistribuicao: { gt: 0 } } });
   const distribuicoesPool = distribuirPoolPorPesos(objetivos, valorDistribuidoAutomatica); // lança 400 se soma ≠ 100%
   ```
-- **Solução sugerida**: persistir a repartição efetiva no momento da criação (JSON no `Gasto` ou tabela `DistribuicaoGasto`) e estornar exatamente esses valores, na mesma transação.
+- **Solução sugerida**: persistir a repartição efetiva no momento da criação (JSON no `Gasto` ou tabela `DistribuicaoGasto`) e estornar exatamente esses valores, na mesma transação. — **✅ CORRIGIDO em 04/10/2026** (opção JSON): coluna `Gasto.distribuicoesDetalhes Json?` + migration `20261004021627_add_gasto_distribuicoes_detalhes_f014`; o `criarGasto` persiste `[{objetivoId, valor}]` na transação de criação e o `deletarGasto` estorna **exactamente** essas fatias. Objetivo soft-deleted não é tocado (mas a verba conta para libertar o reservado do cartão); decremento com clamp a 0 (progresso nunca fica negativo); fallback *legacy* para gastos anteriores à coluna (cálculo pelos pesos atuais, agora normalizado pelo F-013 — deixou de poder lançar 400). `atualizarGasto` não redistribui (só criar/deletar), pelo que o split fica sempre válido. Validado E2E 11/11: split `[5000,5000]` persistido; alterado o peso de A (30→50) e apagado B **depois** da criação → estorno reverte 5.000/5.000 (antes: A ficaria **−5.000** pelos pesos atuais), cartão volta a saldo 1.000.000/reservado 0; caminho legacy (`split null`) corre sem erros. Jest `gastos.test.js` 4/4.
 - **Esforço estimado**: Médio
 
 ---

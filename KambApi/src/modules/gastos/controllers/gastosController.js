@@ -99,6 +99,7 @@ const criarGasto = async (req, res, next) => {
       let distribuicaoAutomatica = false;
       let valorDistribuidoTotal = 0;
       let distribuicoes = [];
+      let splitOriginal = null; // F-014: repartição efectiva (para estorno exacto)
       const percentualPoupanca = Number(cartao.percentualDistribuicaoPoupanca || 0);
 
       // --- LÓGICA DE OBJETIVOS ---
@@ -129,6 +130,11 @@ const criarGasto = async (req, res, next) => {
         );
 
         distribuicaoAutomatica = true;
+        // F-014: guardar a repartição efectiva no momento da criação
+        splitOriginal = distribuicoesPool.map((i) => ({
+          objetivoId: i.objetivo.id,
+          valor: Number(i.valor),
+        }));
 
         for (const item of distribuicoesPool) {
           const { objetivo, valor } = item;
@@ -204,7 +210,8 @@ const criarGasto = async (req, res, next) => {
           percentualDistribuicaoPoupanca: distribuicaoAutomatica
             ? percentualPoupanca
             : 0,
-          valorDistribuidoPoupanca: valorDistribuidoTotal
+          valorDistribuidoPoupanca: valorDistribuidoTotal,
+          distribuicoesDetalhes: splitOriginal // F-014: estorno reverte exactamente estes valores
         },
         include: {
           categoria: { select: { nome: true, icone: true } },
@@ -513,36 +520,81 @@ const deletarGasto = async (req, res, next) => {
         
         // CORREÇÃO CRÍTICA: Se tinha distribuição automática, reverter dos objetivos
         if (gasto.distribuicaoAutomatica && valorDistribuidoAutomatica > 0) {
-          const objetivos = await tx.objetivo.findMany({
-            where: { 
-              usuarioId, 
-              excluido: false, 
-              porcentagemDistribuicao: { gt: 0 } 
-            }
-          });
+          const splitPersistido = Array.isArray(gasto.distribuicoesDetalhes)
+            ? gasto.distribuicoesDetalhes.filter(
+                (f) => f && f.objetivoId && Number(f.valor) > 0,
+              )
+            : [];
 
           let totalRevertido = 0;
-          const distribuicoesPool = distribuirPoolPorPesos(
-            objetivos,
-            valorDistribuidoAutomatica,
-          );
 
-          for (const item of distribuicoesPool) {
-            const { objetivo, valor: valorFatiado } = item;
-            if (valorFatiado > 0) {
-              operacoes.push(
-                tx.objetivo.update({
-                  where: { id: objetivo.id },
-                  data: { valorAtual: { decrement: valorFatiado } }
-                })
-              );
-              totalRevertido += valorFatiado;
+          if (splitPersistido.length > 0) {
+            // F-014: estorna EXACTAMENTE a repartição registada na criação.
+            // Antes recomputava com os pesos ACTUAIS — pesos alterados ou
+            // objectivos apagados davam montantes errados no estorno.
+            for (const fatia of splitPersistido) {
+              const valorFatiado = Number(fatia.valor);
 
-              notificacoesReverter.push({
-                tipo: 'objetivo',
-                objetivoId: objetivo.id,
-                valor: -valorFatiado
+              // Objectivo ainda visível? (soft-delete não é tocado, mas a
+              // verba é sempre libertada do reservado do cartão)
+              const objetivoExistente = await tx.objetivo.findFirst({
+                where: { id: fatia.objetivoId, usuarioId, excluido: false },
+                select: { id: true, valorAtual: true },
               });
+
+              if (objetivoExistente) {
+                // clamp a 0 — nunca deixar progresso negativo se o valor
+                // do objectivo foi reduzido entretanto
+                const decremento = Math.min(
+                  valorFatiado,
+                  Math.max(0, Number(objetivoExistente.valorAtual)),
+                );
+                if (decremento > 0) {
+                  operacoes.push(
+                    tx.objetivo.update({
+                      where: { id: objetivoExistente.id },
+                      data: { valorAtual: { decrement: decremento } }
+                    })
+                  );
+                  notificacoesReverter.push({
+                    tipo: 'objetivo',
+                    objetivoId: objetivoExistente.id,
+                    valor: -decremento
+                  });
+                }
+              }
+              totalRevertido += valorFatiado;
+            }
+          } else {
+            // Legacy: gastos anteriores ao F-014 (sem split persistido) —
+            // mantém o cálculo pelos pesos actuais (agora normalizado, F-013)
+            const objetivos = await tx.objetivo.findMany({
+              where: { 
+                usuarioId, 
+                excluido: false, 
+                porcentagemDistribuicao: { gt: 0 } 
+              }
+            });
+            const distribuicoesPool = distribuirPoolPorPesos(
+              objetivos,
+              valorDistribuidoAutomatica,
+            );
+            for (const item of distribuicoesPool) {
+              const { objetivo, valor: valorFatiado } = item;
+              if (valorFatiado > 0) {
+                operacoes.push(
+                  tx.objetivo.update({
+                    where: { id: objetivo.id },
+                    data: { valorAtual: { decrement: valorFatiado } }
+                  })
+                );
+                totalRevertido += valorFatiado;
+                notificacoesReverter.push({
+                  tipo: 'objetivo',
+                  objetivoId: objetivo.id,
+                  valor: -valorFatiado
+                });
+              }
             }
           }
 
@@ -550,7 +602,7 @@ const deletarGasto = async (req, res, next) => {
           ajusteReservado = -totalRevertido;
           // Disponível diminui junto com o saldo, mas o reservado também diminui
           // Net effect: disponivel fica igual (perde saldo mas ganha reserva)
-          ajusteDisponivel = -valor + totalRevertido; 
+          ajusteDisponivel = -valor + totalRevertido;
         } else {
           ajusteDisponivel = -valor;
         }

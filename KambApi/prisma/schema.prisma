@@ -147,6 +147,10 @@ model Gasto {
   distribuicaoAutomatica Boolean @default(false)
   percentualDistribuicaoPoupanca Decimal @default(0) @db.Decimal(5, 2)
   valorDistribuidoPoupanca Decimal @default(0) @db.Decimal(12, 2)
+  // F-014: repartição efectiva persistida no momento da criação
+  // [{ objetivoId, valor }] — o estorno reverte EXACTAMENTE estes valores
+  // (não recomputa com os pesos actuais, que podem ter mudado)
+  distribuicoesDetalhes Json?
   
   usuarioId     String
   usuario       User      @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
