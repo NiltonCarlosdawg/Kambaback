@@ -217,4 +217,38 @@ describe('Kamba conversa (F-024: pipeline JSON + stream unificados)', () => {
       });
     });
   });
+
+  describe('remoção completa da memória (F-028)', () => {
+    it('DELETE /memoria apaga mensagens, embeddings, threads, preferências e cache', async () => {
+      const cacheService = require('../src/modules/kamba/services/core/cacheService');
+
+      // semeia tudo o que a rota promete limpar
+      await prisma.kambaMemoria.create({
+        data: { role: 'user', content: 'ola', contexto: 'teste', usuarioId: user.id },
+      });
+      await prisma.kambaEmbedding.create({
+        data: { content: 'ola', contexto: 'user', usuarioId: user.id },
+      });
+      await prisma.kambaThread.create({
+        data: { nome: 'thread teste', usuarioId: user.id },
+      });
+      await prisma.kambaPreferencias.create({
+        data: { usuarioId: user.id, querPoupar: true },
+      });
+      await cacheService.guardar(user.id, 'pergunta de teste', 'resposta em cache');
+
+      const res = await request(app)
+        .delete('/api/kamba/memoria')
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      expect(await prisma.kambaMemoria.count({ where: { usuarioId: user.id } })).toBe(0);
+      expect(await prisma.kambaEmbedding.count({ where: { usuarioId: user.id } })).toBe(0);
+      expect(await prisma.kambaThread.count({ where: { usuarioId: user.id } })).toBe(0);
+      expect(await prisma.kambaPreferencias.count({ where: { usuarioId: user.id } })).toBe(0);
+      expect(await cacheService.verificar(user.id, 'pergunta de teste')).toBeNull();
+    });
+  });
 });

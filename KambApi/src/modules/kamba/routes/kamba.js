@@ -455,16 +455,27 @@ router.get("/stats/modelos", async (req, res, next) => {
 
 /**
  * DELETE /kamba/memoria
- * Limpa histórico de memória (reset)
+ * Limpa TODO o rasto da conversa do utilizador (reset / direito à remoção):
+ * mensagens, embeddings, threads, preferências inferidas e cache de respostas.
  */
 router.delete("/memoria", async (req, res, next) => {
   try {
     const prisma = require("../../../lib/prisma");
+    const cacheService = require("../services/core/cacheService");
     const usuarioId = req.user.id;
 
-    await prisma.kambaMemoria.deleteMany({
-      where: { usuarioId },
-    });
+    // F-028: antes só apagava KambaMemoria — os embeddings antigos continuavam
+    // a ser reinjetados como contexto e as respostas em cache persistiam.
+    // Nota: os embeddings são apagados diretamente (e não via
+    // semanticMemory.limparEmbeddings, que engole erros) — uma falha na
+    // remoção de dados não pode ser reportada como sucesso.
+    await Promise.all([
+      prisma.kambaMemoria.deleteMany({ where: { usuarioId } }),
+      prisma.kambaEmbedding.deleteMany({ where: { usuarioId } }),
+      prisma.kambaThread.deleteMany({ where: { usuarioId } }),
+      prisma.kambaPreferencias.deleteMany({ where: { usuarioId } }),
+      cacheService.limpar(usuarioId),
+    ]);
 
     return res.json({
       success: true,

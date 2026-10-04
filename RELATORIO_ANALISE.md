@@ -528,6 +528,12 @@
   ```
 - **Solução sugerida**: chamar `semanticMemory.limparEmbeddings(usuarioId)`, `cacheService.limpar(usuarioId)` e limpar preferências/threads na mesma rota.
 - **Esforço estimado**: Baixo
+- ✅ **CORRIGIDO (F-028)**
+  - `DELETE /kamba/memoria` agora apaga, em `Promise.all`: `KambaMemoria`, `KambaEmbedding`, `KambaThread`, `KambaPreferencias` (todas as tabelas derivadas da conversa) **e** chama `cacheService.limpar(usuarioId)` (Redis + fallback em memória).
+  - **Desvio da solução sugerida (justificado)**: os embeddings são apagados com `prisma.kambaEmbedding.deleteMany` directo em vez de `semanticMemory.limparEmbeddings`, que **engole erros** (`try/catch` + `console.error`) — uma falha na remoção de dados não pode ser reportada como sucesso. Comentário no código explica a escolha.
+  - Segurança de consumidores verificada: `kambaThread` só tem `create`/`findMany` (nenhum `findUnique` que falharia em falta) e `kambaPreferencias` é sempre lido com `findUnique` (null tolerado) — apagar é seguro; a rota não tem consumidor no frontend.
+  - **Teste novo**: semeia as 4 tabelas + uma entrada de cache, chama `DELETE /api/kamba/memoria` e verifica contagens a 0 e `cacheService.verificar(...) === null`.
+  - **Validação**: `npm test` → **39/39** (6 suites, +1 da F-028); `npm run lint` → 0 erros. Verificação no navegador não se aplica (API sem output visual; endpoint sem UI consumidora).
 
 ---
 
