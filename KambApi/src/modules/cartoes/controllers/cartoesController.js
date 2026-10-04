@@ -1,6 +1,7 @@
 const prisma = require('../../../lib/prisma');
 const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
+const { calcularNovosSaldos } = require('../services/saldoCartaoService');
 
 const arredondarDinheiro = (valor) =>
   Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
@@ -321,31 +322,21 @@ const atualizarSaldo = async (req, res, next) => {
         throw new AppError('Cartão não encontrado ou inativo', 404);
       }
 
-      const saldoAtual = Number(cartao.saldoAtual);
-      const saldoDisponivel = Number(cartao.saldoDisponivel);
-      const saldoReservado = Number(cartao.saldoReservado);
       const percentualPoupanca = Number(cartao.percentualDistribuicaoPoupanca || 0);
 
-      let novoSaldoAtual = saldoAtual;
-      let novoSaldoDisponivel = saldoDisponivel;
-      let novoSaldoReservado = saldoReservado;
+      // Regra única por tipo de cartão (F-005) — ver saldoCartaoService:
+      // no CREDITO, saldoAtual = dívida (DESPESA aumenta, RECEITA é pagamento).
+      // Lança AppError 400 quando não há saldo/limite disponível.
+      const base = calcularNovosSaldos(cartao, tipoTransacao, valorNum);
+      let novoSaldoAtual = base.saldoAtual;
+      let novoSaldoDisponivel = base.saldoDisponivel;
+      let novoSaldoReservado = base.saldoReservado;
       let distribuicoes = [];
 
       // ==========================================
       // LÓGICA DE RECEITA
       // ==========================================
       if (tipoTransacao === 'RECEITA') {
-        if (cartao.tipo === 'CREDITO') {
-          
-          novoSaldoAtual = Math.max(0, saldoAtual - valorNum);
-          novoSaldoDisponivel = saldoDisponivel + valorNum;
-        } else {
-          
-          novoSaldoAtual = saldoAtual + valorNum;
-          novoSaldoDisponivel = saldoDisponivel + valorNum;
-        }
-
-       
         if (cartao.distribuirParaObjetivos && percentualPoupanca > 0) {
           const objetivos = await tx.objetivo.findMany({
             where: {
@@ -403,34 +394,6 @@ const atualizarSaldo = async (req, res, next) => {
         }
       }
 
-      // ==========================================
-      // LÓGICA DE DESPESA
-      // ==========================================
-      else if (tipoTransacao === 'DESPESA') {
-        if (cartao.tipo === 'CREDITO') {
-        
-          if (saldoDisponivel < valorNum) {
-            throw new AppError(
-              `Limite de crédito insuficiente no cartão ${cartao.nome}. ` +
-              `Disponível: ${saldoDisponivel.toFixed(2)} Kz`,
-              400
-            );
-          }
-          novoSaldoAtual = saldoAtual + valorNum;
-          novoSaldoDisponivel = saldoDisponivel - valorNum;
-        } else {
-          
-          if (saldoDisponivel < valorNum) {
-            throw new AppError(
-              `Saldo disponível insuficiente no cartão ${cartao.nome}. ` +
-              `Disponível: ${saldoDisponivel.toFixed(2)} Kz`,
-              400
-            );
-          }
-          novoSaldoAtual = saldoAtual - valorNum;
-          novoSaldoDisponivel = saldoDisponivel - valorNum;
-        }
-      }
 
       const cartaoAtualizado = await tx.cartao.update({
         where: { id },

@@ -4,6 +4,7 @@ const AppError = require('../../../middleware/AppError');
 const { invalidarCacheUsuario } = require('../../insights/controllers/insightsController');
 const NotificacaoService = require('../../users/services/notificacaoService');
 const { sanitizeHtml } = require('../../../utils/sanitizer');
+const { calcularNovosSaldos } = require('../../cartoes/services/saldoCartaoService');
 
 const arredondarDinheiro = (valor) =>
   Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
@@ -213,30 +214,18 @@ const criarGasto = async (req, res, next) => {
       });
 
       // 4. Atualização de Saldo do Cartão
-      const fator = tipo === 'RECEITA' ? 1 : -1;
-      const novoSaldo = Number(cartao.saldoAtual) + (valorNum * fator);
-      let novoDisponivel = Number(cartao.saldoDisponivel);
-      let novoReservado = Number(cartao.saldoReservado);
-
-      if (tipo === 'RECEITA') {
-        novoDisponivel += valorNum;
-        if (distribuicaoAutomatica) {
-          novoReservado += valorDistribuidoTotal;
-          novoDisponivel = novoSaldo - novoReservado;
-        }
-      } else {
-        // DESPESA: diminui disponível
-        novoDisponivel -= valorNum;
-        // Reservado permanece igual
-      }
+      // Regra única por tipo de cartão (F-005): no CREDITO, DESPESA aumenta a
+      // dívida e RECEITA é pagamento — já não diverge de atualizarSaldo.
+      const novosSaldos = calcularNovosSaldos(
+        cartao,
+        tipo,
+        valorNum,
+        distribuicaoAutomatica ? valorDistribuidoTotal : 0,
+      );
 
       const cartaoAtualizado = await tx.cartao.update({
         where: { id: cartaoId },
-        data: { 
-          saldoAtual: novoSaldo,
-          saldoDisponivel: novoDisponivel,
-          saldoReservado: novoReservado
-        }
+        data: novosSaldos
       });
 
       return {

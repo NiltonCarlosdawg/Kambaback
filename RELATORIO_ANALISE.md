@@ -131,7 +131,7 @@
   // cartoesController.js:339-341 (CREDITO)
   if (cartao.tipo === 'CREDITO') { novoSaldoAtual = Math.max(0, saldoAtual - valorNum); ... }
   ```
-- **Solução sugerida**: extrair uma única função `aplicarMovimentoCartao(tx, cartao, tipo, valor)` usada por ambos os controllers, com regra explícita por `tipo === 'CREDITO'` e invariantes documentados (`saldoDisponivel = min(limite, saldoAtual - saldoReservado)`).
+- **Solução sugerida**: extrair uma única função `aplicarMovimentoCartao(tx, cartao, tipo, valor)` usada por ambos os controllers, com regra explícita por `tipo === 'CREDITO'` e invariantes documentados (`saldoDisponivel = min(limite, saldoAtual - saldoReservado)`). — **✅ CORRIGIDO em 04/10/2026**: criado `cartoes/services/saldoCartaoService.js` com `calcularNovosSaldos()`, usado por `criarGasto` e `atualizarSaldo` (regra única: no CREDITO, `saldoAtual` = dívida — DESPESA aumenta, RECEITA paga até 0; pagamento excedente já não inflaciona o limite, `saldoDisponivel` capado em `limiteCredito`). Validado: 8 testes unitários do helper, suite jest sem regressões (8 passam = baseline) e 8 cenários E2E (endpoints convergem, bloqueio de limite em ambos, DEBITO inalterado).
 - **Esforço estimado**: Médio
 
 ---
