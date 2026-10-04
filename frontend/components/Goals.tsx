@@ -69,7 +69,7 @@ const progressVariants = {
     transition: {
       ...springSmooth,
       delay: 0.3,
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 100,
       damping: 20,
     },
@@ -456,7 +456,7 @@ const Goals: React.FC = () => {
           >
             {objetivos.map((obj, index) => {
               const progresso = Math.min(Math.round((Number(obj.valorAtual) / Number(obj.valorAlvo)) * 100), 100);
-              const pc = prioridadeColors[obj.prioridade] || prioridadeColors.BAIXA;
+              const pc = (obj.prioridade ? prioridadeColors[obj.prioridade] : undefined) || prioridadeColors.BAIXA;
               const daysLeft = getDaysRemaining(obj.dataPrevista);
               return (
                 <motion.div
@@ -518,7 +518,7 @@ const Goals: React.FC = () => {
                       <span className="px-2.5 py-1 rounded-full text-xs font-bold" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>{daysLeft}d restantes</span>
                     )}
                   </div>
-                  {obj.porcentagemDistribuicao > 0 && (
+                  {(obj.porcentagemDistribuicao ?? 0) > 0 && (
                     <motion.div
                       className="flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg mb-4"
                       style={{ backgroundColor: 'rgba(59,130,246,0.2)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}

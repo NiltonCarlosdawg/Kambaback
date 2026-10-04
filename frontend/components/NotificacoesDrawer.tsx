@@ -29,7 +29,6 @@ const NotificacaoItem: React.FC<{ notificacao: Notificacao; onMarcarLida: (id: s
       <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 text-base ring-1 ring-inset"
         style={{
           backgroundColor: notificacao.lida ? 'var(--bg-elevated)' : 'var(--accent-10)',
-          ringColor: notificacao.lida ? 'var(--border)' : 'var(--accent-20)',
         }}>
         {icone}
       </div>
@@ -112,7 +111,7 @@ const NotificacoesDrawer: React.FC<NotificacoesDrawerProps> = ({
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="w-9 h-9 rounded-xl flex items-center justify-center ring-1 ring-inset"
-                style={{ backgroundColor: 'var(--accent-10)', ringColor: 'var(--accent-20)' }}>
+                style={{ backgroundColor: 'var(--accent-10)' }}>
                 <Bell size={18} style={{ color: 'var(--accent)' }} />
               </div>
               {totalNaoLidas > 0 && (

@@ -92,7 +92,10 @@ const AnimatedBackground: React.FC = () => {
 };
 
 // ─── Shared inline components ───────────────────────────────────────────────
-const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement> & { 
+// F-026: os handlers de arrastar/animação do React conflitam com as assinaturas
+// próprias do framer-motion em HTMLMotionProps — este input não os usa.
+const Input: React.FC<Omit<React.InputHTMLAttributes<HTMLInputElement>,
+  'onDrag' | 'onDragStart' | 'onDragEnd' | 'onAnimationStart'> & {
   label?: string; 
   icon?: React.ReactNode;
   error?: boolean;
@@ -215,7 +218,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
     const client = window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: 'openid profile email',
-      callback: async (response) => {
+      callback: async (response: { error?: string; access_token?: string }) => {
         if (response.error) {
           console.error('[GOOGLE] Erro:', response.error);
           setError('Login com Google cancelado.');
@@ -242,7 +245,7 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
           setLoading(false);
         }
       },
-      error_callback: (err) => {
+      error_callback: (err: unknown) => {
         console.error('[GOOGLE] Erro:', err);
         setError('Erro no login com Google.');
       },

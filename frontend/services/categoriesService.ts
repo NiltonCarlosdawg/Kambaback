@@ -4,7 +4,8 @@ import api from './api';
 export interface Categoria {
   id: string;
   nome: string;
-  tipo: string;
+  // Mesmo domínio do enum TipoCategoria do backend (fonte única: ../types).
+  tipo: 'ESSENCIAL' | 'FLEXIVEL' | 'POUPANCA' | 'RENDIMENTO';
   cor: string;
   icone?: string;
   padrao: boolean;

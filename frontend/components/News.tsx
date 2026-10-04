@@ -4,8 +4,8 @@ import { Calendar, Cpu, ExternalLink, Globe, Landmark, MapPin, Newspaper, Refres
 import newsService, { Artigo } from '../services/newsService';
 import { useTheme } from '../contexts/ThemeContext';
 
-const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
-  <div className={`rounded-3xl border ${className}`} style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+const Card: React.FC<{ children: React.ReactNode; className?: string; style?: React.CSSProperties }> = ({ children, className = '', style }) => (
+  <div className={`rounded-3xl border ${className}`} style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', ...style }}>
     {children}
   </div>
 );

@@ -473,6 +473,23 @@
   ```
 - **Solução sugerida**: `"build": "tsc -b && vite build"`, `strict: true`, remover o `declare global` e o `@ts-nocheck`, corrigir os erros resultantes.
 - **Esforço estimado**: Médio
+- ✅ **CORRIGIDO (F-026)**
+  - `package.json` → `"build": "tsc --noEmit && vite build --configLoader runner"` (equivalente ao sugerido `tsc -b`, dado não existirem project references); `tsconfig.json` → `"strict": true`.
+  - Removidos o `declare global { namespace JSX { IntrinsicElements: any } }` + `declare module 'react/jsx-runtime'` (KambaChat) e o `// @ts-nocheck` (ErrorBoundary, agora com `ErrorBoundaryProps`/`ErrorBoundaryState` tipados).
+  - **Causa-raiz encontrada**: `@types/react`/`@types/react-dom` **não estavam instalados** — daí os 59 `TS7016` e o hack JSX. Instalados (`@types/react@19`, `@types/react-dom@19`); com o hack removido os erros strict caíram de 378 → 29 (params ganharam tipo contextual do JSX).
+  - **Bugs reais corrigidos pelos 29 erros**:
+    - `KambaChat.tsx` `m` solto após JSX → `ReferenceError` em runtime no ícone troféu (`TS2304`).
+    - `Gasto.tipo` `'despesa'|'receita'` → `'DESPESA'|'RECEITA'` (enum Prisma `TipoGasto` + validação do backend) — 5 comparações `TS2367` eram **sempre falsas** (Dashboard "últimas transações", filtros e totais de Transactions).
+    - `Cartao.tipo` 6 valores inexistentes → `'DEBITO'|'CREDITO'|'POUPANCA'` (enum `TipoCartao` + `tiposValidos` do controller); adicionado `saldoDisponivel?: number` (existe no backend; Wallet lia `undefined`).
+    - `Categoria.tipo` unificado em `'ESSENCIAL'|'FLEXIVEL'|'POUPANCA'|'RENDIMENTO'` em `types.ts` **e** `categoriesService.ts` (eliminado o conflito entre as duas interfaces `Categoria` que causava `TS2345`).
+    - `Transactions`: `formData.tipo` estreitado à união (`TS2322`); guarda em `t.descricao` possivelmente `undefined` (`TS2367`).
+    - `News.tsx` `Card` **ignorava o `style` recebido** → prop adicionada e aplicada (a cor de borda do "Resumo da IA" passa a funcionar).
+    - `ringColor`/`divideColor` removidos em 5 sítios (não são CSS — nunca tiveram efeito visual; zero mudança).
+    - `Login`: `Omit` dos handlers `onDrag*`/`onAnimationStart` que conflituam com `HTMLMotionProps` do framer-motion; callbacks Google com `response`/`err` anotados (`TS7006`).
+    - `Goals`: índice de `prioridadeColors` com `prioridade` indefinida, `porcentagemDistribuicao ?? 0`, `type: 'spring' as const` nas variants.
+    - `Relatorio`: cast explícito para `ChartDataInput` no `<Pie data>`; `Dashboard`: cast do `cloneElement` de ícones.
+    - `demo.tsx`: import `default` → nomeado (`TS1192`) + props obrigatórios do `RuixenStatsChart` fornecidos.
+  - **Validação**: `npx tsc --noEmit` → **0 erros em strict**; `npm run build` → exit 0; verificação no navegador (hook): login + tutorial + páginas **Notícias** e **Kamba AI** renderizam com **0 erros JS e 0 erros de consola**.
 
 ---
 

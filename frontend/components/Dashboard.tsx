@@ -111,7 +111,7 @@ const KPICard: React.FC<{
               }}
               whileHover={{ rotate: 15, scale: 1.1 }}
             >
-              {React.cloneElement(icon as React.ReactElement, { 
+              {React.cloneElement(icon as React.ReactElement<{ size?: number; style?: React.CSSProperties }>, { 
                 size: 22, 
                 style: { color: '#fff', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.1))' } 
               })}
@@ -508,7 +508,7 @@ const Dashboard: React.FC = () => {
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-faint)' }}>
             Resumo do teu patrimônio
             {data.cached && <span className="ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ring-1 ring-inset"
-              style={{ color: 'var(--text-faint)', backgroundColor: 'var(--bg-elevated)', ringColor: 'var(--border)' }}>cache</span>}
+              style={{ color: 'var(--text-faint)', backgroundColor: 'var(--bg-elevated)' }}>cache</span>}
           </p>
         </div>
         <motion.button 

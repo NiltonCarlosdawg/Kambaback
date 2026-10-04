@@ -416,7 +416,8 @@ const Relatorio: React.FC = () => {
             <div className="flex items-center gap-6">
               <ResponsiveContainer width="50%" height={210}>
                 <PieChart>
-                  <Pie data={topCategorias} cx="50%" cy="50%" innerRadius={55} outerRadius={85}
+                  {/* F-026: recharts exige ChartDataInput (Record<string, unknown>) — cast explícito */}
+                  <Pie data={topCategorias as unknown as Array<Record<string, unknown>>} cx="50%" cy="50%" innerRadius={55} outerRadius={85}
                     dataKey="valor" paddingAngle={3} startAngle={90} endAngle={-270}>
                     {topCategorias.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
                   </Pie>

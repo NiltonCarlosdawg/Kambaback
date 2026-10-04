@@ -102,7 +102,7 @@ const Transactions: React.FC = () => {
   
   // Form State
   const [formData, setFormData] = useState({
-    descricao: '', valor: '', tipo: 'DESPESA', data: new Date().toISOString().split('T')[0],
+    descricao: '', valor: '', tipo: 'DESPESA' as 'DESPESA' | 'RECEITA', data: new Date().toISOString().split('T')[0],
     categoriaId: '', cartaoId: '', objetivoId: ''
   });
 
@@ -209,7 +209,7 @@ const Transactions: React.FC = () => {
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
-      const matchSearch = t.descricao.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = (t.descricao || '').toLowerCase().includes(search.toLowerCase());
       const matchType   = typeFilter === 'TODOS' || t.tipo === typeFilter;
       return matchSearch && matchType;
     });

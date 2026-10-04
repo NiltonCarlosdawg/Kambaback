@@ -26,12 +26,15 @@ export interface AuthResponse {
 export interface Cartao {
   id: string;
   nome: string;
-  tipo: 'multicaixa' | 'conta_bancaria' | 'ekwanza' | 'credito' | 'debito' | 'investimento';
+  // Runtime do backend: enum TipoCartao — validado em /cartoes como
+  // ['DEBITO','CREDITO','POUPANCA'].
+  tipo: 'DEBITO' | 'CREDITO' | 'POUPANCA';
   banco?: string;
   numero?: string;
   saldoAtual: number;
   limiteCredito?: number;
   disponivel?: number;
+  saldoDisponivel?: number;
   cor?: string;
   icone?: string;
   ativo: boolean;
@@ -44,7 +47,9 @@ export interface Cartao {
 export interface Categoria {
   id: string;
   nome: string;
-  tipo: 'despesa' | 'receita';
+  // Runtime do backend: enum TipoCategoria (schema.prisma) — validado em
+  // /categorias como ['ESSENCIAL','FLEXIVEL','POUPANCA','RENDIMENTO'].
+  tipo: 'ESSENCIAL' | 'FLEXIVEL' | 'POUPANCA' | 'RENDIMENTO';
   cor?: string;
   icone?: string;
   padrao: boolean;
@@ -55,7 +60,9 @@ export interface Gasto {
   id: string;
   descricao?: string;
   valor: number;
-  tipo: 'despesa' | 'receita';
+  // Runtime do backend: enum TipoGasto — validado em /gastos como
+  // ['DESPESA','RECEITA'] (o valor minúsculo nunca chegava a bater certo).
+  tipo: 'DESPESA' | 'RECEITA';
   data: string;
   local?: string;
   categoria: Categoria | null; // Pode ser null se categoria foi deletada

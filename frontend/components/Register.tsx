@@ -155,7 +155,7 @@ const Register: React.FC<RegisterProps> = ({ onRegisterSuccess, onBackToLogin })
         {/* Heading */}
         <div className="mb-8">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl ring-1 ring-inset mb-4"
-            style={{ backgroundColor: 'var(--accent-10)', ringColor: 'var(--accent-20)' }}>
+            style={{ backgroundColor: 'var(--accent-10)' }}>
             <UserPlus size={22} style={{ color: 'var(--accent)' }} />
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-1" style={{ color: 'var(--text-primary)' }}>

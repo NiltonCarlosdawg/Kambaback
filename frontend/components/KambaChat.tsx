@@ -5,18 +5,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 
-// Provide a minimal JSX.IntrinsicElements declaration to satisfy TS when the
-// project's TSX/JSX config is not picking up built-in JSX types.
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      [elemName: string]: any;
-    }
-  }
-}
-
-declare module 'react/jsx-runtime';
-
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   IoPaperPlaneOutline,
@@ -122,7 +110,7 @@ function cx(...cls: (string | boolean | undefined)[]) {
 function rehydrateCardIcon(iconType?: string): React.ReactNode {
   switch (iconType) {
     case 'warning': return <IoWarningOutline size={14} />;
-    case 'trophy':  return <IoTrophyOutline  size={14} />;m
+    case 'trophy':  return <IoTrophyOutline  size={14} />;
     case 'wallet':  return <IoWalletOutline  size={14} />;
     default:        return <IoSparklesOutline size={14} />;
   }
@@ -657,7 +645,7 @@ function RenderText({ text, isUser }: { text: string; isUser: boolean }) {
               </div>
 
               {entries.length > 0 ? (
-                <div className="divide-y" style={{ divideColor: 'var(--accent-15)' }}>
+                <div className="divide-y">
                   {entries.map(([key, value]) => (
                     <div key={`${baseKey}-${key}`} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] gap-3 px-4 py-3">
                       <div className="text-[10px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-faint)' }}>
