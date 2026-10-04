@@ -6,6 +6,7 @@ import transactionsService from '../services/transactionsService';
 import categoriesService from '../services/categoriesService';
 import cardsService from '../services/cardsService';
 import goalsService from '../services/goalsService';
+import { getApiError } from '../utils/apiError';
 import { Gasto, Categoria, Cartao, Objetivo } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
@@ -93,7 +94,8 @@ const Transactions: React.FC = () => {
   const [refreshing,   setRefreshing]   = useState(false);
   const [showForm,     setShowForm]     = useState(false);
   const [error,        setError]        = useState('');
-  
+  const [saving,       setSaving]       = useState(false); // F-025(c): guarda de reentrância
+
   // Filters
   const [search,       setSearch]       = useState('');
   const [typeFilter,   setTypeFilter]   = useState<'TODOS' | 'DESPESA' | 'RECEITA'>('TODOS');
@@ -107,6 +109,7 @@ const Transactions: React.FC = () => {
   const fetchData = async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true); else setLoading(true);
+      setError(''); // F-025: limpa erro anterior para o retry conseguir encerrar o banner
       const [tRes, cRes, cardRes] = await Promise.all([
         transactionsService.listar(),
         categoriesService.listar(),
@@ -122,7 +125,7 @@ const Transactions: React.FC = () => {
       } catch {
         setGoals([]);
       }
-    } catch { setError('Falha ao sincronizar transações.'); }
+    } catch (err) { setError(getApiError(err, 'Falha ao sincronizar transações.')); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -152,6 +155,7 @@ const Transactions: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return; // F-025(c): duplo clique criava transações duplicadas
     if (!formData.descricao || !formData.valor) return;
 
     if (!formData.cartaoId) {
@@ -181,6 +185,7 @@ const Transactions: React.FC = () => {
       }
     }
     
+    setSaving(true);
     try {
       setError('');
       await transactionsService.criar({
@@ -196,7 +201,9 @@ const Transactions: React.FC = () => {
       setFormData({ descricao: '', valor: '', tipo: 'DESPESA', data: new Date().toISOString().split('T')[0], categoriaId: '', cartaoId: '', objetivoId: '' });
       fetchData(true);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Falha ao registar transação.');
+      setError(getApiError(err, 'Falha ao registar transação.'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -259,7 +266,7 @@ const Transactions: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2">
-          <button onClick={() => fetchData(true)} disabled={refreshing}
+          <button onClick={() => fetchData(true)} disabled={refreshing} aria-label="Atualizar transações"
             className="p-2.5 rounded-xl border transition-all disabled:opacity-40"
             style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
             <RefreshCcw size={18} className={refreshing ? 'animate-spin' : ''} />
@@ -272,6 +279,19 @@ const Transactions: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* F-025(b): erro de sincronização visível fora do modal, com repetição */}
+      {error && !showForm && (
+        <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border bg-red-500/10 border-red-500/20 text-red-400 text-sm font-bold">
+          <span className="flex items-center gap-2">
+            <AlertCircle size={16} /> {error}
+          </span>
+          <button onClick={() => fetchData(true)} disabled={refreshing}
+            className="px-4 py-2 rounded-xl border border-red-500/30 transition-all disabled:opacity-40">
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* Summary Row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -545,11 +565,11 @@ const Transactions: React.FC = () => {
                     style={{ borderColor: 'var(--border)', color: 'var(--text-faint)' }}>
                     Cancelar
                   </button>
-                  <motion.button type="submit"
+                  <motion.button type="submit" disabled={saving}
                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    className="flex-1 py-3 rounded-xl font-black shadow-lg shadow-accent/20"
+                    className="flex-1 py-3 rounded-xl font-black shadow-lg shadow-accent/20 disabled:opacity-60"
                     style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
-                    Guardar
+                    {saving ? 'A guardar…' : 'Guardar'}
                   </motion.button>
                 </div>
               </motion.form>

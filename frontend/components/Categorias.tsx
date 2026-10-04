@@ -1,6 +1,7 @@
 // src/components/Categorias.tsx
 import React, { useEffect, useState } from 'react';
 import categoriesService, { Categoria as ServiceCategoria } from '../services/categoriesService';
+import { getApiError } from '../utils/apiError';
 import { useTheme } from '../contexts/ThemeContext';
 
 type TipoCategoria = 'ESSENCIAL' | 'FLEXIVEL' | 'POUPANCA' | 'RENDIMENTO';
@@ -51,6 +52,7 @@ const Categorias: React.FC = () => {
   const [tipoFiltro,  setTipoFiltro]  = useState<TipoCategoria>('ESSENCIAL');
   const [showModal,   setShowModal]   = useState(false);
   const [error,       setError]       = useState('');
+  const [saving,      setSaving]      = useState(false); // F-025(c): guarda de reentrância
   const [editMode,    setEditMode]    = useState(false);
   const [currentId,   setCurrentId]   = useState<string | null>(null);
   const [formData,    setFormData]    = useState<CategoriaForm>({ nome: '', tipo: 'ESSENCIAL', cor: TIPO_CONFIG['ESSENCIAL'].cor, icone: TIPO_CONFIG['ESSENCIAL'].iconePadrao });
@@ -62,7 +64,7 @@ const Categorias: React.FC = () => {
       setLoading(true); setError('');
       const data = await categoriesService.listar();
       setCategorias(data.categorias as Categoria[] || []);
-    } catch (err: any) { setError(err.response?.data?.mensagemAmigavel || err.response?.data?.message || 'Erro ao carregar categorias'); }
+    } catch (err: any) { setError(getApiError(err, 'Erro ao carregar categorias.')); }
     finally { setLoading(false); }
   };
 
@@ -81,19 +83,22 @@ const Categorias: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault(); setError('');
+    if (saving) return; // F-025(c): duplo clique criava categorias duplicadas
+    setSaving(true);
     try {
       let cor = formData.cor.startsWith('#') ? formData.cor : `#${formData.cor}`;
       cor = cor.toLowerCase();
       if (editMode && currentId) { await categoriesService.atualizar(currentId, { nome: formData.nome.trim(), cor, icone: formData.icone }); }
       else { await categoriesService.criar({ nome: formData.nome.trim(), tipo: formData.tipo, cor, icone: formData.icone }); }
       setShowModal(false); fetchCategorias();
-    } catch (err: any) { setError(err.response?.data?.mensagemAmigavel || err.response?.data?.message || 'Erro ao salvar'); }
+    } catch (err: any) { setError(getApiError(err, 'Erro ao salvar.')); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string, nome: string) => {
     if (!window.confirm(`Remover "${nome}"?`)) return;
     try { await categoriesService.remover(id); fetchCategorias(); }
-    catch (err: any) { alert(err.response?.data?.message || 'Erro ao eliminar'); }
+    catch (err: any) { alert(getApiError(err, 'Erro ao eliminar categoria.')); }
   };
 
   const handleTipoChange = (t: TipoCategoria) => {
@@ -136,6 +141,16 @@ const Categorias: React.FC = () => {
           Nova Categoria
         </button>
       </div>
+
+      {/* F-025(b): erro com lista carregada não tinha renderização alguma */}
+      {error && categorias.length > 0 && !showModal && (
+        <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border bg-red-500/10 border-red-500/20 text-red-400 text-sm font-bold">
+          <span>{error}</span>
+          <button onClick={() => fetchCategorias()} className="px-4 py-2 rounded-xl border border-red-500/30 transition-all hover:bg-red-500/10">
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex flex-wrap gap-2">
@@ -249,6 +264,11 @@ const Categorias: React.FC = () => {
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold">
+                    {error}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Nome</label>
                   <input type="text" required placeholder="Ex: Mercado, Netflix..." value={formData.nome} onChange={e => setFormData({ ...formData, nome: e.target.value })} style={inp} onFocus={fa} onBlur={fb} />
@@ -288,7 +308,7 @@ const Categorias: React.FC = () => {
 
                 <div className="pt-4 flex gap-3">
                   <button type="button" onClick={() => setShowModal(false)} className="flex-1 py-3 rounded-xl font-bold border border-white/10" style={{ color: 'var(--text-faint)' }}>Cancelar</button>
-                  <button type="submit" className="flex-2 py-3 rounded-xl font-bold" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>{editMode ? 'Guardar Alterações' : 'Criar Categoria'}</button>
+                  <button type="submit" disabled={saving} className="flex-2 py-3 rounded-xl font-bold disabled:opacity-60" style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>{saving ? 'A guardar…' : editMode ? 'Guardar Alterações' : 'Criar Categoria'}</button>
                 </div>
               </form>
             </div>

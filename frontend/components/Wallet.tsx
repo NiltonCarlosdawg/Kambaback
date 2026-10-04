@@ -3,6 +3,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AlertCircle, CreditCard, Plus, Save, ShieldCheck, X, RefreshCcw, Loader2, Trash2, Settings2, DollarSign, Wallet as WalletIcon, Lock, PiggyBank } from 'lucide-react';
 import cardsService from '../services/cardsService';
+import { getApiError } from '../utils/apiError';
 import { Cartao } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { springBouncy, springSmooth } from './ui/animations/variants';
@@ -84,6 +85,7 @@ const Wallet: React.FC = () => {
   const [showModal,  setShowModal]  = useState(false);
   const [selected,   setSelected]   = useState<Cartao | null>(null);
   const [error,      setError]      = useState('');
+  const [saving,     setSaving]     = useState(false); // F-025(c): guarda de reentrância
   
   const [formData, setFormData] = useState({
     nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true,
@@ -95,9 +97,10 @@ const Wallet: React.FC = () => {
   const fetchCards = async (isRefresh = false) => {
     try {
       if (isRefresh) setRefreshing(true); else setLoading(true);
+      setError(''); // F-025: limpa erro anterior para o retry conseguir encerrar o banner
       const res = await cardsService.listar();
       setCards(res.cartoes || []);
-    } catch { setError('Falha ao carregar carteira.'); }
+    } catch (err) { setError(getApiError(err, 'Falha ao carregar carteira.')); }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -105,12 +108,14 @@ const Wallet: React.FC = () => {
 
   const handleOpenCreate = () => {
     setSelected(null);
+    setError('');
     setFormData({ nome: '', tipo: 'DEBITO', saldoAtual: '', cor: '#3b82f6', ativo: true, distribuirParaObjetivos: false, percentualDistribuicaoPoupanca: '0' });
     setShowModal(true);
   };
 
   const handleOpenEdit = (c: Cartao) => {
     setSelected(c);
+    setError('');
     setFormData({ 
       nome: c.nome, 
       tipo: c.tipo, 
@@ -125,6 +130,8 @@ const Wallet: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return; // F-025(c): duplo clique criava contas duplicadas
+    setSaving(true);
     try {
       setError('');
       const payload: Record<string, any> = {
@@ -144,7 +151,9 @@ const Wallet: React.FC = () => {
       setShowModal(false);
       fetchCards(true);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Erro ao guardar dados.');
+      setError(getApiError(err, 'Erro ao guardar dados.'));
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -154,7 +163,7 @@ const Wallet: React.FC = () => {
       await cardsService.remover(selected.id);
       setShowModal(false);
       fetchCards(true);
-    } catch { alert('Erro ao eliminar conta.'); }
+    } catch (err) { alert(getApiError(err, 'Erro ao eliminar conta.')); }
   };
 
   if (loading) return (
@@ -185,7 +194,7 @@ const Wallet: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2">
-          <button onClick={() => fetchCards(true)} disabled={refreshing}
+          <button onClick={() => fetchCards(true)} disabled={refreshing} aria-label="Atualizar carteira"
             className="p-2.5 rounded-xl border transition-all disabled:opacity-40"
             style={{ backgroundColor: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
             <RefreshCcw size={18} className={refreshing ? 'animate-spin' : ''} />
@@ -198,6 +207,19 @@ const Wallet: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* F-025(b): o estado de erro existia mas NUNCA era renderizado */}
+      {error && !showModal && (
+        <div className="flex items-center justify-between gap-3 p-4 rounded-2xl border bg-red-500/10 border-red-500/20 text-red-400 text-sm font-bold">
+          <span className="flex items-center gap-2">
+            <AlertCircle size={16} /> {error}
+          </span>
+          <button onClick={() => fetchCards(true)} disabled={refreshing}
+            className="px-4 py-2 rounded-xl border border-red-500/30 transition-all disabled:opacity-40">
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* Stats Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -255,6 +277,11 @@ const Wallet: React.FC = () => {
               </div>
 
               <motion.form onSubmit={handleSubmit} className="space-y-4">
+                {error && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold">
+                    {error}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase tracking-widest ml-1" style={{ color: 'var(--text-faint)' }}>Nome da Conta / Banco</label>
                   <input 
@@ -365,11 +392,11 @@ const Wallet: React.FC = () => {
                     style={{ borderColor: 'var(--border)', color: 'var(--text-faint)' }}>
                     Cancelar
                   </button>
-                  <motion.button type="submit"
+                  <motion.button type="submit" disabled={saving}
                     whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                    className="flex-[2] py-3 rounded-xl font-black shadow-lg shadow-accent/20"
+                    className="flex-[2] py-3 rounded-xl font-black shadow-lg shadow-accent/20 disabled:opacity-60"
                     style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}>
-                    {selected ? 'Guardar Alterações' : 'Criar Conta'}
+                    {saving ? 'A guardar…' : selected ? 'Guardar Alterações' : 'Criar Conta'}
                   </motion.button>
                 </div>
               </motion.form>

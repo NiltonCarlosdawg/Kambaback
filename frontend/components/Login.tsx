@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Eye, EyeOff, ShieldCheck, Mail, Lock, ArrowRight, Sparkles } from 'lucide-react';
+import { getApiError } from '../utils/apiError';
 
 declare global {
   interface Window {
@@ -333,10 +334,15 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess, onRegisterClick, onForgot
           return;
         }
         onLoginSuccess(authUser);
+      } else {
+        // F-025(a): antes, `success === false` não tinha `else` — o ecrã ficava
+        // sem qualquer feedback.
+        setError(getApiError({ response: data }, 'Email ou palavra-passe incorrectos.'));
       }
     } catch (err: any) {
-      setError(err.response?.data?.error?.message || 'Erro ao entrar. Verifica os dados.');
-    } finally { 
+      // F-025(d): a API devolve { mensagem } — só ler err.message perdia a mensagem
+      setError(getApiError(err, 'Erro ao entrar. Verifica os dados.'));
+    } finally {
       setLoading(false); 
     }
   };

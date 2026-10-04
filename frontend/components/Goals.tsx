@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import goalsService from '../services/goalsService';
 import transactionsService from '../services/transactionsService';
 import cardsService from '../services/cardsService';
+import { getApiError } from '../utils/apiError';
 import categoriesService, { Categoria as ServiceCategoria } from '../services/categoriesService';
 import { Cartao, Objetivo } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -89,6 +90,7 @@ const Goals: React.FC = () => {
   const [distribuirCardId,  setDistribuirCardId]  = useState('');
   const [distributing,      setDistributing]      = useState(false);
   const [error,             setError]             = useState('');
+  const [saving,            setSaving]            = useState(false); // F-025(c): guarda de reentrância
   const [editMode,          setEditMode]          = useState(false);
   const [selectedGoal,      setSelectedGoal]      = useState<Objetivo | null>(null);
   const [depositAmount,     setDepositAmount]     = useState('');
@@ -104,11 +106,12 @@ const Goals: React.FC = () => {
   const fetchGoals = async () => {
     try {
       setLoading(true);
+      setError(''); // F-025: limpa erro anterior para o retry conseguir encerrar o banner
       const data = await goalsService.listar();
       setObjetivos(data.objetivos || []); 
       setConcluidos(data.concluidos || []); 
       setResumo(data.resumo);
-    } catch { setError('Falha ao carregar objetivos'); }
+    } catch (err) { setError(getApiError(err, 'Falha ao carregar objetivos.')); }
     finally { setLoading(false); }
   };
 
@@ -181,22 +184,26 @@ const Goals: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return; // F-025(c): duplo clique criava objetivos duplicados
+    setSaving(true);
     try {
       const payload = { ...formData, valorAlvo: Number(formData.valorAlvo), valorAtual: Number(formData.valorAtual), porcentagemDistribuicao: Number(formData.porcentagemDistribuicao), dataPrevista: formData.dataPrevista };
       if (editMode && selectedGoal) { await goalsService.atualizar(selectedGoal.id, payload); }
       else { await goalsService.criar(payload); }
       setShowModal(false); fetchGoals();
-    } catch (err: any) { setError(err.response?.data?.message || 'Erro ao salvar'); }
+    } catch (err: any) { setError(getApiError(err, 'Erro ao salvar.')); }
+    finally { setSaving(false); }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Tens certeza que queres remover este objetivo?')) return;
     try { await goalsService.remover(id); fetchGoals(); }
-    catch (err: any) { setError(err.response?.data?.message || 'Erro ao remover'); }
+    catch (err: any) { setError(getApiError(err, 'Erro ao remover.')); }
   };
 
   const handleQuickDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return; // F-025(c): duplo clique criava depósitos duplicados
     if (!selectedGoal || !depositAmount) return;
     if (!depositCardId) {
       setError('Escolhe um cartão/conta para registar o depósito.');
@@ -206,6 +213,7 @@ const Goals: React.FC = () => {
       setError('Escolhe uma categoria para registar o depósito.');
       return;
     }
+    setSaving(true);
     try {
       await transactionsService.criar({
         descricao: `Depósito manual: ${selectedGoal.titulo}`,
@@ -221,7 +229,8 @@ const Goals: React.FC = () => {
       setDepositCardId('');
       setDepositCategoryId('');
       fetchGoals();
-    } catch (err: any) { setError(err.response?.data?.message || 'Erro ao depositar'); }
+    } catch (err: any) { setError(getApiError(err, 'Erro ao depositar.')); }
+    finally { setSaving(false); }
   };
 
   const openDistribuirModal = () => {
@@ -243,7 +252,7 @@ const Goals: React.FC = () => {
       setDistribuirCardId('');
       fetchGoals();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Erro ao distribuir poupança.');
+      setError(getApiError(err, 'Erro ao distribuir poupança.'));
     } finally {
       setDistributing(false);
     }
@@ -296,6 +305,15 @@ const Goals: React.FC = () => {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
+      {/* F-025(b): erro de carregamento visível fora dos modais */}
+      {error && !showModal && !showDepositModal && !showDistribuirModal && (
+        <div className="flex items-center justify-between gap-3 p-4 rounded-xl text-sm text-red-400 bg-red-900/20 border border-red-500/30">
+          <span>{error}</span>
+          <button onClick={() => fetchGoals()} className="px-4 py-2 rounded-lg font-bold border border-red-500/30 transition-all hover:bg-red-500/10">
+            Tentar novamente
+          </button>
+        </div>
+      )}
       {resumo && (
         <motion.div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"
@@ -729,7 +747,8 @@ const Goals: React.FC = () => {
                   </motion.div>
                   <motion.button
                     type="submit"
-                    className="w-full h-12 rounded-xl font-bold"
+                    disabled={saving}
+                    className="w-full h-12 rounded-xl font-bold disabled:opacity-60"
                     style={{
                       backgroundColor: 'var(--accent)',
                       color: 'var(--accent-text)',
@@ -737,7 +756,7 @@ const Goals: React.FC = () => {
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    {editMode ? 'Guardar Alterações' : 'Criar Objetivo'}
+                    {saving ? 'A guardar…' : editMode ? 'Guardar Alterações' : 'Criar Objetivo'}
                   </motion.button>
                 </form>
               </div>
@@ -781,6 +800,16 @@ const Goals: React.FC = () => {
                 </div>
                 <p className="text-sm mb-6" style={{ color: 'var(--text-muted)' }}>Quanto queres guardar para <strong style={{ color: 'var(--text-primary)' }}>{selectedGoal.titulo}</strong>?</p>
                 <form onSubmit={handleQuickDeposit} className="space-y-4">
+                  {error && (
+                    <motion.div
+                      className="p-3 rounded-lg text-sm text-red-400 bg-red-900/20 border border-red-500/30"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                    >
+                      {error}
+                    </motion.div>
+                  )}
                   <div className="relative">
                     <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ color: 'var(--text-faint)' }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                     <motion.input
@@ -842,13 +871,13 @@ const Goals: React.FC = () => {
                   </div>
                   <motion.button
                     type="submit"
-                    disabled={!depositAmount || !depositCardId || !depositCategoryId || availableCards.length === 0 || availableCategories.length === 0}
+                    disabled={!depositAmount || !depositCardId || !depositCategoryId || availableCards.length === 0 || availableCategories.length === 0 || saving}
                     className="w-full h-12 rounded-xl font-bold"
                     style={{ backgroundColor: 'var(--accent)', color: 'var(--accent-text)' }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
                   >
-                    Confirmar Depósito
+                    {saving ? 'A guardar…' : 'Confirmar Depósito'}
                   </motion.button>
                 </form>
               </div>
