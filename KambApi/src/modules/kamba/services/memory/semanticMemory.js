@@ -51,10 +51,12 @@ const buscarSimilares = async (
   if (threadId) where.threadId = threadId;
 
   try {
+    // F-034: antes limitava a 100 registos E os mais antigos nunca eram
+    // recuperáveis. A página leva todos os candidatos — a contagem por
+    // utilizador é pequena; se crescer, é altura de pgvector/HNSW (ver F-034).
     const todos = await prisma.kambaEmbedding.findMany({
       where,
       orderBy: { criadoEm: "desc" },
-      take: 100,
     });
 
     const resultados = todos

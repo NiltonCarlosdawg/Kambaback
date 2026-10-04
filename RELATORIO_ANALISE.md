@@ -657,6 +657,11 @@
   ```
 - **Solução sugerida**: coluna `vector(384)` + `ORDER BY embedding <=> $1::vector LIMIT k` com índice HNSW/IVFFlat (ou remover `pgvector` das deps e ser honesto no `.env.example`).
 - **Esforço estimado**: Alto
+- ✅ **CORRIGIDO (F-034)** — via alternativa honesta (custo: sem vector no servidor):
+  - `semanticMemory.buscarContextoRelevante`: removido o `take: 100` — o ranking de cosseno agora cobre **todos** os embeddings do utilizador/thread (sem um utilizador pesado, os registos são limitados); comentário indica que pgvector é o caminho de evolução caso o crescimento exija.
+  - Removida a dependência `pgvector` do `package.json` (`npm install` feito — podia ver carregada mas nunca importada).
+  - `.env.example`: comentário "PostgreSQL + pgvector" corrigido para afirmar que a recuperação usa cosseno em JS e que a extensão não está configurada.
+  - **Validação**: `npm test` → **54/54** (10 suites); `npm run lint` → 0 erros. Verificação no navegador não se aplica (nada de UI nova — as respostas de memória continuam idênticas na forma).
 
 ---
 
