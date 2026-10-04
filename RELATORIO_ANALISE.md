@@ -113,7 +113,7 @@
   if (cartaoOrigem.id === fundo.id)
     throw new AppError('O cartão de origem não pode ser o próprio fundo', 400);
   ```
-  Idem para `cartaoDestinoId === fundo.id` no levantamento; reler `fundo` dentro da transação.
+  Idem para `cartaoDestinoId === fundo.id` no levantamento; reler `fundo` dentro da transação. — **✅ CORRIGIDO em 04/10/2026**: guards `isFundoEmergencia` nas duas pontas (400) + updates do fundo passados a `increment`/`decrement` atómicos (elimina lost-update entre operações concorrentes e escritas absolutas sobre leituras antigas). Validado E2E pela API: depósito com origem=fundo → 400 e saldo intacto; levantamento com destino=fundo → 400 e saldo intacto; fluxos legítimos com saldos exatos (500.000→400.000 no cartão, fundo 150.000→100.000, `fundoAtivo=true` preservado).
 - **Esforço estimado**: Baixo
 
 ---

@@ -251,6 +251,12 @@ const depositar = async (req, res, next) => {
         throw new AppError('Cartão de origem não encontrado ou inactivo', 404);
       }
 
+      // F-004: a origem nunca pode ser o próprio fundo (criação de dinheiro:
+      // o débito e o crédito calculado sobre a leitura anterior anulavam-se mal)
+      if (cartaoOrigem.isFundoEmergencia || cartaoOrigem.id === fundo.id) {
+        throw new AppError('O cartão de origem não pode ser o próprio fundo de emergência', 400);
+      }
+
       // 3. Verificar saldo disponível na origem
       const disponivelOrigem = Number(cartaoOrigem.saldoDisponivel);
       if (disponivelOrigem < valorNum) {
@@ -285,19 +291,19 @@ const depositar = async (req, res, next) => {
         }
       });
 
-      // 5. Creditar no fundo
+      // 5. Creditar no fundo — increment atómico (evita lost-update entre
+      // depósitos concorrentes; a leitura prévia deixa de definir o saldo)
       const novoSaldoFundo = Number(fundo.saldoAtual) + valorNum;
 
       // Lógica de activação automática
       const deveActivar = !fundo.fundoAtivo && novoSaldoFundo >= DEPOSITO_MINIMO_ATIVACAO;
-      const jaEstaAtivo = fundo.fundoAtivo;
 
       const fundoAtualizado = await tx.cartao.update({
         where: { id: fundo.id },
         data: {
-          saldoAtual: novoSaldoFundo,
-          saldoDisponivel: novoSaldoFundo,
-          fundoAtivo: deveActivar ? true : jaEstaAtivo
+          saldoAtual: { increment: valorNum },
+          saldoDisponivel: { increment: valorNum },
+          ...(deveActivar && { fundoAtivo: true })
         }
       });
 
@@ -305,7 +311,7 @@ const depositar = async (req, res, next) => {
         fundo: fundoAtualizado,
         cartaoOrigem: { id: cartaoOrigem.id, nome: cartaoOrigem.nome },
         valorDepositado: valorNum,
-        novoSaldo: novoSaldoFundo,
+        novoSaldo: Number(fundoAtualizado.saldoAtual),
         acabouDeActivar: deveActivar
       };
     });
@@ -397,16 +403,23 @@ const levantar = async (req, res, next) => {
         throw new AppError('Cartão de destino não encontrado', 404);
       }
 
-      // 3. Debitar do fundo
+      // F-004: o destino nunca pode ser o próprio fundo (anulava o débito e
+      // deixava fundoAtivo/desactivação calculados sobre um saldo errado)
+      if (cartaoDestino.isFundoEmergencia || cartaoDestino.id === fundo.id) {
+        throw new AppError('O cartão de destino não pode ser o próprio fundo de emergência', 400);
+      }
+
+      // 3. Debitar do fundo — decrement atómico (evita lost-update); a
+      // desactivação só é escrita quando o saldo cai abaixo do mínimo
       const novoSaldoFundo = saldoFundo - valorNum;
       const deveDesactivar = novoSaldoFundo < DEPOSITO_MINIMO_ATIVACAO;
 
       const fundoAtualizado = await tx.cartao.update({
         where: { id: fundo.id },
         data: {
-          saldoAtual: novoSaldoFundo,
-          saldoDisponivel: novoSaldoFundo,
-          fundoAtivo: deveDesactivar ? false : true
+          saldoAtual: { decrement: valorNum },
+          saldoDisponivel: { decrement: valorNum },
+          ...(deveDesactivar && { fundoAtivo: false })
         }
       });
 
@@ -451,7 +464,7 @@ const levantar = async (req, res, next) => {
 
       return {
         fundo: fundoAtualizado,
-        novoSaldoFundo,
+        novoSaldoFundo: Number(fundoAtualizado.saldoAtual),
         valorLevantado: valorNum,
         desactivou: deveDesactivar,
         cartaoDestino: { id: cartaoDestino.id, nome: cartaoDestino.nome }
