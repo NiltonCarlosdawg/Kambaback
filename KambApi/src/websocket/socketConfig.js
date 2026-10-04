@@ -3,6 +3,7 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const { createClient } = require('redis');
 const jwt = require('jsonwebtoken');
+const prisma = require('../lib/prisma');
 
 // ==========================================
 // CONFIGURAÇÃO DO SOCKET.IO
@@ -53,6 +54,24 @@ const inicializarSocket = async (httpServer) => {
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // F-018: o handshake tem de consultar a BD como o protegerRota —
+      // antes aceitava tokens de contas removidas, bloqueadas ou
+      // desactivadas, e de senhas alteradas depois da emissão do token.
+      const user = await prisma.user.findUnique({
+        where: { id: decoded.id },
+        select: { ativo: true, bloqueado: true, senhaAlteradaEm: true },
+      });
+      if (!user) return next(new Error('Usuário não existe mais'));
+      if (!user.ativo) return next(new Error('Conta desativada'));
+      if (user.bloqueado) return next(new Error('Conta bloqueada'));
+      if (
+        user.senhaAlteradaEm &&
+        decoded.iat * 1000 < new Date(user.senhaAlteradaEm).getTime()
+      ) {
+        return next(new Error('Senha alterada recentemente. Faça login novamente.'));
+      }
+
       socket.userId = decoded.id;
       socket.join(`user:${decoded.id}`);
       

@@ -164,7 +164,17 @@ const login = async (req, res, next) => {
       where: { email: email.toLowerCase() }
     });
 
-    if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
+    // F-018: verifica estado da conta e evita oráculo de enumeração —
+    // para contas OAuth (senha null) o bcrypt.compare lançava exceção -> 500
+    // (confirmando que a conta existe) e contas bloqueadas/inactivas
+    // conseguiam login. Todos os caminhos devolvem o MESMO 401.
+    if (
+      !usuario ||
+      !usuario.senha ||
+      !usuario.ativo ||
+      usuario.bloqueado ||
+      !(await bcrypt.compare(senha, usuario.senha))
+    ) {
       return next(new AppError('Credenciais inválidas', 401));
     }
 

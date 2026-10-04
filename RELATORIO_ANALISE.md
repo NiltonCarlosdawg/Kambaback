@@ -349,7 +349,7 @@
   if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) { ... }   // bcrypt.compare(x, null) lança
   // socketConfig.js:55: const decoded = jwt.verify(token, ...); socket.userId = decoded.id; // sem consultar BD
   ```
-- **Solução sugerida**: `if (!usuario || !usuario.senha || !usuario.ativo || usuario.bloqueado) return 401;` e no socket fazer a mesma consulta do `protegerRota` (incl. `senhaAlteradaEm`).
+- **Solução sugerida**: `if (!usuario || !usuario.senha || !usuario.ativo || usuario.bloqueado) return 401;` e no socket fazer a mesma consulta do `protegerRota` (incl. `senhaAlteradaEm`). — **✅ CORRIGIDO em 04/10/2026**: `login` agora rejeita com **o mesmo 401** quando `!senha` (contas OAuth — antes `bcrypt.compare(x, null)` lançava **500** que confirmava a existência da conta), `!ativo` ou `bloqueado` (antes conseguiam login); handshake do WebSocket faz agora a consulta completa do `protegerRota` (`ativo`, `bloqueado`, `senhaAlteradaEm` vs `iat` + existência na BD) e rejeita com mensagem específica. Validado E2E em 3 processos 11/11 (o orçamento de falhas por processo é 2 por causa do F-082): socket recusa bloqueada/desativada/senha-alterada/removida e aceita token válido (controlo); login bloqueado/inativo/`senha null` → 401 (não 500); senha errada vs conta inexistente → **corpo idêntico** (sem oráculo de enumeração).
 - **Esforço estimado**: Baixo
 
 ---
@@ -836,6 +836,7 @@
 | F-079 | Baixa | testes | `tests/*` | Sem `jest.config`, sem `coverageThreshold`, asserções `[201,200]`, sem limpeza de BD | Config + fixtures | Médio |
 | F-080 | Baixa | documentação | `README.md`, `DEPLOY.md:20` | README raiz tem 4 linhas e descreve "Node.JS + Prisma" com motor "GPT-ISO120B" (incoerente com Groq real); texto corrupto `"Sua organisasi vorhanden"`; `package.json` ainda se chama `kwanza-api` com repo placeholder | Reescrever README | Baixo |
 | **F-081** | **Média** | DevOps/repo | `KambApi/node_modules/**` | **16.068 ficheiros de `node_modules` estavam versionados no git** (o `.gitignore` já tinha a regra, mas os ficheiros antecipavam-na); infla o repo e pode guardar código de terceiros com licenças incompatíveis | `git rm -r --cached KambApi/node_modules` + commit — **✅ CORRIGIDO em 03/10/2026** | Baixo |
+| **F-082** | **Média** | segurança (rate limiting) | `server.js:199` + `users/routes/auth.js:13,16,25,26` | *(descoberta na validação do F-018, 04/10)* `limiteAuth` aplicado **2×** — no mount do prefixo `/api/auth` E em cada rota — pelo que cada pedido incrementa o contador 2×: com `max: 5`, a **3.ª falha de login já devolve 429** (limite efetivo ≈ 2,5 tentativas, não as 5 documentadas no comentário). Observado empiricamente (probe: register + 2 falhas ok + 3.ª falha = 429). Agravado por F-021 (contador efémero por processo) | Manter só o mount do prefixo (`server.js:199`) e remover `limiteAuth` das rotas — cobre também `/refresh`, `/google`, `/apple` que hoje ficam sem limite explícito (M-014) | Baixo |
 
 **Suspeitas marcadas (não confirmadas — o que falta verificar):**
 - **S-1**: Rate limit contornável por spoofing de `X-Forwarded-For` (F-021b) — depende de existir sempre proxy/LB à frente da API (verificar config da Render).
