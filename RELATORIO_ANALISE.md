@@ -302,7 +302,7 @@
   ```js
   } else if (campo === 'concluido') { dadosSanitizados[campo] = Boolean(dados[campo]); }
   ```
-- **Solução sugerida**: schemas Joi (`titulo: string().min(2).max(200).required()`, `valorAlvo: number().positive()`, `concluido: boolean()`) aplicados nas rotas; ao concluir, `porcentagemDistribuicao: 0`.
+- **Solução sugerida**: schemas Joi (`titulo: string().min(2).max(200).required()`, `valorAlvo: number().positive()`, `concluido: boolean()`) aplicados nas rotas; ao concluir, `porcentagemDistribuicao: 0`. — **✅ CORRIGIDO em 04/10/2026**: `criarObjetivoSchema` + `atualizarObjetivoSchema` aplicados em `POST /` e `PUT /:id` (titulo 2-200, `valorAlvo` positivo, `dataPrevista` data válida → "lixo" dá 400 e não 500 do Prisma, `prioridade` com `.uppercase().valid(BAIXA/MEDIA/ALTA/URGENTE)` → 'baixa' normaliza para o enum em vez de rebentar, `cor` ≤7 chars = VarChar(7), `concluido: boolean()`, `valorAtual` ≥ 0). No controller: `concluido` passou a `=== true || === 'true'` (fim do `Boolean("false") === true`), `valorAlvo ≤ 0` e `valorAtual < 0` rejeitados no PUT (progresso já não fica NaN/Infinity no `insightsController:113`) e **concluir zera `porcentagemDistribuicao`** (percentagem deixa de ficar presa). `.unknown(true)` nos schemas + `stripUnknown` do middleware preservam a compatibilidade. Validado E2E 11/11: título 500 chars → 400, `dataPrevista:'lixo'` → 400, `prioridade:'baixa'` → 201 guardado `BAIXA`, `concluido:'false'` mantém aberto, concluir com 40% → `pct=0`, `valorAlvo 0/-5` → 400, `concluido:'sim'` → 400, edição válida funciona. Suite completa 8/2 = baseline (falhas pré-existentes do `auth.test.js`).
 - **Esforço estimado**: Médio
 
 ---

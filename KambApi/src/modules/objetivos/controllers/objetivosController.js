@@ -152,7 +152,9 @@ const atualizarObjetivo = async (req, res, next) => {
       } else if (campo === 'dataPrevista') {
         dadosSanitizados[campo] = new Date(dados[campo]);
       } else if (campo === 'concluido') {
-        dadosSanitizados[campo] = Boolean(dados[campo]);
+        // F-015: Boolean("false") === true — só true/'true' conta como true
+        dadosSanitizados[campo] =
+          dados[campo] === true || dados[campo] === 'true';
       } else if (typeof dados[campo] === 'string') {
         dadosSanitizados[campo] = dados[campo].trim();
       } else {
@@ -168,10 +170,24 @@ const atualizarObjetivo = async (req, res, next) => {
 
     if (!objetivoExistente) return next(new AppError('Objetivo não encontrado', 404));
 
-    if (dadosSanitizados.valorAlvo !== undefined && Number.isNaN(dadosSanitizados.valorAlvo)) {
+    // F-015(3): ao CONCLUIR, liberta a percentagem alocada — senão a
+    // repartição fica "presa" num objectivo já atingido
+    const concluindo =
+      dadosSanitizados.concluido === true && !objetivoExistente.concluido;
+    if (concluindo) {
+      dadosSanitizados.porcentagemDistribuicao = 0;
+    }
+
+    if (
+      dadosSanitizados.valorAlvo !== undefined &&
+      (Number.isNaN(dadosSanitizados.valorAlvo) || dadosSanitizados.valorAlvo <= 0)
+    ) {
       return next(new AppError('Valor alvo inválido', 400));
     }
-    if (dadosSanitizados.valorAtual !== undefined && Number.isNaN(dadosSanitizados.valorAtual)) {
+    if (
+      dadosSanitizados.valorAtual !== undefined &&
+      (Number.isNaN(dadosSanitizados.valorAtual) || dadosSanitizados.valorAtual < 0)
+    ) {
       return next(new AppError('Valor actual inválido', 400));
     }
     if (
