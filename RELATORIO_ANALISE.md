@@ -570,6 +570,13 @@
   ```
 - **Solução sugerida**: `novoSaldoDisponivel = Math.min(limiteCredito, novoSaldoAtual - novoSaldoReservado)` e validar o pagamento contra a dívida.
 - **Esforço estimado**: Baixo
+- ✅ **CORRIGIDO (F-030)**
+  - **Nota de diagnóstico**: o clamp `Math.min(limite, saldoDisponivel + valorNum)` em `saldoCartaoService.js:43` **já existia** (introduzido no F-005) — a parte em falta da F-030 era (a) pagamento acima da dívida ser silenciosamente absorvido pelo `Math.max(0, ...)` e (b) quebra da invariante quando `saldoReservado > 0`.
+  - `calcularNovosSaldos` (fonte única usada por `gastosController` e `cartoesController.atualizarSaldo`):
+    - CREDITO + RECEITA com `valorNum > saldoAtual` → `AppError 400` "Pagamento superior à dívida pendente" (estado intacto).
+    - Após o pagamento, `saldoDisponivel` é **recomposto pela invariante do CREDITO**: `max(0, limiteCredito − saldoAtual − saldoReservado)` (equivalente ao sugerido, mas dimensionalmente correcto para CREDITO, onde `saldoAtual` é a dívida). Com a invariante válida à entrada e `pagamento ≤ dívida`, o valor é exactamente `disponível_anterior + pagamento` — sem qualquer mudança de comportamento em pagamentos normais.
+  - **Testes novos** (`tests/f030.test.js`, 6 testes): criação CREDITO, despesa, pagamento parcial, **pagamento acima da dívida → 400 + estado intacto**, pagamento exacto da dívida, e o caso do bug original: `saldoReservado = 10000` com dívida 20000 → overpay 400 e pagamento exacto devolve `disponível = limite − reservado` (a fórmula antiga teria devolvido **50 000**, quebrando a invariante por 10 000).
+  - **Validação**: `npm test` → **48/48** (8 suites, +6 da F-030); `npm run lint` → 0 erros. Verificação no navegador não se aplica (lógica de API/BD; sem UI nova).
 
 ---
 

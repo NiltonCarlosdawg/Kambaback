@@ -38,16 +38,29 @@ const calcularNovosSaldos = (cartao, tipo, valorNum, valorDistribuido = 0) => {
   } else {
     // RECEITA
     if (ehCredito) {
-      // Pagamento de dívida
+      // F-030: pagamento acima da dívida é erro — o `Math.max(0, ...)`
+      // antigo absorvia o excedente a inflar o limite disponível (quebrava
+      // a invariante quando existia saldoReservado > 0).
+      if (valorNum > saldoAtual) {
+        throw new AppError(
+          `Pagamento (${valorNum.toFixed(2)} Kz) superior à dívida pendente ` +
+            `(${saldoAtual.toFixed(2)} Kz) do cartão ${cartao.nome}`,
+          400,
+        );
+      }
       saldoAtual = Math.max(0, saldoAtual - valorNum);
-      saldoDisponivel = Math.min(limite, saldoDisponivel + valorNum);
     } else {
       saldoAtual += valorNum;
       saldoDisponivel += valorNum;
     }
     if (valorDistribuido > 0) {
       saldoReservado += valorDistribuido;
-      saldoDisponivel -= valorDistribuido;
+      if (!ehCredito) saldoDisponivel -= valorDistribuido;
+    }
+    if (ehCredito) {
+      // F-030: recompõe o disponível pela invariante do CREDITO
+      // (dívida + disponível + reservado = limite), nunca acima do limite.
+      saldoDisponivel = Math.max(0, limite - saldoAtual - saldoReservado);
     }
   }
 
