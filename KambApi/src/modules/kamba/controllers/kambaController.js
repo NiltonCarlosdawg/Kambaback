@@ -347,10 +347,11 @@ const processarRotasRapidas = async (
     }
     if (/^(não|nao|nops|cancelar|esquece)$/.test(msgLower)) {
       await Wizard.cancelarFluxo(usuarioId);
-    } else {
-      const resp = `Kamba, notei que deixaste o registo de *${recuperacao.fluxoNome}* a meio. Queres continuar de onde paramos? (Responde *Sim* para continuar ou faz outra pergunta)`;
-      return responder(resp, { sugestaoRecuperacao: true });
     }
+    // F-012: qualquer OUTRA mensagem não é interceptada — antes descartava-se
+    // a pergunta do utilizador ("oi", "qual o meu saldo?") e ficava preso até
+    // responder sim/não. Agora segue o fluxo normal; o fluxo antigo continua
+    // pendente e pode ser retomado com "sim" ou descartado com "não".
   }
 
   // 5. SAUDAÇÕES

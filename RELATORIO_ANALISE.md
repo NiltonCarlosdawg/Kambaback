@@ -257,7 +257,7 @@
     return responder(resp, { sugestaoRecuperacao: true });
   }
   ```
-- **Solução sugerida**: interceptar só se a mensagem for explicitamente de retoma; caso contrário, continuar o fluxo normal (ou cancelar o fluxo antigo).
+- **Solução sugerida**: interceptar só se a mensagem for explicitamente de retoma; caso contrário, continuar o fluxo normal (ou cancelar o fluxo antigo). — **✅ CORRIGIDO em 04/10/2026**: o `else` que descartava a pergunta foi removido — só `sim`-like (retoma) e `não`-like (cancela) são interceptados; qualquer outra mensagem segue o fluxo normal com o fluxo antigo pendente. O campo `sugestaoRecuperacao` não é consumido pelo frontend (grep em `frontend/` = 0), por isso nada se perdeu. Validado E2E in-process 8/8: "qual o meu saldo?" responde com a resposta real (não o aviso), `sim` ainda retoma, `não` cancela.
 - **Esforço estimado**: Baixo
 
 ---
