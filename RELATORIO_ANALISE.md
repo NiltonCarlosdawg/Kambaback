@@ -508,6 +508,11 @@
   ```
 - **Solução sugerida**: aplicar o mesmo guard do POST (ou `restringirA('ADMIN')`, que já existe e está por usar).
 - **Esforço estimado**: Baixo
+- ✅ **CORRIGIDO (F-027)**
+  - `kamba.js` → `GET /analytics/testes` passa a devolver **403 `{ success: false, mensagem: "Apenas administradores" }`** a não-administradores, com o mesmo guard do POST logo a seguir (estilo inline `req.user.role !== "ADMIN"` usado por todas as rotas admin deste ficheiro).
+  - `protegerRota` lê o `role` da BD por pedido (`auth.js:63-70`), logo a verificação não pode ser contornada por token antigo.
+  - **Testes novos** (`tests/kamba.test.js`, bloco "A/B testing protegido por admin"): utilizador comum → 403; promovido a `ADMIN` na BD → 200 com `testes` (array), role reposto a `USER` no fim.
+  - **Validação**: `npm test` → **38/38** (6 suites, +2 da F-027); `npm run lint` → 0 erros. Verificação no navegador não se aplica (rota de API sem output visual; sem consumidor no frontend).
 
 ---
 

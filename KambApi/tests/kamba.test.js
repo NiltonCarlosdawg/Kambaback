@@ -5,7 +5,7 @@
 //  - contrato de validação/moderação de input/offline mantido nos dois modos
 const request = require('supertest');
 const { app } = require('../server');
-const { registar, limparUtilizadores, resetarLimiteAuth } = require('./helpers');
+const { registar, limparUtilizadores, resetarLimiteAuth, prisma } = require('./helpers');
 
 // Mock do cliente LLM: sem rede, controlamos isConfigured e as respostas.
 // O spread do módulo real mantém getClient/isModerationSupported etc. para os
@@ -182,6 +182,39 @@ describe('Kamba conversa (F-024: pipeline JSON + stream unificados)', () => {
       const done = eventos.find((e) => e.type === 'done');
       expect(done.tokens).toBe(7);
       expect(done.latencia).toMatch(/ms$/);
+    });
+  });
+
+  describe('A/B testing protegido por admin (F-027)', () => {
+    it('GET /analytics/testes devolve 403 para utilizador comum', async () => {
+      const res = await request(app)
+        .get('/api/kamba/analytics/testes')
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.success).toBe(false);
+      expect(res.body.mensagem).toBe('Apenas administradores');
+    });
+
+    it('GET /analytics/testes devolve os testes para ADMIN', async () => {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'ADMIN' },
+      });
+
+      const res = await request(app)
+        .get('/api/kamba/analytics/testes')
+        .set('Authorization', `Bearer ${user.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.testes)).toBe(true);
+
+      // repõe o role por omissão — os restantes testes assumem USER
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: 'USER' },
+      });
     });
   });
 });

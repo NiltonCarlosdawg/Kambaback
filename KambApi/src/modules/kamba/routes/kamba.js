@@ -533,6 +533,15 @@ router.get("/analytics/dashboard", async (req, res, next) => {
  */
 router.get("/analytics/testes", async (req, res, next) => {
   try {
+    // F-027: rota documentada como "admin only" — o POST logo a seguir já
+    // validava role, mas o GET deixava qualquer autenticado ler as versões
+    // de prompts A/B (IP de produto).
+    if (req.user.role !== "ADMIN") {
+      return res
+        .status(403)
+        .json({ success: false, mensagem: "Apenas administradores" });
+    }
+
     const analytics = require("../services/core/analyticsService");
     const resultados = await analytics.getResultadosTestes();
     return res.json({ success: true, testes: resultados });
