@@ -79,12 +79,16 @@ const obterCategoriaPoupanca = async (tx, usuarioId) => {
 
   if (categoriaPadrao) return categoriaPadrao;
 
-  const fallback = await tx.categoria.findFirst({
-    where: { padrao: true, excluido: false },
-    orderBy: { nome: 'asc' }
+  // F-031(a): o fallback alfabético (primeira categoria padrão por nome)
+  // classificava os depósitos do fundo como (tipicamente) "Alimentação",
+  // distorcendo relatórios e alertas de IA. Preferimos qualquer categoria do
+  // domínio POUPANCA e, em último caso, criarmos a categoria semântica certa.
+  const categoriaPorTipo = await tx.categoria.findFirst({
+    where: { usuarioId, excluido: false, tipo: 'POUPANCA' },
+    orderBy: [{ padrao: 'desc' }, { nome: 'asc' }]
   });
 
-  if (fallback) return fallback;
+  if (categoriaPorTipo) return categoriaPorTipo;
 
   return tx.categoria.create({
     data: {
@@ -173,24 +177,38 @@ const criarFundo = async (req, res, next) => {
       return next(new AppError('Já existe um fundo de emergência. Só pode ter um.', 409));
     }
 
-    const fundo = await prisma.cartao.create({
-      data: {
-        usuarioId,
-        nome: nome.trim(),
-        tipo: 'POUPANCA',
-        banco: 'Fundo Interno',
-        saldoAtual: 0,
-        saldoDisponivel: 0,
-        saldoReservado: 0,
-        limiteCredito: 0,
-        cor,
-        icone,
-        isFundoEmergencia: true,
-        fundoAtivo: false,        // inactivo até ao primeiro depósito
-        distribuirParaObjetivos: false,
-        ativo: true,
-        excluido: false
+    // F-031(c): check-then-create concorrente criava fundos duplicados.
+    // Serializa a criação por utilizador via lock de transação (advisory) —
+    // o Prisma/db push não suporta constraint parcial única no schema.
+    const fundo = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${usuarioId}))`;
+
+      const duplicado = await tx.cartao.findFirst({
+        where: { usuarioId, isFundoEmergencia: true, excluido: false }
+      });
+      if (duplicado) {
+        throw new AppError('Já existe um fundo de emergência. Só pode ter um.', 409);
       }
+
+      return tx.cartao.create({
+        data: {
+          usuarioId,
+          nome: nome.trim(),
+          tipo: 'POUPANCA',
+          banco: 'Fundo Interno',
+          saldoAtual: 0,
+          saldoDisponivel: 0,
+          saldoReservado: 0,
+          limiteCredito: 0,
+          cor,
+          icone,
+          isFundoEmergencia: true,
+          fundoAtivo: false,        // inactivo até ao primeiro depósito
+          distribuirParaObjetivos: false,
+          ativo: true,
+          excluido: false
+        }
+      });
     });
 
     await NotificacaoService.criarNotificacao(
@@ -287,7 +305,7 @@ const depositar = async (req, res, next) => {
           usuarioId,
           cartaoId: cartaoOrigemId,
           categoriaId: categoriaEmergencia.id,
-          tags: ['fundo-emergencia', 'poupanca']
+          tags: ['fundo-emergencia', 'fundo-emergencia-entrada']
         }
       });
 
@@ -435,7 +453,7 @@ const levantar = async (req, res, next) => {
           usuarioId,
           cartaoId: fundo.id,
           categoriaId: categoria.id,
-          tags: ['fundo-emergencia', 'levantamento']
+          tags: ['fundo-emergencia', 'fundo-emergencia-saida']
         }
       });
 
@@ -458,7 +476,10 @@ const levantar = async (req, res, next) => {
           usuarioId,
           cartaoId: cartaoDestinoId,
           categoriaId: categoria.id,
-          tags: ['fundo-emergencia', 'levantamento']
+          // F-031(b): sem a tag base 'fundo-emergencia' — senão o histórico do
+          // fundo rotulava esta entrada no destino como "DEPOSITO" (duplicava
+          // cada levantamento). Este gasto continua no histórico do cartão destino.
+          tags: ['fundo-emergencia-saida']
         }
       });
 

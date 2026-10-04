@@ -591,6 +591,12 @@
   ```
 - **Solução sugerida**: procurar categoria "Fundo Emergência"/"Poupança" (criar se faltar) **antes** do fallback; tags distintas `fundo-emergencia-entrada`/`-saida`; constraint parcial única + transação.
 - **Esforço estimado**: Médio
+- ✅ **CORRIGIDO (F-031)**
+  - **(a) Categoria**: `obterCategoriaPoupanca` já tentava "Poupança" por nome; o problema era o fallback alfabético (primeira categoria padrão → tipicamente "Alimentação"). Substituído por: procurar qualquer categoria com `tipo: 'POUPANCA'`; se não houver, criar "Fundo de Emergência" (nunca categorizar pela primeira alfabética).
+  - **(b) Histórico duplicado**: os dois gastos de levantar tinham ambos `tags: ['fundo-emergencia', 'levantamento']` e o GET `/histórico` capturava ambos (a RECEITA no cartão de destino caía na query "tags contém fundo-emergencia" → rotulada "DEPOSITO"). Agora: saída do fundo → `['fundo-emergencia', 'fundo-emergencia-saida']`; entrada no destino → `['fundo-emergencia-saida']` (sem a tag base, logo excluída do histórico do fundo); depósito → `['fundo-emergencia', 'fundo-emergencia-entrada']`.
+  - **(c) Criação atómica**: `criarFundo` envolve o check-then-create numa transação com `SELECT pg_advisory_xact_lock(hashtext(usuarioId))` — a segunda concorrente espera e recebe 409; impossível criar dois fundos. (Desvio da "constraint parcial única": o Prisma/`db push` não suporta índices parciais no schema; o lock advisory xact dá a mesma garantia sem migração manual.)
+  - **Testes novos** (`tests/f031.test.js`, 3 testes): 2 POSTs concorrentes → `[201, 409]` e contagem de fundos = 1; depósito categorizado como POUPANCA; histórico com exactamente 1 DEPOSITO + 1 LEVANTAMENTO e receita no destino sem a tag base.
+  - **Validação**: `npm test` → **51/51** (9 suites, +3 da F-031) em duas execuções seguidas; `npm run lint` → 0 erros. Observação: numa execução isolada `tests/saldo.test.js` falhou 1 teste — flaky não reproduzido nas duas seguintes; a carga concorrente de transações interactivas deve ser monitorizada em CI. Verificação no navegador não se aplica.
 
 ---
 
