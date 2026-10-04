@@ -1,0 +1,27 @@
+# .gitleaks.toml — configuração do scan de segredos (F-023)
+# Correr localmente: gitleaks detect --config .gitleaks.toml
+#
+# O allowlist cobre APENAS commits históricos imutáveis (produto cruzado
+# commits × ficheiros × regra generic-api-key é seguro: nenhum commit futuro
+# está abrangido e qualquer nova fuga falha o CI).
+[extend]
+useDefault = true # mantém todas as regras padrão do gitleaks
+
+[allowlist]
+description = "Historico imutavel: chaves GNews/NewsData no .env.example (rotacao pendente - F-023) + falsos positivos de localStorage"
+# 1) Chaves API reais (GNews 32 hex, NewsData pub_…) que ficaram no HISTÓRICO
+#    do .env.example — no HEAD já são placeholders. ROTAÇÃO destas chaves:
+#    pendente pelo utilizador (ver F-023 no relatório).
+# 2) Falsos positivos: constantes de localStorage (nomes internos, não segredos).
+commits = [
+  "671429b3239203c1881f3274b0c43a6657f021c0",
+  "fae3571110f783c5ea8cc1993114d5f9eb280665",
+  "e1366b90fc897825a8974e97b55a837caf1e202d",
+  "ec041948a9e220394c51bc2eab4a292de906afda",
+]
+paths = [
+  'KambApi/\.env\.example',
+  'frontend/components/KambaChat\.tsx',
+  'frontend/contexts/ThemeContext\.tsx',
+]
+rules = ["generic-api-key"]

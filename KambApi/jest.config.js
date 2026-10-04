@@ -4,6 +4,10 @@ module.exports = {
   // Corre ANTES de qualquer módulo dos testes: aponta a BD para kambapro_test
   setupFiles: ['<rootDir>/tests/setupEnv.js'],
   testMatch: ['**/tests/**/*.test.js'],
+  // Testes de integração contra BD real com o app carregado por worker — o
+  // default de 5s é curto quando 5 workers arrancam em simultâneo (CI é mais
+  // lento que a máquina local; causou flakes na simulação do F-023)
+  testTimeout: 30000,
   // Servidor/cron/socket podem deixar handles abertos — força a saída
   forceExit: true,
   // Cobertura + limiares (regressões de cobertura falham o `npm test`)

@@ -1,0 +1,10 @@
+# .dockerignore — KambApi (F-023)
+node_modules
+coverage
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.git
+Dockerfile
+.dockerignore
