@@ -1,7 +1,7 @@
 // src/routes/auth.js
 const express = require('express');
 const router = express.Router();
-const { registrar, login, refresh, perfil, atualizarPerfil, alterarSenha } = require('../controllers/authController');
+const { registrar, login, refresh, perfil, atualizarPerfil, alterarSenha, logout } = require('../controllers/authController');
 const { loginComGoogle } = require('../controllers/googleAuthController');
 const { loginComApple } = require('../controllers/appleAuthController');
 const { esqueciSenha, redefinirSenha } = require('../controllers/passwordResetController');
@@ -33,5 +33,10 @@ router.use(protegerRota);
 router.get('/perfil', perfil);
 router.patch('/perfil', atualizarPerfil);
 router.post('/alterar-senha', alterarSenha);
+
+// F-006: revogação de sessão no servidor (o handler existia mas nunca estava roteado)
+// Nota: o modelo guarda um único refresh token por utilizador (coluna refreshToken),
+// por isso o logout revoga a sessão ativa — um /logout-all seria equivalente.
+router.post('/logout', logout);
 
 module.exports = router;

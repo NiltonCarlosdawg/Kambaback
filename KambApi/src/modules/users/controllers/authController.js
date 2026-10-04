@@ -419,11 +419,19 @@ const alterarSenha = async (req, res, next) => {
     }
 
     const novoHash = await bcrypt.hash(novaSenha, 12);
+    // F-006: senhaAlteradaEm invalida access tokens antigos (verificado em
+    // middleware/auth.js:91) e refreshToken null revoga a sessão no servidor —
+    // senão um token roubado continuaria válido mesmo após a mudança de senha
     await prisma.user.update({
       where: { id: usuario.id },
-      data: { senha: novoHash }
+      data: {
+        senha: novoHash,
+        senhaAlteradaEm: new Date(),
+        refreshToken: null
+      }
     });
 
+    res.clearCookie('refreshToken');
     res.json({
       success: true,
       message: 'Senha alterada com sucesso'

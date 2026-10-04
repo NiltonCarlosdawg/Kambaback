@@ -153,7 +153,7 @@
   // routes/auth.js
   router.post('/logout', logout);
   router.post('/logout-all', logoutAll);
-  ```
+  ``` — **✅ CORRIGIDO em 04/10/2026**: `alterarSenha` agora escreve `senhaAlteradaEm` + `refreshToken: null` + `clearCookie` (o check de `iat` em `middleware/auth.js:91` passa assim a invalidar access tokens antigos); rota `POST /api/auth/logout` ligada ao handler existente. `logout-all` dispensado: o modelo guarda um único `refreshToken` por utilizador, o logout já revoga a sessão ativa. Validado E2E (12/12): logout → refresh 401; alterar senha → access token antigo 401 "Senha alterada recentemente", refresh antigo 401, senha antiga 401, nova senha 200.
 - **Esforço estimado**: Baixo
 
 ---
