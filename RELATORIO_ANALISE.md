@@ -69,7 +69,7 @@
   logger.js:1:  const pino = require('pino');
   cacheService.js:4: const NodeCache = require("node-cache");
   ```
-- **Solução sugerida**: `npm i pino pino-pretty swagger-ui-express swagger-jsdoc node-cache` (ou remover o Swagger se não for usado) e adicionar `@prisma/config` a `devDependencies`. Validar com `npm ci && npm start` num ambiente limpo.
+- **Solução sugerida**: `npm i pino pino-pretty swagger-ui-express swagger-jsdoc node-cache` (ou remover o Swagger se não for usado) e adicionar `@prisma/config` a `devDependencies`. Validar com `npm ci && npm start` num ambiente limpo. — **✅ CORRIGIDO em 03/10/2026**: todas as 6 deps declaradas (`@prisma/config` alinhada a 6.19.2); validado com `npm ci` limpo → load do `server.js` OK → servidor online (`/health` 200, `/api-docs` 200, BD + WebSocket + cron ativos).
 - **Esforço estimado**: Baixo
 
 ---
@@ -88,7 +88,7 @@
   $ grep -rn "PasswordResetToken" prisma/migrations/   # (sem resultados)
   $ grep -rln "googleId" prisma/migrations/             # (AUSENTE em migrations)
   ```
-- **Solução sugerida**: gerar as migrations em falta com `prisma migrate diff --from-migrations --to-schema-datamodel prisma/schema.prisma`, revisar, e aplicar `migrate deploy`; adotar o hábito de criar migrations sempre via `prisma migrate dev` (nunca SQL colado à mão); adicionar em CI um check de drift.
+- **Solução sugerida**: gerar as migrations em falta com `prisma migrate diff --from-migrations --to-schema-datamodel prisma/schema.prisma`, revisar, e aplicar `migrate deploy`; adotar o hábito de criar migrations sempre via `prisma migrate dev` (nunca SQL colado à mão); adicionar em CI um check de drift. — **✅ CORRIGIDO em 04/10/2026**: criada a migration `20261004120000_add_password_reset_kixikila_colunas_f003` (idempotente — os objetos já existiam na BD dev, criados manualmente). Validado: BD shadow limpa aplica as 17 migrations com drift zero (`migrate diff` → vazio), BD dev com `migrate status` up-to-date e `PrismaClient` consulta `passwordResetToken`/`kixikila` sem erro.
 - **Esforço estimado**: Médio
 
 ---
