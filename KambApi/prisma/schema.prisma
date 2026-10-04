@@ -60,9 +60,8 @@ model User {
    kixikilasMembro       KixikilaMembro[] @relation("KixikilaMembros")
 
   passwordResetTokens PasswordResetToken[]
-
-  @@index([email])
-  @@index([telefone])
+  // F-032: @@index([email]) e @@index([telefone]) eram redundantes (ambos já
+  // @unique — a PK do unique já serve de índice)
 }
 
 model Cartao {
@@ -96,7 +95,10 @@ fundoAtivo         Boolean  @default(false)
   criadoEm                DateTime @default(now())
   atualizadoEm            DateTime @updatedAt
 
-  @@index([usuarioId])
+  // F-032: unicidade composta (o catch P2002 nos controllers deixa de ser morto)
+  // + índice composto para os filtros quentes (ativo & excluido)
+  @@unique([usuarioId, numero])
+  @@index([usuarioId, ativo, excluido])
 }
 
 model Objetivo {
@@ -166,11 +168,11 @@ model Gasto {
   criadoEm      DateTime  @default(now())
   atualizadoEm  DateTime  @updatedAt
 
-  @@index([usuarioId])
+  @@index([usuarioId, excluido, data])
+  @@index([usuarioId, tipo, excluido, data])
   @@index([cartaoId])
   @@index([categoriaId])
   @@index([objetivoId])
-  @@index([data])
 }
 
 model Categoria {
@@ -188,7 +190,8 @@ model Categoria {
   usuario      User?         @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
   gastos       Gasto[]
 
-  @@index([usuarioId])
+  // F-032: unicidade de nome por utilizador + índice composto
+  @@unique([usuarioId, nome])
   @@index([tipo])
 }
 

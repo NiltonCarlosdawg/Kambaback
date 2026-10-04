@@ -72,11 +72,13 @@ const testarLigacao = async (connectionString) => {
 
   // 2. Schema sincronizado com o schema.prisma (idempotente)
   try {
-    execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate'], {
+    execFileSync('npx', ['prisma', 'db', 'push', '--skip-generate', '--accept-data-loss'], {
       cwd: path.join(__dirname, '..'),
       env: { ...process.env, DATABASE_URL: url },
       stdio: 'inherit',
     });
+    // --accept-data-loss: os avisos (ex.: índice único novo falharia se já
+    // existirem duplicados) são seguros na BD de teste — 100% descartável.
     console.log('[TESTE] Schema da BD de teste OK (db push)');
   } catch (err) {
     console.error('[TESTE] Falha no db push:', err.message);

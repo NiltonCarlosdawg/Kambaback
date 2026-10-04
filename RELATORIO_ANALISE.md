@@ -611,6 +611,14 @@
   ```
 - **Solução sugerida**: adicionar as unicidades parciais, repor índices compostos reais (`[usuarioId, excluido, data]`, `[usuarioId, tipo, excluido, data]`), remover índices redundantes com `@unique`.
 - **Esforço estimado**: Médio
+- ✅ **CORRIGIDO (F-032)**
+  - `schema.prisma`:
+    - `User`: removidos `@@index([email])` e `@@index([telefone])` (redundantes — ambos já `@unique`).
+    - `Cartao`: adicionado `@@unique([usuarioId, numero])` (NULL permitido; o catch P2002 dos controllers deixa de ser morto) e `@@index([usuarioId, ativo, excluido])`; removido `@@index([usuarioId])` (coberto pelo lado esquerdo do unique).
+    - `Categoria`: adicionado `@@unique([usuarioId, nome])`; removido `@@index([usuarioId])`.
+    - `Gasto`: adicionados `@@index([usuarioId, excluido, data])` e `@@index([usuarioId, tipo, excluido, data])` (históricos filtrados por utilizador); removidos `@@index([usuarioId])` e `@@index([data])` redundantes.
+  - **Aplicado ao schema**: `npx prisma validate` ✅; `prisma db push --accept-data-loss` executado contra a BD de dev (`kambapro`) — verificação prévia confirmou **0 duplicados** violadores em Cartao/Categoria; contra a BD de teste via `tests/setupTestDb.js` (agora com `--accept-data-loss`: os avisos são seguros na BD descartável) + `TRUNCATE User CASCADE` permanece.
+  - **Validação**: `npm test` → **51/51** (9 suites); `npm run lint` → 0 erros. Verificação no navegador não se aplica (mudança de schema; o comportamento passa a estar protegido por duplos critérios — unique na BD + catch P2002 nos controllers).
 
 ---
 
