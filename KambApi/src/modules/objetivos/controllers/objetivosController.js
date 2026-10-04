@@ -322,20 +322,27 @@ const distribuirPoupancaAutomatica = async (req, res, next) => {
     }
 
     await prisma.$transaction(async (tx) => {
+      // F-029: abate CONDICIONADO dentro da transação (gte + decrement
+      // atómico) — a verificação acima é só um atalho para a mensagem; na
+      // concorrência nunca se reserva mais do que o saldo disponível.
+      const abatido = await tx.cartao.updateMany({
+        where: { id: cardBase.id, saldoDisponivel: { gte: totalDistribuido } },
+        data: {
+          saldoDisponivel: { decrement: totalDistribuido },
+          saldoReservado: { increment: totalDistribuido },
+        },
+      });
+      if (abatido.count !== 1) {
+        // lança → rollback dos increments de objetivos abaixo
+        throw new AppError('Saldo disponível insuficiente no cartão seleccionado', 400);
+      }
+
       for (const dist of distribuicoes) {
         await tx.objetivo.update({
           where: { id: dist.id },
           data: { valorAtual: { increment: dist.valor } }
         });
       }
-
-      await tx.cartao.update({
-        where: { id: cardBase.id },
-        data: {
-          saldoDisponivel: { decrement: totalDistribuido },
-          saldoReservado: { increment: totalDistribuido }
-        }
-      });
     });
 
     await invalidarCacheUsuario(usuarioId);

@@ -550,6 +550,11 @@
   ```
 - **Solução sugerida**: `updateMany({ where: { id, saldoAtual: { gte: valor } }, data: { saldoAtual: { decrement: valor } } })` e verificar `count === 1` dentro da transação.
 - **Esforço estimado**: Médio
+- ✅ **CORRIGIDO (F-029)**
+  - **Wizard (`kambaWizardController.concluir`)**: débito condicionado — `tx.cartao.updateMany({ where: { id, saldoAtual: { gte: valor } }, data: { saldoAtual: { decrement: valor }, saldoDisponivel: { decrement: valor } } })`; `count !== 1` → `throw` → **rollback do gasto criado** na mesma transação e mensagem amigável "Saldo insuficiente" (saldo relido da BD para a resposta). A verificação prévia mantém-se apenas como atalho para a mensagem. Bónus: `decrement` em ambos os campos **preserva a invariante** `saldoAtual − saldoReservado = saldoDisponivel` (o código antigo forçava `saldoDisponivel = novoSaldo`, quebrando-a quando havia reservas).
+  - **`distribuirPoupanca`**: abate movido para o topo da transação com `updateMany({ where: { id, saldoDisponivel: { gte: totalDistribuido } } ... })`; `count !== 1` → `throw new AppError(400)` → rollback dos increments de objetivos.
+  - **Testes novos** (`tests/f029.test.js`, 3 testes): wizard feliz (débito exacto nos dois campos + gasto registado), wizard recusado sem efeitos parciais, e **duas distribuições concorrentes de 60 000 em saldo 100 000 → exactamente uma 200 e uma 400**, com invariante verificada e `valorAtual` do objetivo incrementado uma única vez.
+  - **Validação**: `npm test` → **42/42** (7 suites, +3 da F-029); `npm run lint` → 0 erros. Verificação no navegador não se aplica (lógica de API/BD; caminho do wizard é interno ao chat).
 
 ---
 

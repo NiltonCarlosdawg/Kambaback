@@ -291,38 +291,61 @@ Vamos chegar lá juntos! Digita "como vão meus objetivos?" a qualquer momento p
           return ` Saldo insuficiente na conta *${cartao.nome}*!\nTens apenas ${cartao.saldoAtual.toLocaleString("pt-AO")} AOA disponíveis. Tens outra conta?`;
         }
 
-        const resultado = await prisma.$transaction(async (tx) => {
-          const descricaoFinal =
-            dados.descricao && dados.descricao.toLowerCase() !== "pular"
-              ? dados.descricao.trim()
-              : `Gasto em ${nomeCategoria}`;
+        // F-029: o débito é CONDICIONADO dentro da transação (updateMany com
+        // gte + decrement atómico) — a verificação acima é só um atalho para a
+        // mensagem amigável. Dois pedidos concorrentes nunca passam ambos:
+        // se o saldo já não chegar, o throw faz rollback do gasto criado.
+        let resultado;
+        try {
+          resultado = await prisma.$transaction(async (tx) => {
+            const descricaoFinal =
+              dados.descricao && dados.descricao.toLowerCase() !== "pular"
+                ? dados.descricao.trim()
+                : `Gasto em ${nomeCategoria}`;
 
-          const gasto = await tx.gasto.create({
-            data: {
-              usuarioId,
-              cartaoId: cartao.id,
-              categoriaId: categoria.id,
-              valor,
-              descricao: descricaoFinal,
-              tipo: "DESPESA",
-              data: new Date(),
-              excluido: false,
-              local: null,
-              tags: [],
-              moeda: moedaGasto,
-              valorOriginal: moedaGasto !== 'AOA' ? valorOriginal : null,
-              taxaCambio: moedaGasto !== 'AOA' ? taxa : null,
-            },
+            const gasto = await tx.gasto.create({
+              data: {
+                usuarioId,
+                cartaoId: cartao.id,
+                categoriaId: categoria.id,
+                valor,
+                descricao: descricaoFinal,
+                tipo: "DESPESA",
+                data: new Date(),
+                excluido: false,
+                local: null,
+                tags: [],
+                moeda: moedaGasto,
+                valorOriginal: moedaGasto !== 'AOA' ? valorOriginal : null,
+                taxaCambio: moedaGasto !== 'AOA' ? taxa : null,
+              },
+            });
+
+            const abatido = await tx.cartao.updateMany({
+              where: { id: cartao.id, saldoAtual: { gte: valor } },
+              data: {
+                saldoAtual: { decrement: valor },
+                saldoDisponivel: { decrement: valor },
+              },
+            });
+            if (abatido.count !== 1) {
+              throw new Error("SALDO_INSUFICIENTE");
+            }
+
+            const cartaoAtual = await tx.cartao.findUniqueOrThrow({
+              where: { id: cartao.id },
+            });
+            return { gasto, novoSaldo: cartaoAtual.saldoAtual };
           });
-
-          const novoSaldo = cartao.saldoAtual - valor;
-          await tx.cartao.update({
-            where: { id: cartao.id },
-            data: { saldoAtual: novoSaldo, saldoDisponivel: novoSaldo },
-          });
-
-          return { gasto, novoSaldo };
-        });
+        } catch (err) {
+          if (err.message === "SALDO_INSUFICIENTE") {
+            const atual = await prisma.cartao.findUnique({
+              where: { id: cartao.id },
+            });
+            return ` Saldo insuficiente na conta *${cartao.nome}*!\nTens apenas ${Number(atual?.saldoAtual ?? 0).toLocaleString("pt-AO")} AOA disponíveis. Tens outra conta?`;
+          }
+          throw err;
+        }
 
         return ` Gasto registado, kamba!
 
