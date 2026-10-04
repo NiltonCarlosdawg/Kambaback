@@ -49,13 +49,17 @@ npx prisma migrate deploy
 npx prisma generate
 ```
 
-**Ou execute manualmente via SQL Editor no Supabase:**
+**⚠️ NÃO use o SQL Editor do Supabase para migrations (F-009):**
 
-Copie o conteúdo de cada arquivo em:
-- `KambApi/prisma/migrations/20251128230312_init/migration.sql`
-- `KambApi/prisma/migrations/*/migration.sql`
+Copiar/migrar SQL à mão é a receita para perda de dados — as migrations
+contêm `DROP TABLE`/`ADD COLUMN NOT NULL` que só são seguros quando
+executadas **pelo Prisma, pela ordem certa, uma única vez** (`_prisma_migrations`
+regista o que já correu). Sempre que o schema mudar:
 
-Execute-os em **SQL Editor** do Supabase (em ordem).
+```bash
+cd KambApi
+npx prisma migrate deploy   # aplica apenas o que falta, de forma atómica
+```
 
 ---
 
@@ -99,7 +103,7 @@ Em **Environment Variables**, adicione:
 |-------|-------|
 | Name | `kwanza-api` |
 | Environment | `Node` |
-| Build Command | `npm install && npx prisma generate` |
+| Build Command | `npm install && npx prisma generate && npx prisma migrate deploy` |
 | Start Command | `node server.js` |
 
 ### 3.3 Variáveis de Ambiente

@@ -202,7 +202,7 @@
   -- 20260123005243:99
   ADD COLUMN "dataPrevista" TIMESTAMP(3) NOT NULL  -- (comment: not possible if table not empty)
   ```
-- **Solução sugerida**: fazer **baseline** da BD existente (`prisma migrate resolve --applied`) e `squash` do histórico inicial; migrations novas idempotentes; remover as instruções manuais do `DEPLOY.md` e pôr `npx prisma migrate deploy` no Build Command.
+- **Solução sugerida**: fazer **baseline** da BD existente (`prisma migrate resolve --applied`) e `squash` do histórico inicial; migrations novas idempotentes; remover as instruções manuais do `DEPLOY.md` e pôr `npx prisma migrate deploy` no Build Command. — **✅ PARCIALMENTE CORRIGIDO em 04/10/2026**: instruções manuais de SQL removidas do `DEPLOY.md` (substituídas por aviso explícito + `migrate deploy`) e Build Command do Render agora inclui `npx prisma migrate deploy`. **Pendente (requer acesso/coordenação com a BD de produção)**: `migrate resolve` + squash do histórico `20251128230312_init`→`20260201203332` — alterar migrations já aplicadas muda os checksums e faria o `migrate deploy` falhar em produção; fazer só após confirmar o estado de `SELECT * FROM _prisma_migrations` no Supabase. Migrations novas continuam a ser criadas idempotentes (ver F-003).
 - **Esforço estimado**: Alto
 
 ---
