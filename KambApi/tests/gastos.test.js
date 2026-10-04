@@ -49,7 +49,7 @@ describe('Gastos API', () => {
           data: new Date().toISOString()
         });
 
-      expect([201, 200]).toContain(res.status);
+      expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
     });
 

@@ -1,10 +1,16 @@
 const request = require('supertest');
 const { app } = require('../server');
+const { resetarLimiteAuth } = require('./helpers');
 
 describe('Auth API', () => {
   let accessToken;
   let refreshToken;
   const uniqueTelefone = () => `9${Math.floor(Math.random() * 9) + 1}${String(Date.now() % 10000000).padStart(7, '0')}`;
+
+  // F-022: hermético — cada teste parte do orçamento zero do limiteAuth
+  // (sem isto, os registos/login falhados anteriores esgotavam o limite e os
+  // testes de refresh recebiam 429)
+  beforeEach(() => resetarLimiteAuth());
 
   describe('POST /api/auth/register', () => {
     it('deve registar um novo utilizador', async () => {
