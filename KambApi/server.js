@@ -145,7 +145,11 @@ app.use(cookieParser());
 app.use(mongoSanitize());
 
 // Trust proxy (necessário para rate limit por IP atrás de load balancer)
-app.set("trust proxy", 1);
+// F-021: em produção há sempre o proxy do Render à frente (1 salto) → confiar
+// nele é o mínimo para o rate limit ver o IP real. Em desenvolvimento NÃO se
+// confia no X-Forwarded-For (antes, `1` + ausência de proxy permitia spoofar
+// o IP e contornar o limite de auth mesmo em local).
+app.set("trust proxy", process.env.NODE_ENV === "production" ? 1 : false);
 
 // Logger de requests (apenas em desenvolvimento)
 if (process.env.NODE_ENV !== "production") {

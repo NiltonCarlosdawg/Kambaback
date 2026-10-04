@@ -1,5 +1,6 @@
 // src/utils/cache.js
 const Redis = require('ioredis');
+const { montarRedisUrl } = require('./redisUrl');
 
 /**
  * ==========================================
@@ -12,9 +13,12 @@ let redisClient = null;
 const memoryCache = new Map();
 
 // Tenta conectar ao Redis
-if (process.env.REDIS_URL) {
+// F-021: URL unificada (REDIS_URL ou REDIS_HOST/PORT/PASSWORD) — antes só
+// REDIS_URL era lido e, no .env atual, o Redis nunca era usado pelo cache.
+const redisUrl = montarRedisUrl();
+if (redisUrl) {
   try {
-    redisClient = new Redis(process.env.REDIS_URL, {
+    redisClient = new Redis(redisUrl, {
       enableOfflineQueue: false,
       maxRetriesPerRequest: 3,
       retryStrategy(times) {
@@ -177,31 +181,30 @@ const deleteCache = async (pattern) => {
 };
 
 /**
- * CLEAR - Limpa todo o cache (use com cuidado!)
- * @param {string} prefix - Opcional: limpa apenas keys com este prefixo
+ * CLEAR - Limpa o cache de um prefixo específico
+ * @param {string} prefix - OBRIGATÓRIO: só limpa keys com este prefixo
  * @returns {Promise<boolean>}
+ * F-021: o prefixo passou a ser obrigatório — a variante global fazia
+ * `redisClient.flushdb()` e apagava TUDO na mesma BD (contadores rl:auth:*,
+ * locks do kamba e dados do adapter do socket).
  */
-const clearCache = async (prefix = null) => {
+const clearCache = async (prefix) => {
+  if (!prefix) {
+    console.warn('[CACHE] clearCache exige um prefixo — flush global bloqueado (F-021)');
+    return false;
+  }
   try {
     if (isRedisAvailable()) {
-      if (prefix) {
-        await deleteCache(`${prefix}*`);
-      } else {
-        await redisClient.flushdb();
-      }
-      console.log(`Cache limpo${prefix ? ` (prefix: ${prefix})` : ''}`);
+      await deleteCache(`${prefix}*`);
+      console.log(`Cache limpo (prefix: ${prefix})`);
       return true;
     }
 
     // Fallback para memória
-    if (prefix) {
-      for (const key of memoryCache.keys()) {
-        if (key.startsWith(prefix)) {
-          memoryCache.delete(key);
-        }
+    for (const key of memoryCache.keys()) {
+      if (key.startsWith(prefix)) {
+        memoryCache.delete(key);
       }
-    } else {
-      memoryCache.clear();
     }
 
     return true;
