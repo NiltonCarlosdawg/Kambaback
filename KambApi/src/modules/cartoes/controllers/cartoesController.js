@@ -6,18 +6,15 @@ const { calcularNovosSaldos } = require('../services/saldoCartaoService');
 const arredondarDinheiro = (valor) =>
   Math.round((Number(valor) + Number.EPSILON) * 100) / 100;
 
+// F-013: pesos RELATIVOS — reparte o pool pela soma real das percentagens
+// (idêntico ao antigo quando a soma = 100%; não rebenta mais com soma ≠ 100%).
 const distribuirPoolPorPesos = (objetivos, pool) => {
   const totalPesos = objetivos.reduce(
     (acc, objetivo) => acc + Number(objetivo.porcentagemDistribuicao || 0),
     0,
   );
 
-  if (Math.abs(totalPesos - 100) > 0.01) {
-    throw new AppError(
-      'A soma das percentagens dos objetivos deve ser exactamente 100%',
-      400,
-    );
-  }
+  if (!objetivos.length || totalPesos <= 0) return [];
 
   let acumulado = 0;
   return objetivos.map((objetivo, index) => {
@@ -25,7 +22,7 @@ const distribuirPoolPorPesos = (objetivos, pool) => {
     const valor =
       index === objetivos.length - 1
         ? arredondarDinheiro(pool - acumulado)
-        : arredondarDinheiro((pool * peso) / 100);
+        : arredondarDinheiro((pool * peso) / totalPesos);
     acumulado += valor;
     return { objetivo, valor };
   });

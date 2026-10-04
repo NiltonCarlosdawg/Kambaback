@@ -273,7 +273,7 @@
     throw new AppError('A soma das percentagens dos objetivos deve ser exactamente 100%', 400);
   }
   ```
-- **Solução sugerida**: unificar as duas validações (exigir 100% nas duas ou ponderar), zerar/recalcular percentagens ao concluir/excluir objetivos, e validar também no POST/PATCH do cartão (hoje o erro só aparece na receita).
+- **Solução sugerida**: unificar as duas validações (exigir 100% nas duas ou ponderar), zerar/recalcular percentagens ao concluir/excluir objetivos, e validar também no POST/PATCH do cartão (hoje o erro só aparece na receita). — **✅ CORRIGIDO em 04/10/2026** (opção *ponderar*): os pesos passaram a ser **relativos** nos **3 pontos de runtime** — `distribuirPoolPorPesos` nas cópias de `gastosController` e `cartoesController` (divide pela soma real, guarda `totalPesos <= 0` → `[]`) e `distribuirPoupancaAutomatica` (terceiro ponto, com a própria cópia do cálculo — também normalizado, com o último item a absorver o resto de arredondamento). Com soma = 100% o resultado é **idêntico** ao algoritmo antigo (regression-safe). A validação de CRUD mantém o limite ≤ 100% (limite de UX); a validação sugerida no POST/PATCH do cartão deixou de ser necessária — já não existe falha de runtime a detetar. Excluir objetivos já é coberto pelo filtro `excluido: false` + normalização; o *zerar ao concluir* fica para o F-015. Validado E2E 10/10: 2 objetivos a 30%+30% (soma 60%) → receita aceite (antes: 400), pool 10.000 → 5.000/5.000, rota `distribuir-poupanca` aceite (antes: 400), reservado = 15.000; jest `gastos.test.js` 4/4 sem regressões.
 - **Esforço estimado**: Médio
 
 ---

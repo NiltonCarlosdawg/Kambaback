@@ -276,20 +276,25 @@ const distribuirPoupancaAutomatica = async (req, res, next) => {
       return next(new AppError('Não existem objetivos configurados para distribuição', 400));
     }
 
-    if (Math.abs(totalPercentagem - 100) > 0.01) {
-      return next(new AppError('A soma das percentagens de distribuição dos objetivos deve ser exactamente 100%', 400));
-    }
+    // F-013: pesos RELATIVOS — reparte o pool pela soma real das percentagens
+    // (antes exigia exactamente 100% e bloqueava esta rota com somas como 30%+30%).
 
     const poolDistribuicao = arredondarDinheiro(
       (valorNum * percentualPoupanca) / 100,
     );
 
-    const distribuicoes = objetivos.map((obj) => ({
-      id: obj.id,
-      valor: arredondarDinheiro(
-        (poolDistribuicao * Number(obj.porcentagemDistribuicao)) / 100,
-      )
-    }));
+    let acumuladoPool = 0;
+    const distribuicoes = objetivos.map((obj, index) => {
+      const valor =
+        index === objetivos.length - 1
+          ? arredondarDinheiro(poolDistribuicao - acumuladoPool)
+          : arredondarDinheiro(
+              (poolDistribuicao * Number(obj.porcentagemDistribuicao)) /
+                totalPercentagem,
+            );
+      acumuladoPool += valor;
+      return { id: obj.id, valor };
+    });
 
     const totalDistribuido = distribuicoes.reduce(
       (acc, dist) => acc + dist.valor,
