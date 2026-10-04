@@ -6,7 +6,7 @@ const noticiaService = require('../services/noticiasService');
  */
 const ultimas = async (req, res, next) => {
   try {
-    const categoria = req.query.categoria || 'business';
+    const categoria = req.query.categoria || 'angola'; // F-016: default real do serviço ('business' não existe)
     const resultado = await noticiaService.buscarNoticias(categoria);
 
     res.json({
@@ -23,7 +23,7 @@ const ultimas = async (req, res, next) => {
  */
 const resumo = async (req, res, next) => {
   try {
-    const categoria = req.query.categoria || 'business';
+    const categoria = req.query.categoria || 'angola'; // F-016: default real do serviço ('business' não existe)
     const resultado = await noticiaService.gerarResumoIA(categoria);
 
     res.json({

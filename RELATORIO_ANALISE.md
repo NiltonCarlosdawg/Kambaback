@@ -318,7 +318,7 @@
   router.get('/resumo', resumo);   // sem protegerRota
   const cacheKey = `noticias:resumo:${categoria}`; // categoria livre do cliente
   ```
-- **Solução sugerida**: `protegerRota` + schema Joi (`categoria: valid('angola','global','mercados')`) e limitar a chave de cache.
+- **Solução sugerida**: `protegerRota` + schema Joi (`categoria: valid('angola','global','mercados')`) e limitar a chave de cache. — **✅ CORRIGIDO em 04/10/2026**: `protegerRota` + `noticiasQuerySchema` (target `query`) em `GET /` e `GET /resumo`; `categoria` limitada ao conjunto fechado **`angola|global|mercados|geral|financas|tech`** (união backend + frontend — o `News.tsx` envia `geral/financas/tech`, que não coincidiam com a sugestão estrita e partiriam os botões da UI) com `.default('angola')` → no máximo **6 chaves de cache** por prefixo em vez de infinitas; strings arbitrárias dão 400. Chave de cache agora limitada por construção (só entram categorias validadas). Defaults do controller corrigidos de `'business'` (inexistente no serviço) para `'angola'`. A tool interna `getRecentNews` continua a chamar o serviço diretamente (sem HTTP) — não afetada. Validado E2E 9/9: sem token → 401 nas duas rotas, `categoria` arbitrária/300 chars → 400, `geral`/`angola` → 200 (compat UI), sem categoria → `cat=angola`, `/resumo` e `/impacto` autenticados → 200.
 - **Esforço estimado**: Baixo
 
 ---
