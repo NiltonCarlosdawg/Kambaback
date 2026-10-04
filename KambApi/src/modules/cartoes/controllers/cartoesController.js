@@ -92,10 +92,24 @@ const listarCartoes = async (req, res, next) => {
       totalReservado += Number(c.saldoReservado) || 0;
     });
 
+    const cartoesVista = cartoes.map((c) => {
+      // F-033: número cifrado na BD — a API nunca devolve o valor completo
+      const enc = require('../../../utils/encryption');
+      let numeroMascarado = c.numero;
+      try {
+        numeroMascarado = c.numero
+          ? enc.maskSensitiveData(enc.isEncrypted(c.numero) ? enc.decrypt(c.numero) : c.numero)
+          : null;
+      } catch {
+        numeroMascarado = '****';
+      }
+      return { ...c, numero: numeroMascarado };
+    });
+
     res.json({
       success: true,
       message: 'Cartões carregados com sucesso',
-      cartoes,
+      cartoes: cartoesVista,
       resumo: {
         totalCartoes: cartoes.length,
         saldoTotal: totalSaldo,
@@ -136,17 +150,24 @@ const criarCartao = async (req, res, next) => {
   }
 
   try {
-    // Verifica duplicidade de número
+    // Verifica duplicidade de número (F-033: números encriptados — compara pelo
+    // valor em texto claro, decifrando os existentes do próprio utilizador)
     if (numero) {
-      const existe = await prisma.cartao.findFirst({
-        where: {
-          usuarioId: req.user.id,
-          numero: numero.trim(),
-          excluido: false
+      const enc = require('../../../utils/encryption');
+      const meus = await prisma.cartao.findMany({
+        where: { usuarioId: req.user.id, excluido: false, numero: { not: null } },
+        select: { numero: true }
+      });
+
+      const duplicado = meus.some((c) => {
+        try {
+          return (enc.isEncrypted(c.numero) ? enc.decrypt(c.numero) : c.numero) === numero.trim();
+        } catch {
+          return false;
         }
       });
 
-      if (existe) {
+      if (duplicado) {
         return next(new AppError('Já tens um cartão com este número', 409));
       }
     }
@@ -171,7 +192,8 @@ const criarCartao = async (req, res, next) => {
         nome: nome.trim(),
         tipo,
         banco: banco?.trim() || 'Sem banco',
-        numero: numero?.trim() || null,
+        // F-033: o número é cifrado com AES-256-GCM — nunca em texto claro
+        numero: numero?.trim() ? require('../../../utils/encryption').encrypt(numero.trim()) : null,
         saldoAtual: saldoInicialAtual,
         saldoDisponivel: saldoInicialDisponivel,
         saldoReservado: 0,
@@ -194,7 +216,9 @@ const criarCartao = async (req, res, next) => {
     res.status(201).json({
       success: true,
       message: `Cartão de ${tipo.toLowerCase()} adicionado com sucesso!`,
-      cartao
+      cartao: numero?.trim()
+        ? { ...cartao, numero: require('../../../utils/encryption').maskSensitiveData(numero.trim()) }
+        : cartao
     });
 
   } catch (err) {

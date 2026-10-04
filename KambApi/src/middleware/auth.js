@@ -130,7 +130,8 @@ const refreshToken = async (req, res, next) => {
     if (!user) return next(new AppError('Token inválido.', 401));
 
     // Verifica se o refresh token no banco corresponde ao enviado
-    if (user.refreshToken !== token) {
+    const encRefresh = require('../utils/encryption');
+    if (!encRefresh.compareHash(user.refreshToken, encRefresh.hash(token))) {
       return next(new AppError('Sessão inválida ou token reutilizado.', 401));
     }
 
@@ -139,7 +140,7 @@ const refreshToken = async (req, res, next) => {
     // Salva novo refresh token no banco (segurança máxima - rotação de tokens)
     await prisma.user.update({
       where: { id: user.id },
-      data: { refreshToken: novoRefresh }
+      data: { refreshToken: encRefresh.hash(novoRefresh) }
     });
 
     res.json({

@@ -69,7 +69,9 @@ model Cartao {
   nome                    String   @db.VarChar(100)
   tipo                    TipoCartao
   banco                   String   @db.VarChar(100)
-  numero                  String?  @db.VarChar(50)
+  // F-033: `numero` é cifrado com AES-256-GCM (formato iv:authTag:encrypted) —
+  // deixa de caber em VarChar(50), usamos text
+  numero                  String?
   saldoAtual              Decimal  @default(0) @db.Decimal(12, 2)
   limiteCredito           Decimal? @default(0) @db.Decimal(12, 2)
   moeda                   String   @default("AOA") // AOA | USD | EUR

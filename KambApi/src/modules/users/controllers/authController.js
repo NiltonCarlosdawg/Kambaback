@@ -52,6 +52,9 @@ const validarSexo = (sexo) => {
 // ==========================================
 // GERAR TOKENS
 // ==========================================
+// F-033: refresh tokens guardados como sha256 (hex) na BD — comparação
+// timing-safe via compareHash. `hash`/`compareHash` vêm do encryption.js.
+const { hash: hashRefreshToken, compareHash: compararRefresh } = require('../../../utils/encryption');
 const gerarTokens = (userId) => {
   const accessToken = jwt.sign({ id: userId }, JWT_SECRET, { expiresIn: '15m' });
   const refreshToken = jwt.sign({ id: userId }, REFRESH_SECRET, { expiresIn: '7d' });
@@ -128,10 +131,10 @@ const registrar = async (req, res, next) => {
 
     const { accessToken, refreshToken } = gerarTokens(usuario.id);
 
-    // Salva refresh token no banco
+    // Salva refresh token no banco (F-033: guarda sha256 hex, não o JWT)
     await prisma.user.update({
       where: { id: usuario.id },
-      data: { refreshToken }
+      data: { refreshToken: hashRefreshToken(refreshToken) }
     });
 
     // F-019: refresh token também em cookie httpOnly (o frontend já não o guarda)
@@ -186,7 +189,7 @@ const login = async (req, res, next) => {
 
     await prisma.user.update({
       where: { id: usuario.id },
-      data: { refreshToken, ultimoLogin: new Date() }
+      data: { refreshToken: hashRefreshToken(refreshToken), ultimoLogin: new Date() }
     });
 
     // F-019: refresh token também em cookie httpOnly (o frontend já não o guarda)
@@ -247,7 +250,7 @@ const refresh = async (req, res, next) => {
       select: { id: true, refreshToken: true }
     });
 
-    if (!user || user.refreshToken !== refreshToken) {
+    if (!user || !compararRefresh(user.refreshToken, hashRefreshToken(refreshToken))) {
       return next(new AppError('Sessão inválida', 401));
     }
 
@@ -255,7 +258,7 @@ const refresh = async (req, res, next) => {
 
     await prisma.user.update({
       where: { id: user.id },
-      data: { refreshToken: novoRefresh }
+      data: { refreshToken: hashRefreshToken(novoRefresh) }
     });
 
     // F-019: renova o cookie httpOnly com o refresh token rotacionado

@@ -635,6 +635,13 @@
   ```
 - **Solução sugerida**: guardar `sha256(refreshToken)` (comparação timing-safe), hash do OTP, encriptar `numero` (ou mascarar `**** 1234`).
 - **Esforço estimado**: Médio
+- ✅ **CORRIGIDO (F-033)**
+  - **refreshToken**: os 4 pontos de gravação do JWT (`authController.registrar/login/refresh`, `googleAuthController`, `appleAuthController`, `middleware/auth.js`) agora guardam `sha256(refreshToken)` (hex, hex de 64 chars via `encryption.hash`); as comparações passam a `compareHash` (timing-safe). O token em claro sai da BD — um dump não permite sequestrar a sessão.
+  - **OTP**: já estava coberto no F-020 (`otp`/`salt`/`tentativas` com sha256(salt:otp) e bloqueio ao erro) — nada a fazer.
+  - **numero de cartão**: cifrado com AES-256-GCM (`encryption.encrypt/decrypt`, utilitário já existente mas nunca invocado); coluna alargada de `VarChar(50)` para `text` (o formato iv:authTag:ciphertext não cabia em 50); em respostas (`POST /cartoes` e `GET /cartoes`) o número passa a ser devolvido **mascarado** (`maskSensitiveData`, últimos 4); a verificação manual de duplicidade (`Já tens um cartão com este número`) passou a comparar pelo valor decriptado (encriptar torna uma pesquisa directa por igualdade impossível). Soft-delete mantém `numero: null`.
+  - **Testes novos** (`tests/f033.test.js`, 3 testes): refreshToken na BD é hex 64 != JWT; criação de cartão devolve número mascarado; segundo cartão com mesmo número → 409; `GET /api/cartoes` não expõe o número completo.
+  - **Validação**: `npm test` → **54/54** (10 suites, +3 da F-033); `npm run lint` → 0 erros. Verificação no navegador não se aplica (segurança em repouso; sem alteração de UI... except GET /api/cartoes passou a devolver a versão mascarada do número, nenhuma tela renderiza este campo).
+  - **Incidente de infra (não funcional)**: durante a validação inicial o disco ficou 100% cheio e o PostgreSQL de sistema (`postgresql@16-main`) crashou; limpei o cache npm (~2 GB) e, sem root para reiniciar o serviço, subiu um postgres privado em `~/.local/share/kamba-pg` (porta 5432, role/db equivalentes) — é ele que serve actualmente a BD de dev/teste. Com root, reverte-se (`pg_ctl ... stop` no privado + restart do serviço de sistema).
 
 ---
 

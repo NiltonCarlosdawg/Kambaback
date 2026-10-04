@@ -127,7 +127,7 @@ const loginComGoogle = async (req, res, next) => {
 
     await prisma.user.update({
       where: { id: usuario.id },
-      data: { refreshToken, ultimoLogin: new Date() }
+      data: { refreshToken: require('../../../utils/encryption').hash(refreshToken), ultimoLogin: new Date() }
     });
 
     // F-019: refresh token também em cookie httpOnly
