@@ -20,6 +20,20 @@ const carregarTemplate = (name) => {
 };
 
 /**
+ * F-010: sanitiza texto livre do utilizador (nome, morada) antes de o injetar
+ * no system prompt — remove quebras de linha (fuga de bloco), marcadores
+ * [type:...] (spoof de marcadores como WIZARD) e limita o comprimento.
+ */
+const sanitizarCampoPrompt = (valor, fallback = "", max = 120) => {
+  const texto = String(valor ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/[[\]<>]/g, "")
+    .trim()
+    .substring(0, max);
+  return texto || fallback;
+};
+
+/**
  * Gera instruções operacionais de perfil de risco
  */
 const gerarInstrucoesRisco = (perfilDeRisco) => {
@@ -141,9 +155,12 @@ const gerarSystemPrompt = (
   };
 
   // Preencher variáveis comuns
+  // F-010: nome/morada são texto livre do utilizador dentro do system prompt —
+  // sem sanitização, quebras de linha ou marcadores deixavam "fugir" do bloco
+  // UTILIZADOR e fazer-se passar por instruções
   let prompt = template
-    .replace(/{{NOME}}/g, perfil?.nome || "kamba")
-    .replace(/{{MORADA}}/g, perfil?.morada || "Luanda")
+    .replace(/{{NOME}}/g, sanitizarCampoPrompt(perfil?.nome, "kamba"))
+    .replace(/{{MORADA}}/g, sanitizarCampoPrompt(perfil?.morada, "Luanda"))
     .replace(/{{ZONA_LUANDA}}/g, detectarZonaLuanda(perfil?.morada))
     .replace(/{{TIPO_RENDA}}/g, tipoRendaMap[perfil?.tipoRenda] || 'Não definido')
     .replace(/{{IDADE}}/g, idade || "não informada")
