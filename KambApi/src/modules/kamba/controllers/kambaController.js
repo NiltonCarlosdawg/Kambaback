@@ -31,7 +31,10 @@ toolsPlugin.init();
 // HELPERS
 // ==========================================
 
-const prepararContexto = async (usuarioId, msg, msgLower) => {
+// F-011: threadId tem de ser o MESMO na leitura e na escrita da memória —
+// sem ele na leitura, o histórico caía sempre no "default" e o thread do
+// cliente parecia perder mensagens.
+const prepararContexto = async (usuarioId, msg, msgLower, threadId = "default") => {
   const perfil = await prisma.user.findUnique({
     where: { id: usuarioId },
     select: {
@@ -53,6 +56,7 @@ const prepararContexto = async (usuarioId, msg, msgLower) => {
   const memoriaDB = await conversationService.carregarMemoriaComContexto(
     usuarioId,
     msg,
+    threadId,
   );
   const classificacao = intentClassifier.classificarIntencao(
     msgLower,
@@ -184,7 +188,7 @@ const detectarContextoPendente = async (usuarioId, msgLower, memoriaDB) => {
  * Verifica se é a primeira mensagem desta sessão (últimos 30 min sem actividade)
  * e retorna contexto relevante da sessão anterior se existir
  */
-const getContextoSessaoAnterior = async (usuarioId, memoriaDB) => {
+const getContextoSessaoAnterior = async (usuarioId, memoriaDB, threadId = "default") => {
   if (memoriaDB.length === 0) return null;
 
   const ultimaMensagem = memoriaDB[memoriaDB.length - 1];
@@ -200,6 +204,7 @@ const getContextoSessaoAnterior = async (usuarioId, memoriaDB) => {
       usuarioId,
       "resumo financeiro objectivos gastos",
       2,
+      threadId, // F-011: a sessão anterior também é do MESMO thread
     );
 
     if (contextosRelevantes.length > 0) {
@@ -223,6 +228,7 @@ const processarRotasRapidas = async (
   mensagem,
   res,
   isStream,
+  threadId = "default",
 ) => {
   const responder = (texto, extra = {}) => {
     if (isStream) {
@@ -246,12 +252,14 @@ const processarRotasRapidas = async (
       "user",
       msg,
       "bloqueado",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       resp,
       "bloqueado",
+      threadId,
     );
     return responder(resp, { moderado: true });
   }
@@ -265,12 +273,14 @@ const processarRotasRapidas = async (
         "user",
         mensagem,
         "fluxo_cancelado",
+        threadId,
       );
       await conversationService.salvarMemoria(
         usuarioId,
         "assistant",
         resp,
         "fluxo_cancelado",
+        threadId,
       );
       return responder(resp, { fluxoCancelado: true });
     }
@@ -280,12 +290,14 @@ const processarRotasRapidas = async (
       "user",
       mensagem,
       `fluxo_${resultado.fluxoTipo || "ativo"}`,
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       resultado.mensagem,
       `fluxo_${resultado.fluxoTipo || "ativo"}`,
+      threadId,
     );
     return responder(resultado.mensagem, {
       fluxoAtivo: resultado.continuar,
@@ -306,12 +318,14 @@ const processarRotasRapidas = async (
       "user",
       mensagem,
       "inicio_fluxo",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       resultadoInicio.mensagem,
       "inicio_fluxo",
+      threadId,
     );
     return responder(resultadoInicio.mensagem, {
       fluxoAtivo: !resultadoInicio.concluido,
@@ -360,12 +374,14 @@ const processarRotasRapidas = async (
       "user",
       mensagem,
       "saudacao",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       resp,
       "saudacao",
+      threadId,
     );
     return responder(resp, { intencao: "saudacao" });
   }
@@ -387,12 +403,14 @@ const processarRotasRapidas = async (
       "user",
       mensagem,
       "reacao_casual",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       resp,
       "reacao_casual",
+      threadId,
     );
     return responder(resp, { intencao: "reacao_casual" });
   }
@@ -405,12 +423,14 @@ const processarRotasRapidas = async (
       "user",
       mensagem,
       "ajuda",
+      threadId,
     );
     await conversationService.salvarMemoria(
       usuarioId,
       "assistant",
       ajuda,
       "ajuda",
+      threadId,
     );
     return responder(ajuda, { intencao: "ajuda" });
   }
@@ -466,6 +486,7 @@ const conversarComKamba = async (req, res, next) => {
       mensagem,
       res,
       false,
+      threadId,
     );
     if (resultadoRapido.handled) return;
 
@@ -480,7 +501,7 @@ const conversarComKamba = async (req, res, next) => {
       sentimentoIntensidade,
       idioma,
       contextoFinanceiro,
-    } = await prepararContexto(usuarioId, msg, msgLower);
+    } = await prepararContexto(usuarioId, msg, msgLower, threadId);
 
     console.log(
       `[KAMBA] Intenção: ${classificacao.intencao} | Tools: ${classificacao.precisaTools} | Confiança: ${classificacao.confianca} | Sentimento: ${sentimento} (${sentimentoIntensidade}) | Idioma: ${idioma}`,
@@ -495,6 +516,7 @@ const conversarComKamba = async (req, res, next) => {
     const contextoSessao = await getContextoSessaoAnterior(
       usuarioId,
       memoriaDB,
+      threadId,
     );
 
     const opcoesSessao = {
@@ -841,6 +863,7 @@ const conversarComKambaStream = async (req, res, next) => {
       mensagem,
       res,
       true,
+      threadId,
     );
     if (resultadoRapido.handled) return;
 
@@ -854,7 +877,7 @@ const conversarComKambaStream = async (req, res, next) => {
       sentimento,
       sentimentoIntensidade,
       contextoFinanceiro,
-    } = await prepararContexto(usuarioId, msg, msgLower);
+    } = await prepararContexto(usuarioId, msg, msgLower, threadId);
 
     // Detectar contexto pendente e sessão
     const contextoPendenteStream = await detectarContextoPendente(

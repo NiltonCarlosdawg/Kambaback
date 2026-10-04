@@ -81,11 +81,17 @@ const buscarContextoRelevante = async (
   usuarioId,
   mensagemAtual,
   limite = 3,
+  threadId = null,
 ) => {
   console.debug(
     `[SEMANTIC_MEMORY] Busca por similaridade lexical (não semântica) para: "${mensagemAtual.substring(0, 50)}"`,
   );
-  const resultados = await buscarSimilares(usuarioId, mensagemAtual, limite);
+  const resultados = await buscarSimilares(
+    usuarioId,
+    mensagemAtual,
+    limite,
+    threadId,
+  );
 
   if (resultados.length === 0) return [];
 

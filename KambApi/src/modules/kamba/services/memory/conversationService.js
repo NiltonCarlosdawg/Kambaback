@@ -211,7 +211,7 @@ const carregarMemoriaComContexto = async (
       orderBy: { criadoEm: "asc" },
       take: -limit,
     }),
-    buscarContextoRelevante(usuarioId, mensagemActual, 3),
+    buscarContextoRelevante(usuarioId, mensagemActual, 3, threadId),
   ]);
 
   let mensagens = historico.map((m) => ({

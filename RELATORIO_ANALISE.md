@@ -240,7 +240,7 @@
   const memoriaDB = await conversationService.carregarMemoriaComContexto(usuarioId, msg); // :53 — sem threadId
   await conversationService.salvarMemoria(usuarioId, "user", msg, "conversa_ia", threadId); // grava com threadId
   ```
-- **Solução sugerida**: passar `threadId` em todas as chamadas de leitura (e alinhar `processarRotasRapidas`, que grava sempre em default).
+- **Solução sugerida**: passar `threadId` em todas as chamadas de leitura (e alinhar `processarRotasRapidas`, que grava sempre em default). — **✅ CORRIGIDO em 04/10/2026**: `prepararContexto` e `processarRotasRapidas` agora recebem `threadId` e passam-no à leitura (`carregarMemoriaComContexto`) e às 14 escritas de rotas rápidas; auditoria global: **zero** `salvarMemoria` sem threadId em todo o `src`. Ficaram alinhados também os pontos derivados: `buscarContextoRelevante`/`buscarSimilares` (o contexto semântico cruzava threads) e `getContextoSessaoAnterior`. Validado E2E 7/7: escrita no thread do cliente (0 linhas em `default`), leitura com o thread certo encontra o histórico, leitura `default` = 0 msgs (histórico e contexto semântico isolados).
 - **Esforço estimado**: Baixo
 
 ---
