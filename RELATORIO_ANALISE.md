@@ -185,7 +185,7 @@
   frontend/dump.rdb
   $ git ls-files | grep -c 'coverage'   # 196 ficheiros em KambApi/coverage/
   ```
-- **Solução sugerida**: `git rm --cached dump.rdb frontend/dump.rdb` + `git rm -r --cached KambApi/coverage/`; acrescentar ao `.gitignore`: `*.rdb`, `coverage/`, `.codex`, `.env` (já está). Se o dump contiver dados reais, tratar como incidente (rodar `REDIS_PASSWORD`). **Estado: pendente.**
+- **Solução sugerida**: `git rm --cached dump.rdb frontend/dump.rdb` + `git rm -r --cached KambApi/coverage/`; acrescentar ao `.gitignore`: `*.rdb`, `coverage/`, `.codex`, `.env` (já está). Se o dump contiver dados reais, tratar como incidente (rodar `REDIS_PASSWORD`). — **✅ CORRIGIDO em 04/10/2026**: `git ls-files` = 0 para `*.rdb` e `coverage`; regras `*.rdb`, `coverage/`, `.codex` no `.gitignore` (commit `82daa0a`); a limpeza do histórico (F-081/limpeza de03/10) removeu também `dump.rdb`, `frontend/dump.rdb` e `KambApi/coverage/**` de todos os commits (`.git` 163M → 2,2M) e do disco. Dump residual da raiz apagado. **Nota**: a rotação do `REDIS_PASSWORD` continua pendente (ação do utilizador).
 - **Esforço estimado**: Baixo
 
 ---
