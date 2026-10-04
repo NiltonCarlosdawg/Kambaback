@@ -306,6 +306,14 @@ const marcarLembreteEnviado = async (lembreteId, usuarioId) => {
  * Marca lembrete como lido pelo utilizador
  */
 const marcarLembreteLido = async (lembreteId, usuarioId) => {
+  // F-017: sem usuarioId o Prisma descartaria o filtro (undefined) e o
+  // updateMany marcaria lembretes de qualquer utilizador — recusa sem ownership.
+  if (!lembreteId || !usuarioId) {
+    console.warn(
+      `[LEMBRETE] marcarLembreteLido recusado sem id ou utilizador (id=${lembreteId}, user=${usuarioId})`,
+    );
+    return 0;
+  }
   try {
     const resultado = await prisma.kambaLembrete.updateMany({
       where: { id: lembreteId, usuarioId },
@@ -316,8 +324,10 @@ const marcarLembreteLido = async (lembreteId, usuarioId) => {
         `[LEMBRETE] Tentativa de marcar lembrete ${lembreteId} sem ownership (user ${usuarioId})`,
       );
     }
+    return resultado.count;
   } catch (err) {
     console.error("[LEMBRETE] Erro ao marcar lido:", err.message);
+    return 0;
   }
 };
 

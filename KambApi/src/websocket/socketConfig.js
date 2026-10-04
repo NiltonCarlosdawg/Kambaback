@@ -78,8 +78,22 @@ const inicializarSocket = async (httpServer) => {
     socket.on('notificacao_lida', async (data) => {
       try {
         const { marcarLembreteLido } = require('../modules/kamba/services/kambaProatividadeService');
-        await marcarLembreteLido(data.notificacaoId);
-        
+        // F-017 (IDOR): sem o socket.userId, o Prisma ignorava o filtro de
+        // ownership (usuarioId undefined) e qualquer socket autenticado
+        // marcava lembretes de QUALQUER utilizador como lidos.
+        const afectados = await marcarLembreteLido(
+          data?.notificacaoId,
+          socket.userId,
+        );
+        if (!afectados) {
+          // Não existe ou não pertence a este utilizador — não confirmar
+          socket.emit('notificacao_erro', {
+            notificacaoId: data?.notificacaoId,
+            mensagem: 'Notificação não encontrada ou sem permissão',
+          });
+          return;
+        }
+
         socket.emit('notificacao_atualizada', {
           notificacaoId: data.notificacaoId,
           lido: true

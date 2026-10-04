@@ -334,7 +334,7 @@
     await marcarLembreteLido(data.notificacaoId);   // falta socket.userId
   // serviço: updateMany({ where: { id: lembreteId, usuarioId } })
   ```
-- **Solução sugerida**: `await marcarLembreteLido(data.notificacaoId, socket.userId)` e falhar se `resultado.count === 0`.
+- **Solução sugerida**: `await marcarLembreteLido(data.notificacaoId, socket.userId)` e falhar se `resultado.count === 0`. — **✅ CORRIGIDO em 04/10/2026**: o handler `notificacao_lida` passa `socket.userId`; `marcarLembreteLido` agora **recusa sem `usuarioId`** (guard explícito → retorna 0, nunca faz `updateMany` sem filtro de ownership) e **retorna `resultado.count`** (antes devolvia `void` e só logava); o handler, se `count === 0`, emite `notificacao_erro` em vez de confirmar a leitura. A rota HTTP (`kamba.js`) já passava `req.user.id` e herda o mesmo guard. Validado E2E com **sockets reais** 6/6 (2 utilizadores): socket de B a marcar lembrete de A → evento `erro` e `lido=false` (IDOR fechado); socket de A no próprio → `ok`/`lido=true`; serviço sem `usuarioId` → 0 sem escrever; com utilizador errado → 0 sem escrever; com dono → 1 e escreve. `socket.io-client` instalado com `--no-save` (package.json/lock intocados).
 - **Esforço estimado**: Baixo
 
 ---
