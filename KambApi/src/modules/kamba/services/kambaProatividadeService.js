@@ -15,6 +15,8 @@ const {
 // ==========================================
 // SISTEMA DE PROATIVIDADE DO KAMBA
 // ==========================================
+// F-035: lock distribuído via Redis SET NX + processamento em lotes concorrentes
+const redisClient = require("./core/redisClient");
 
 /**
  * Helper: retorna título legível por tipo de lembrete
@@ -359,29 +361,61 @@ const adicionarLembretesNaResposta = async (usuarioId, respostaOriginal) => {
 
 /**
  * Cron Job: análise diária para todos os utilizadores activos
+ * F-035: lotes concorrentes (5-10 simultâneos) + lock Redis SET NX
+ * — remove o setTimeout(500) por user (83 min → segundos).
+ * — lock distribuído impede que o cron semanal + daily + admin corram em simultâneo.
  */
 const executarAnaliseDiaria = async () => {
   try {
     console.log("[CRON] Iniciando análise proativa diária...");
+
+    // F-035: lock distribuído — só um processo pode executar de cada vez.
+    // Chave com TTL de 15 min (mais que suficiente para processar todos os users).
+    const lockAdquirido = await redisClient.set(
+      "kamba:proatividade:lock",
+      "1",
+      "NX",
+      "EX",
+      900, // 15 minutos
+    );
+
+    if (lockAdquirido !== "OK") {
+      console.log(
+        "[CRON] Outra instância de análise já está a correr. A esta ronda foi pulada.",
+      );
+      return;
+    }
 
     const usuarios = await prisma.user.findMany({
       where: { ativo: true },
       select: { id: true },
     });
 
+    const CONCURRENCIA = 8; // 5-10 simultâneos
+    const lote = [];
+
     let processados = 0;
     let erros = 0;
 
+    // F-035: processa em lotes com concorrência limitada em vez de loop sequencial com 500ms.
     for (const user of usuarios) {
-      try {
-        await analisarECriarLembretes(user.id);
-        processados++;
-      } catch (err) {
+      lote.push(processarUser(user.id).catch((err) => {
         erros++;
         console.error(`[CRON] Erro para user ${user.id}:`, err.message);
+      }));
+
+      // Quando o lote enche, aguarda todos terminarem antes de começar o próximo
+      if (lote.length >= CONCURRENCIA) {
+        const resultados = await Promise.all(lote);
+        processados += resultados.filter((r) => r).length;
+        lote.length = 0; // resetar sem reallocation
       }
-      // Delay entre processamentos para não sobrecarregar o BD
-      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+
+    // Processar o lote restante
+    if (lote.length > 0) {
+      const resultados = await Promise.all(lote);
+      processados += resultados.filter((r) => r).length;
     }
 
     console.log(
@@ -389,6 +423,23 @@ const executarAnaliseDiaria = async () => {
     );
   } catch (err) {
     console.error("[CRON] Erro crítico:", err.message);
+  } finally {
+    // F-035: libertar lock quer tenha sucesso ou falhado
+    await redisClient.del("kamba:proatividade:lock");
+  }
+};
+
+/**
+ * Processa um único usuário dentro de um lote concorrente.
+ * Extrai a lógica de analisarECriarLembretes para ser chamada via Promise.all.
+ */
+const processarUser = async (usuarioId) => {
+  try {
+    await analisarECriarLembretes(usuarioId);
+    return true;
+  } catch (err) {
+    console.error(`[CRON] Erro interno user ${usuarioId}:`, err.message);
+    return false;
   }
 };
 

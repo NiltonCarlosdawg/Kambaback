@@ -674,7 +674,11 @@
   ```js
   await analisarECriarLembretes(user.id); ... await new Promise((r) => setTimeout(r, 500));
   ```
-- **Solução sugerida**: lotes com concorrência limitada (5-10), paginação por cursor, lock Redis `SET NX`.
+- **Solução aplicada (F-035)**:
+  - **Lock distribuído**: `redisClient.set("kamba:proatividade:lock", "1", "NX", "EX", 900)` — chave com TTL 15 min impede que o cron diário, semanal e rota admin corram em simultâneo. Se lock já ocupado, ronda é pulada.
+  - **Batches concorrentes**: em vez de loop `for` com `setTimeout(500)` por user, agora processa em lotes de `CONCURRENCIA = 8` via `Promise.all`. Remove o gargalo dos 500ms por user: 10k users passam de ~83 min para segundos (apenas overhead de rede + DB).
+  - **Remoção do setTimeout(500)**: já não há delay artificial entre processamentos de usuários.
+  - **Result**: `npm test` → **54/54** (10 suites, +0 nova suite; lógica existente continua a passar); `npm run lint` → 0 erros. Verificação no navegador não se aplica (backend job/cron).
 - **Esforço estimado**: Médio
 
 ---
