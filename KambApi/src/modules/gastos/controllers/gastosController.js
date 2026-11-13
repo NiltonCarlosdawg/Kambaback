@@ -245,45 +245,91 @@ const criarGasto = async (req, res, next) => {
     });
 
     // ==========================================
-    // NOTIFICAÇÕES EM TEMPO REAL (fora da transação)
+    // NOTIFICAÇÕES EM TEMPO REAL (fire-and-forget — não bloqueiam a resposta)
+    // F-036: wrapped em IIFE + try/catch para que uma falha de notificação
+    // não cause 500 com o gasto já persistido na BD.
     // ==========================================
 
     // 1. Notificar novo gasto/receita
-    if (tipo === 'DESPESA') {
-      await NotificacaoService.notificarNovoGasto(usuarioId, resultado.gasto);
-    } else {
-      await NotificacaoService.notificarNovaReceita(usuarioId, resultado.gasto);
-    }
+    (async () => {
+      try {
+        if (tipo === 'DESPESA') {
+          await NotificacaoService.notificarNovoGasto(usuarioId, resultado.gasto);
+        } else {
+          await NotificacaoService.notificarNovaReceita(usuarioId, resultado.gasto);
+        }
+      } catch (err) {
+        console.error("[GASTOS] Erro ao notificar novo gasto:", err.message);
+      }
+    })();
 
     // 2. Notificar atualização de saldo do cartão
-    await NotificacaoService.notificarAtualizacaoSaldo(
-      usuarioId,
-      resultado.cartao,
-      tipo,
-      valorNum
-    );
+    (async () => {
+      try {
+        await NotificacaoService.notificarAtualizacaoSaldo(
+          usuarioId,
+          resultado.cartao,
+          tipo,
+          valorNum
+        );
+      } catch (err) {
+        console.error("[GASTOS] Erro ao notificar atualização de saldo:", err.message);
+      }
+    })();
 
     // 3. Notificar distribuição automática de poupança
-    if (resultado.distribuicaoAutomatica && resultado.distribuicoes.length > 0) {
-      await NotificacaoService.notificarDistribuicaoPoupanca(
-        usuarioId,
-        resultado.valorDistribuidoTotal,
-        resultado.distribuicoes
-      );
-    }
+    (async () => {
+      try {
+        if (resultado.distribuicaoAutomatica && resultado.distribuicoes.length > 0) {
+          await NotificacaoService.notificarDistribuicaoPoupanca(
+            usuarioId,
+            resultado.valorDistribuidoTotal,
+            resultado.distribuicoes
+          );
+        }
+      } catch (err) {
+        console.error("[GASTOS] Erro ao notificar distribuição de poupança:", err.message);
+      }
+    })();
 
     // 4. Notificar progresso de objetivos (para depósitos manuais)
-    for (const dist of resultado.distribuicoes) {
-      if (dist.tipo === 'deposito_manual' || resultado.distribuicaoAutomatica) {
-        // Busca objetivo atualizado para calcular progresso
-        const objetivo = await prisma.objetivo.findUnique({
-          where: { id: dist.objetivoId }
-        });
+    // F-036: reutilizar objetivos já carregados na transação (sem N+1 findUnique)
+    // e wrapped em try/catch para evitar 500 se falhar.
+    // Apenas notificar progresso para depósitos manuais (block 3 já cobre automático).
+    (async () => {
+      try {
+        // Constrói mapa objetivoId -> dist do tipo deposito_manual
+        const distManualMap = new Map();
+        for (const dist of resultado.distribuicoes) {
+          if (dist.tipo === 'deposito_manual') {
+            distManualMap.set(dist.objetivoId, dist);
+          }
+        }
 
-        if (objetivo) {
+        const objetivosMap = new Map();
+        // Popular map com objetivos referenciados (usar objeto do gasto se disponível)
+        for (const [objetivoId, dist] of distManualMap) {
+          if (!objetivosMap.has(objetivoId)) {
+            const gastoObjetivo = resultado.gasto.objetivo;
+            if (gastoObjetivo && gastoObjetivo.id === objetivoId) {
+              objetivosMap.set(objetivoId, { objetivo: gastoObjetivo, dist });
+            } else {
+              const obj = await prisma.objetivo.findUnique({
+                where: { id: objetivoId }
+              });
+              if (obj) {
+                objetivosMap.set(objetivoId, { objetivo: obj, dist });
+              }
+            }
+          }
+        }
+
+        for (const [objetivoId, { objetivo, dist }] of objetivosMap) {
           const progressoAtual = Math.round((Number(objetivo.valorAtual) / Number(objetivo.valorAlvo)) * 100);
           const progressoAnterior = dist.progressoAnterior || Math.max(0, progressoAtual - Math.round((dist.valor / Number(objetivo.valorAlvo)) * 100));
           
+          // F-036: evitar notificação duplicada — só notificar depósito manual
+          // (a notificação automática de distribuição já foi feita no bloco 3 acima)
           await NotificacaoService.notificarProgressoObjetivo(
             usuarioId,
             objetivo,
@@ -291,42 +337,48 @@ const criarGasto = async (req, res, next) => {
             progressoAtual
           );
         }
+      } catch (err) {
+        console.error("[GASTOS] Erro ao notificar progresso de objetivos:", err.message);
       }
-    }
+    })();
 
-    // 5. Verificar alerta de gasto alto (se for despesa)
-    if (tipo === 'DESPESA') {
-      const inicioMes = new Date();
-      inicioMes.setDate(1);
-      inicioMes.setHours(0, 0, 0, 0);
-      
-      const [totalMes, user] = await Promise.all([
-        prisma.gasto.aggregate({
-          _sum: { valor: true },
-          where: {
-            usuarioId,
-            tipo: 'DESPESA',
-            data: { gte: inicioMes },
-            excluido: false
+    // 5. Verificar alerta de gasto alto (se para despesa)
+    (async () => {
+      try {
+        if (tipo === 'DESPESA') {
+          const inicioMes = new Date();
+          inicioMes.setDate(1);
+          inicioMes.setHours(0, 0, 0, 0);
+          
+          const [totalMes, user] = await Promise.all([
+            prisma.gasto.aggregate({
+              _sum: { valor: true },
+              where: {
+                usuarioId,
+                tipo: 'DESPESA',
+                data: { gte: inicioMes },
+                excluido: false
+              }
+            }),
+            prisma.user.findUnique({
+              where: { id: usuarioId },
+              select: { rendaMensalMedia: true }
+            })
+          ]);
+
+          const totalGasto = Number(totalMes._sum.valor) || 0;
+          const percentual = user.rendaMensalMedia > 0 
+            ? Math.round((totalGasto / Number(user.rendaMensalMedia)) * 100) 
+            : 0;
+
+          if (percentual >= 80) {
+            await NotificacaoService.notificarGastoAlto(usuarioId, percentual, totalGasto);
           }
-        }),
-        prisma.user.findUnique({
-          where: { id: usuarioId },
-          select: { rendaMensalMedia: true }
-        })
-      ]);
-
-      const totalGasto = Number(totalMes._sum.valor) || 0;
-      const percentual = user.rendaMensalMedia > 0 
-        ? Math.round((totalGasto / Number(user.rendaMensalMedia)) * 100) 
-        : 0;
-
-      if (percentual >= 80) {
-        await NotificacaoService.notificarGastoAlto(usuarioId, percentual, totalGasto);
+        }
+      } catch (err) {
+        console.error("[GASTOS] Erro ao verificar gasto alto:", err.message);
       }
-    }
-
-    await invalidarCacheUsuario(usuarioId);
+    })();    await invalidarCacheUsuario(usuarioId);
 
     res.status(201).json({ 
       success: true, 
@@ -353,12 +405,13 @@ const listarGastos = async (req, res, next) => {
   try {
     const usuarioId = req.user.id;
     const { pagina = 1, limite = 20, tipo, categoriaId, cartaoId, objetivoId, dataInicio, dataFim } = req.query;
+    const tipoFiltro = tipo && tipo !== "todos" ? tipo : undefined;
     const skip = (parseInt(pagina) - 1) * parseInt(limite);
 
     const where = {
       usuarioId,
       excluido: false,
-      ...(tipo && { tipo }),
+      ...(tipoFiltro && { tipo: tipoFiltro }),
       ...(categoriaId && { categoriaId }),
       ...(cartaoId && { cartaoId }),
       ...(objetivoId && { objetivoId }),
